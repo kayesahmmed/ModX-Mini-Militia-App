@@ -1,0 +1,30 @@
+{
+  "project_info": {
+    "project_number": "554451964724",
+    "firebase_url": "https://modx-lab-5a6ee-default-rtdb.firebaseio.com",
+    "project_id": "modx-lab-5a6ee",
+    "storage_bucket": "modx-lab-5a6ee.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:554451964724:android:eaa343fe2a3e8d9c7ccb61",
+        "android_client_info": {
+          "package_name": "com.gamelogin.modxlab"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyALZMuCJ0UE8dc0VCNqDbH-VgPvrfo4WJc"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
