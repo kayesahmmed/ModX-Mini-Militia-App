@@ -1,4 +1,5 @@
 apply plugin: 'com.android.application'
+apply plugin: 'com.google.gms.google-services'
 
 android {
     compileSdkVersion 34
@@ -11,8 +12,8 @@ android {
         ndk {
             abiFilters 'armeabi-v7a', 'arm64-v8a'
         }
+        multiDexEnabled true
     }
-    // 🌟 [FIX]: Android 14 তে resources.arsc কম্প্রেস হওয়া রোধ করা
     aaptOptions {
         noCompress 'resources.arsc'
     }
@@ -33,9 +34,22 @@ android {
             path file('src/main/jni/Android.mk')
         }
     }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_1_8
+        targetCompatibility JavaVersion.VERSION_1_8
+    }
     namespace 'com.android.support'
 }
 
 dependencies {
     implementation fileTree(dir: 'libs', include: ['*.jar'])
+
+    // 🔥 Firebase BoM (একটি ভার্সন, বাকি সব auto)
+    implementation platform('com.google.firebase:firebase-bom:32.7.4')
+    implementation 'com.google.firebase:firebase-auth'
+    implementation 'com.google.firebase:firebase-database'
+    implementation 'com.google.android.gms:play-services-auth:20.7.0'
+
+    // Multidex (Firebase এর জন্য জরুরি)
+    implementation 'androidx.multidex:multidex:2.0.1'
 }
