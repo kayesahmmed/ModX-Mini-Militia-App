@@ -88,6 +88,7 @@ import java.util.WeakHashMap;
 import static android.view.ViewGroup.LayoutParams.WRAP_CONTENT;
 import static android.view.ViewGroup.LayoutParams.MATCH_PARENT;
 import static android.view.WindowManager.LayoutParams.FLAG_TRANSLUCENT_STATUS;
+import com.google.firebase.FirebaseApp;
 
 public class Menu {
 
@@ -211,6 +212,7 @@ public class Menu {
     public Menu(Context context) {
         getContext = context;
         Preferences.context = context;
+        FirebaseApp.initializeApp(context);
 
         // Drop Poppins / Inter files into assets/fonts to upgrade the typography.
         fontRegular = loadFont(new String[]{"fonts/poppins_regular.ttf", "fonts/inter_regular.ttf"}, "sans-serif", Typeface.NORMAL);
@@ -1924,60 +1926,100 @@ public class Menu {
     // Show menu / window setup
     // ================================================================
     public void ShowMenu() {
-        rootFrame.addView(mRootContainer);
-        final Handler handler = new Handler();
-        handler.postDelayed(new Runnable() {
-                boolean viewLoaded = false;
-                @Override
-                public void run() {
-                    if (Preferences.loadPref && !IsGameLibLoaded() && !stopChecking) {
-                        if (!viewLoaded) {
-                            contentLayout.removeAllViews();
-                            TextView waitTxt = new TextView(getContext);
-                            waitTxt.setText("Waiting for game lib...");
-                            waitTxt.setTextColor(COLOR_ACCENT);
-                            waitTxt.setTypeface(fontMedium);
-                            waitTxt.setTextSize(12f);
-                            waitTxt.setGravity(Gravity.CENTER);
-                            waitTxt.setPadding(0, dp(22), 0, dp(14));
-                            AlphaAnimation blink = new AlphaAnimation(1f, 0.3f);
-                            blink.setDuration(850);
-                            blink.setRepeatMode(Animation.REVERSE);
-                            blink.setRepeatCount(Animation.INFINITE);
-                            waitTxt.startAnimation(blink);
-                            contentLayout.addView(waitTxt);
+    rootFrame.addView(mRootContainer);
+    final Handler handler = new Handler();
+    handler.postDelayed(new Runnable() {
+        boolean viewLoaded = false;
+        @Override
+        public void run() {
+            if (Preferences.loadPref && !IsGameLibLoaded() && !stopChecking) {
+                if (!viewLoaded) {
+                    contentLayout.removeAllViews();
+                    TextView waitTxt = new TextView(getContext);
+                    waitTxt.setText("Waiting for game lib...");
+                    waitTxt.setTextColor(COLOR_ACCENT);
+                    waitTxt.setTypeface(fontMedium);
+                    waitTxt.setTextSize(12f);
+                    waitTxt.setGravity(Gravity.CENTER);
+                    waitTxt.setPadding(0, dp(22), 0, dp(14));
+                    AlphaAnimation blink = new AlphaAnimation(1f, 0.3f);
+                    blink.setDuration(850);
+                    blink.setRepeatMode(Animation.REVERSE);
+                    blink.setRepeatCount(Animation.INFINITE);
+                    waitTxt.startAnimation(blink);
+                    contentLayout.addView(waitTxt);
 
-                            Button forceBtn = new Button(getContext);
-                            forceBtn.setBackground(gradBg(BTN_GRAD_1, BTN_GRAD_2, 12));
-                            forceBtn.setTextColor(Color.WHITE);
-                            forceBtn.setTypeface(fontBold);
-                            forceBtn.setTextSize(12f);
-                            forceBtn.setAllCaps(false);
-                            forceBtn.setMinHeight(0);
-                            forceBtn.setMinimumHeight(0);
-                            forceBtn.setPadding(dp(10), dp(11), dp(10), dp(11));
-                            forceBtn.setText("Force load menu");
-                            forceBtn.setLayoutParams(rowLp(8, 4, 8, 4));
-                            flatten(forceBtn);
-                            addPressAnim(forceBtn);
-                            forceBtn.setOnClickListener(new View.OnClickListener() {
-                                    public void onClick(View v) {
-                                        stopChecking = true;
-                                        buildFeaturesAndCategories(GetFeatureList());
-                                    }
-                                });
-                            contentLayout.addView(forceBtn);
-                            scaleTextViewsIn(contentLayout);
-                            viewLoaded = true;
-                        }
-                        handler.postDelayed(this, 600);
-                    } else {
-                        contentLayout.removeAllViews();
-                        buildFeaturesAndCategories(GetFeatureList());
-                    }
+                    Button forceBtn = new Button(getContext);
+                    forceBtn.setBackground(gradBg(BTN_GRAD_1, BTN_GRAD_2, 12));
+                    forceBtn.setTextColor(Color.WHITE);
+                    forceBtn.setTypeface(fontBold);
+                    forceBtn.setTextSize(12f);
+                    forceBtn.setAllCaps(false);
+                    forceBtn.setMinHeight(0);
+                    forceBtn.setMinimumHeight(0);
+                    forceBtn.setPadding(dp(10), dp(11), dp(10), dp(11));
+                    forceBtn.setText("Force load menu");
+                    forceBtn.setLayoutParams(rowLp(8, 4, 8, 4));
+                    flatten(forceBtn);
+                    addPressAnim(forceBtn);
+                    forceBtn.setOnClickListener(new View.OnClickListener() {
+                            public void onClick(View v) {
+                                stopChecking = true;
+                                contentLayout.removeAllViews();
+                                showLoginOverlay();   // 🔥 Login দেখাবে
+                            }
+                        });
+                    contentLayout.addView(forceBtn);
+                    scaleTextViewsIn(contentLayout);
+                    viewLoaded = true;
                 }
-            }, 500);
+                handler.postDelayed(this, 600);
+            } else {
+                // Game lib ready → এখন login দেখাব
+                contentLayout.removeAllViews();
+                showLoginOverlay();   // 🔥 এখানে login overlay
+            }
+        }
+    }, 500);
+}
+
+// ================================================================
+// 🔥 NEW: Login Overlay — floating menu এর উপরে login UI দেখায়
+// ================================================================
+private void showLoginOverlay() {
+    final FrameLayout overlay = new FrameLayout(getContext);
+    overlay.setClickable(true);
+    overlay.setFocusable(true);
+
+    LoginHelper loginHelper = new LoginHelper(getContext, new LoginHelper.Callback() {
+        @Override
+        public void onLoginSuccess() {
+            // Login সফল → overlay সরিয়ে main menu দেখাই
+            try {
+                if (overlay.getParent() != null) {
+                    menuFrame.removeView(overlay);
+                }
+            } catch (Exception ignored) { }
+            buildFeaturesAndCategories(GetFeatureList());
+        }
+    });
+
+    View loginView = loginHelper.buildView();
+    overlay.addView(loginView, new FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT));
+
+    // menuFrame এর উপরে overlay বসাই (resize handle সহ সব কিছু ঢেকে দেবে)
+    menuFrame.addView(overlay, new FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT));
+
+    // Collapsed থাকলে auto expand করি যাতে user login দেখতে পায়
+    if (isViewCollapsed()) {
+        menuFrame.post(new Runnable() {
+            @Override
+            public void run() {
+                try { expandMenu(); } catch (Exception ignored) { }
+            }
+        });
     }
+}
 
     @SuppressLint("WrongConstant")
     public void SetWindowManagerWindowService() {
