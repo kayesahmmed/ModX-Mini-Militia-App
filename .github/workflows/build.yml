@@ -26,11 +26,11 @@ jobs:
         with:
           packages: 'platform-tools platforms;android-34 build-tools;34.0.0 ndk;25.1.8937393'
 
-      # 🔥 FIX: নির্দিষ্ট Gradle version ব্যবহার করুন (system এর 9.7.1 নয়)
-      - name: Setup Gradle 8.2
+      # 🔥 FIX: AGP 8.6.1 এর জন্য Gradle 8.7 ব্যবহার করতে হবে
+      - name: Setup Gradle 8.7
         uses: gradle/actions/setup-gradle@v4
         with:
-          gradle-version: 8.2
+          gradle-version: 8.7
           cache-read-only: false
 
       - name: Create local.properties
@@ -40,9 +40,9 @@ jobs:
         run: chmod +x ./gradlew
         continue-on-error: true
 
-      # 🔥 ./gradlew এর বদলে সরাসরি নির্দিষ্ট version এর gradle
+      # 🔥 system gradle নয় — pinned version ব্যবহার
       - name: Build Debug APK
-        run: gradle assembleDebug --stacktrace --warning-mode all
+        run: gradle assembleDebug --stacktrace
 
       - name: Build Release APK
         run: gradle assembleRelease --stacktrace
