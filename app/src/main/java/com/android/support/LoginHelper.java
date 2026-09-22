@@ -14,7 +14,6 @@ import android.os.Looper;
 import android.text.InputType;
 import android.text.TextUtils;
 import android.text.method.PasswordTransformationMethod;
-import android.util.Log;
 import android.util.TypedValue;
 import android.view.Gravity;
 import android.view.MotionEvent;
@@ -30,16 +29,9 @@ import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
 
-import com.google.firebase.auth.FirebaseAuth;
-import com.google.firebase.database.DataSnapshot;
-import com.google.firebase.database.DatabaseError;
-import com.google.firebase.database.DatabaseReference;
-import com.google.firebase.database.FirebaseDatabase;
-import com.google.firebase.database.GenericTypeIndicator;
-import com.google.firebase.database.ValueEventListener;
+import org.json.JSONObject;
 
-import java.util.ArrayList;
-import java.util.HashMap;
+import java.util.Iterator;
 
 public class LoginHelper {
 
@@ -61,9 +53,6 @@ public class LoginHelper {
     private final Callback callback;
     private final SharedPreferences save;
     private final SharedPreferences KEY;
-    private final DatabaseReference updateRef;
-    private final DatabaseReference userRef;
-    private final FirebaseAuth auth;
 
     private EditText editUser, editPass;
     private CheckBox rememberCb, showCb;
@@ -77,17 +66,6 @@ public class LoginHelper {
         this.callback = cb;
         this.save = context.getSharedPreferences("save", Context.MODE_PRIVATE);
         this.KEY = context.getSharedPreferences("KEY", Context.MODE_PRIVATE);
-
-        // 🔥 Use mod's own Firebase app — avoids conflict with host game
-        FirebaseDatabase db = ModFirebase.getDatabase(context);
-        if (db != null) {
-            this.updateRef = db.getReference("update");
-            this.userRef = db.getReference("User");
-        } else {
-            this.updateRef = null;
-            this.userRef = null;
-        }
-        this.auth = ModFirebase.getAuth(context);
     }
 
     private int dp(float v) {
@@ -99,7 +77,6 @@ public class LoginHelper {
     //  Compact login view — fits inside menu without scrolling
     // ================================================================
     public View buildView() {
-        // Outer scroll for small screens; content will typically fit
         ScrollView scroll = new ScrollView(ctx);
         scroll.setFillViewport(true);
         scroll.setBackgroundColor(Color.TRANSPARENT);
@@ -115,7 +92,7 @@ public class LoginHelper {
         scroll.addView(root, new ViewGroup.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
-        // ---- Card (no separate title — header already shows brand) ----
+        // Card
         LinearLayout card = new LinearLayout(ctx);
         card.setOrientation(LinearLayout.VERTICAL);
         card.setPadding(dp(10), dp(10), dp(10), dp(10));
@@ -206,7 +183,7 @@ public class LoginHelper {
         loginBtn.setLayoutParams(bLp);
         card.addView(loginBtn);
 
-        // Status (inline, below button — small)
+        // Status
         statusTxt = new TextView(ctx);
         statusTxt.setText("");
         statusTxt.setTextColor(COLOR_MUTED);
@@ -259,16 +236,15 @@ public class LoginHelper {
             rememberCb.setChecked(true);
         }
 
-        // Update check (silent if not configured)
+        // Update check — background thread (REST call)
         new Handler(Looper.getMainLooper()).postDelayed(new Runnable() {
             @Override
-            public void run() { checkUpdate(); }
-        }, 200);
+            public void run() { checkUpdateAsync(); }
+        }, 300);
 
         return scroll;
     }
 
-    // ================================================================
     private EditText makeInput(boolean isPassword) {
         EditText e = new EditText(ctx);
         e.setHintTextColor(COLOR_MUTED);
@@ -341,10 +317,15 @@ public class LoginHelper {
         } catch (Exception ignored) { }
     }
 
-    private void setStatus(String msg, int color) {
+    private void setStatus(final String msg, final int color) {
         if (statusTxt == null) return;
-        statusTxt.setText(msg);
-        statusTxt.setTextColor(color);
+        new Handler(Looper.getMainLooper()).post(new Runnable() {
+            @Override
+            public void run() {
+                statusTxt.setText(msg);
+                statusTxt.setTextColor(color);
+            }
+        });
     }
 
     private String getVersionName() {
@@ -356,26 +337,35 @@ public class LoginHelper {
     }
 
     // ================================================================
-    private void checkUpdate() {
-        if (updateRef == null) return;   // Firebase not configured — skip silently
-
-        updateRef.addListenerForSingleValueEvent(new ValueEventListener() {
+    //  Update check — REST API in background thread
+    // ================================================================
+    private void checkUpdateAsync() {
+        new Thread(new Runnable() {
             @Override
-            public void onDataChange(DataSnapshot snapshot) {
+            public void run() {
+                JSONObject json = ModFirebase.fetchJson("update");
+                if (json == null) return;
                 try {
-                    if (snapshot == null || !snapshot.exists()) return;
-                    DataSnapshot up = snapshot.child("up");
-                    if (!up.exists()) return;
-                    Object v = up.child("version").getValue();
-                    if (v == null) return;
-                    String remoteVer = v.toString();
-                    Object msgObj = up.child("message").getValue();
-                    String msg = (msgObj != null) ? msgObj.toString() : "";
-                    if (!getVersionName().equals(remoteVer)) showUpdateDialog(remoteVer, msg);
-                } catch (Exception e) { }
+                    JSONObject up = json.optJSONObject("up");
+                    if (up == null) return;
+                    String version = up.optString("version", "");
+                    String message = up.optString("message", "");
+                    if (TextUtils.isEmpty(version)) return;
+
+                    final String currentVer = getVersionName();
+                    if (!currentVer.equals(version)) {
+                        final String fVersion = version;
+                        final String fMessage = message;
+                        new Handler(Looper.getMainLooper()).post(new Runnable() {
+                            @Override
+                            public void run() {
+                                showUpdateDialog(fVersion, fMessage);
+                            }
+                        });
+                    }
+                } catch (Exception ignored) { }
             }
-            @Override public void onCancelled(DatabaseError error) { }
-        });
+        }).start();
     }
 
     private void showUpdateDialog(String version, String msg) {
@@ -478,13 +468,10 @@ public class LoginHelper {
     }
 
     // ================================================================
+    //  Login — REST API in background thread
+    // ================================================================
     private void performLogin() {
         if (loginInProgress) return;
-
-        if (userRef == null) {
-            setStatus("⚠ Firebase not configured", COLOR_DANGER);
-            return;
-        }
 
         final String inputUser = editUser.getText().toString().trim();
         final String inputPass = editPass.getText().toString().trim();
@@ -502,95 +489,103 @@ public class LoginHelper {
         save.edit().putString("edittext1", inputUser).apply();
         save.edit().putString("edittext2", inputPass).apply();
 
-        userRef.addListenerForSingleValueEvent(new ValueEventListener() {
+        new Thread(new Runnable() {
             @Override
-            public void onDataChange(DataSnapshot dataSnapshot) {
-                loginInProgress = false;
-                loginBtn.setEnabled(true);
-                loginBtn.setText("LOGIN");
+            public void run() {
+                JSONObject users = ModFirebase.fetchJson("User");
 
-                ArrayList<HashMap<String, Object>> userMap = new ArrayList<>();
+                if (users == null) {
+                    loginInProgress = false;
+                    new Handler(Looper.getMainLooper()).post(new Runnable() {
+                        @Override
+                        public void run() {
+                            loginBtn.setEnabled(true);
+                            loginBtn.setText("LOGIN");
+                            setStatus("⚠ Connection error", COLOR_DANGER);
+                        }
+                    });
+                    return;
+                }
+
+                JSONObject matched = null;
                 try {
-                    GenericTypeIndicator<HashMap<String, Object>> ind =
-                            new GenericTypeIndicator<HashMap<String, Object>>() {};
-                    for (DataSnapshot d : dataSnapshot.getChildren()) {
-                        HashMap<String, Object> m = d.getValue(ind);
-                        if (m != null) userMap.add(m);
+                    Iterator<String> keys = users.keys();
+                    while (keys.hasNext()) {
+                        String k = keys.next();
+                        JSONObject u = users.optJSONObject(k);
+                        if (u == null) continue;
+                        String user = u.optString("user", "");
+                        String pass = u.optString("pass", "");
+                        if (inputUser.equals(user) && inputPass.equals(pass)) {
+                            matched = u;
+                            break;
+                        }
                     }
-                } catch (Exception e) {
-                    setStatus("⚠ Database error", COLOR_DANGER);
-                    return;
-                }
-
-                HashMap<String, Object> matched = null;
-                for (int i = 0; i < userMap.size(); i++) {
-                    Object u = userMap.get(i).get("user");
-                    Object p = userMap.get(i).get("pass");
-                    if (u == null || p == null) continue;
-                    if (inputUser.equals(u.toString()) && inputPass.equals(p.toString())) {
-                        matched = userMap.get(i);
-                        break;
-                    }
-                }
-
-                if (matched == null) {
-                    setStatus("❌ Invalid username or password", COLOR_DANGER);
-                    return;
-                }
-
-                Object statusObj = matched.get("status");
-                Object timeObj = matched.get("time");
-                if (statusObj == null || timeObj == null) {
-                    setStatus("⚠ Account data missing", COLOR_DANGER);
-                    return;
-                }
-
-                boolean expired = false;
-                try {
-                    long expireTime = (long) Double.parseDouble(timeObj.toString());
-                    long currentTime = System.currentTimeMillis();
-                    if (currentTime > expireTime) expired = true;
                 } catch (Exception ignored) { }
 
-                if (!statusObj.toString().equals("true") || expired) {
-                    setStatus("⚠ Key expired or blocked", COLOR_DANGER);
-                    showKeyExpiredDialog();
+                if (matched == null) {
+                    loginInProgress = false;
+                    new Handler(Looper.getMainLooper()).post(new Runnable() {
+                        @Override
+                        public void run() {
+                            loginBtn.setEnabled(true);
+                            loginBtn.setText("LOGIN");
+                            setStatus("❌ Invalid username or password", COLOR_DANGER);
+                        }
+                    });
                     return;
                 }
 
+                // Check status / expiry
+                String status = matched.optString("status", "false");
+                long time = 0;
+                try { time = (long) matched.optDouble("time", 0); } catch (Exception ignored) { }
+                long now = System.currentTimeMillis();
+                boolean expired = (time > 0 && now > time);
+
+                if (!status.equals("true") || expired) {
+                    loginInProgress = false;
+                    new Handler(Looper.getMainLooper()).post(new Runnable() {
+                        @Override
+                        public void run() {
+                            loginBtn.setEnabled(true);
+                            loginBtn.setText("LOGIN");
+                            setStatus("⚠ Key expired or blocked", COLOR_DANGER);
+                            showKeyExpiredDialog();
+                        }
+                    });
+                    return;
+                }
+
+                // Save session
                 try {
-                    KEY.edit().putString("User", matched.get("user").toString()).apply();
-                    KEY.edit().putString("Status", matched.get("status").toString()).apply();
-                    KEY.edit().putString("Register", matched.get("rgtime").toString()).apply();
-                    KEY.edit().putString("time", matched.get("time").toString()).apply();
-                    KEY.edit().putString("Valid", matched.get("Validity").toString()).apply();
-                    KEY.edit().putString("key", matched.get("key").toString()).apply();
-                } catch (Exception e) {
-                    setStatus("⚠ Session save failed", COLOR_DANGER);
-                    return;
-                }
+                    KEY.edit().putString("User",     matched.optString("user", "")).apply();
+                    KEY.edit().putString("Status",   matched.optString("status", "")).apply();
+                    KEY.edit().putString("Register", matched.optString("rgtime", "")).apply();
+                    KEY.edit().putString("time",     matched.optString("time", "")).apply();
+                    KEY.edit().putString("Valid",    matched.optString("Validity", "")).apply();
+                    KEY.edit().putString("key",      matched.optString("key", "")).apply();
+                } catch (Exception ignored) { }
 
-                setStatus("✅ Login successful", COLOR_SUCCESS);
-                Toast.makeText(ctx, "Login Success", Toast.LENGTH_SHORT).show();
-
-                if (auth != null) auth.signInAnonymously();
-
-                new Handler(Looper.getMainLooper()).postDelayed(new Runnable() {
+                loginInProgress = false;
+                new Handler(Looper.getMainLooper()).post(new Runnable() {
                     @Override
                     public void run() {
-                        if (callback != null) callback.onLoginSuccess();
-                    }
-                }, 700);
-            }
+                        loginBtn.setEnabled(true);
+                        loginBtn.setText("LOGIN");
+                        setStatus("✅ Login successful", COLOR_SUCCESS);
+                        Toast.makeText(ctx, "Login Success", Toast.LENGTH_SHORT).show();
 
-            @Override
-            public void onCancelled(DatabaseError databaseError) {
-                loginInProgress = false;
-                loginBtn.setEnabled(true);
-                loginBtn.setText("LOGIN");
-                setStatus("⚠ Connection error", COLOR_DANGER);
+                        new Handler().postDelayed(new Runnable() {
+                            @Override
+                            public void run() {
+                                if (callback != null) callback.onLoginSuccess();
+                            }
+                        }, 700);
+                    }
+                });
             }
-        });
+        }).start();
     }
 
     // ================================================================

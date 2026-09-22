@@ -216,7 +216,6 @@ private View sidebarDivider = null;
     public Menu(Context context) {
         getContext = context;
         Preferences.context = context;
-        ModFirebase.getApp(context);
 
         // Drop Poppins / Inter files into assets/fonts to upgrade the typography.
         fontRegular = loadFont(new String[]{"fonts/poppins_regular.ttf", "fonts/inter_regular.ttf"}, "sans-serif", Typeface.NORMAL);

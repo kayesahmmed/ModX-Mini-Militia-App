@@ -1,77 +1,78 @@
 package com.android.support;
 
-import android.content.Context;
 import android.util.Log;
 
-import com.google.firebase.FirebaseApp;
-import com.google.firebase.FirebaseOptions;
-import com.google.firebase.auth.FirebaseAuth;
-import com.google.firebase.database.FirebaseDatabase;
+import org.json.JSONObject;
+
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
+import java.net.HttpURLConnection;
+import java.net.URL;
 
 /**
- * Manages the mod's OWN FirebaseApp instance.
- * This prevents conflict with the host game's Firebase project
- * when our mod is injected into another APK.
+ * Firebase access via REST API.
+ * No SDK, no manifest entries — works inside injected games too.
  */
 public final class ModFirebase {
 
     private static final String TAG = "ModXLab_Firebase";
 
     // ================================================================
-    // 🔥 Firebase credentials — baked in from google-services.json
-    // Project: modx-lab-5a6ee
+    // 🔥 Firebase — modx-lab-5a6ee (from google-services.json)
     // ================================================================
-    private static final String APP_NAME       = "modxlab_app";
-    private static final String APPLICATION_ID = "1:554451964724:android:89f25a0b88f676c67ccb61";
-    private static final String API_KEY        = "AIzaSyALZMuCJ0UE8dc0VCNqDbH-VgPvrfo4WJc";
-    private static final String DATABASE_URL   = "https://modx-lab-5a6ee-default-rtdb.firebaseio.com";
-    private static final String PROJECT_ID     = "modx-lab-5a6ee";
-    private static final String GCM_SENDER_ID  = "554451964724";
-    private static final String STORAGE_BUCKET = "modx-lab-5a6ee.firebasestorage.app";
-
-    private static FirebaseApp sApp = null;
+    public static final String DATABASE_URL = "https://modx-lab-5a6ee-default-rtdb.firebaseio.com";
+    public static final String API_KEY      = "AIzaSyALZMuCJ0UE8dc0VCNqDbH-VgPvrfo4WJc";
 
     private ModFirebase() { }
 
-    public static synchronized FirebaseApp getApp(Context ctx) {
-        if (sApp != null) return sApp;
-
+    /**
+     * GET JSON from a Firebase path.
+     * Example: fetch("User") → returns JSON string of "User" node.
+     * Returns null on network error.
+     */
+    public static String fetch(String path) {
+        HttpURLConnection conn = null;
         try {
-            sApp = FirebaseApp.getInstance(APP_NAME);
-            return sApp;
-        } catch (IllegalStateException ignored) {
-            // Not yet initialized — proceed
-        }
+            String cleanPath = path.startsWith("/") ? path : "/" + path;
+            URL url = new URL(DATABASE_URL + cleanPath + ".json");
+            conn = (HttpURLConnection) url.openConnection();
+            conn.setRequestMethod("GET");
+            conn.setConnectTimeout(10000);
+            conn.setReadTimeout(10000);
+            conn.setRequestProperty("Accept", "application/json");
 
-        FirebaseOptions.Builder builder = new FirebaseOptions.Builder()
-                .setApplicationId(APPLICATION_ID)
-                .setApiKey(API_KEY)
-                .setDatabaseUrl(DATABASE_URL)
-                .setProjectId(PROJECT_ID)
-                .setGcmSenderId(GCM_SENDER_ID);
-
-        if (STORAGE_BUCKET != null && !STORAGE_BUCKET.isEmpty()) {
-            builder.setStorageBucket(STORAGE_BUCKET);
-        }
-
-        try {
-            sApp = FirebaseApp.initializeApp(ctx, builder.build(), APP_NAME);
-            Log.i(TAG, "Mod Firebase initialized: " + APP_NAME);
+            int code = conn.getResponseCode();
+            if (code == 200) {
+                BufferedReader br = new BufferedReader(
+                        new InputStreamReader(conn.getInputStream(), "UTF-8"));
+                StringBuilder sb = new StringBuilder();
+                String line;
+                while ((line = br.readLine()) != null) sb.append(line);
+                br.close();
+                return sb.toString();
+            } else {
+                Log.w(TAG, "HTTP " + code + " for " + path);
+                return null;
+            }
         } catch (Exception e) {
-            Log.e(TAG, "Firebase init failed: " + e);
+            Log.e(TAG, "fetch failed: " + e);
+            return null;
+        } finally {
+            if (conn != null) try { conn.disconnect(); } catch (Exception ignored) { }
         }
-        return sApp;
     }
 
-    public static FirebaseDatabase getDatabase(Context ctx) {
-        FirebaseApp app = getApp(ctx);
-        if (app == null) return null;
-        return FirebaseDatabase.getInstance(app);
-    }
-
-    public static FirebaseAuth getAuth(Context ctx) {
-        FirebaseApp app = getApp(ctx);
-        if (app == null) return null;
-        return FirebaseAuth.getInstance(app);
+    /**
+     * Same as fetch() but returns a JSONObject directly (or null).
+     */
+    public static JSONObject fetchJson(String path) {
+        String raw = fetch(path);
+        if (raw == null || raw.isEmpty() || "null".equals(raw)) return null;
+        try {
+            return new JSONObject(raw);
+        } catch (Exception e) {
+            Log.e(TAG, "JSON parse failed: " + e);
+            return null;
+        }
     }
 }
