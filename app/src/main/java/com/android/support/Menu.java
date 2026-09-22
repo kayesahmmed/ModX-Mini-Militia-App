@@ -2063,7 +2063,6 @@ private void showLoginScreen() {
             }
         });
     }
-}
     @SuppressLint("WrongConstant")
     public void SetWindowManagerWindowService() {
         int iparams = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O ? 2038 : 2002;
