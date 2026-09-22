@@ -26,17 +26,23 @@ jobs:
         with:
           packages: 'platform-tools platforms;android-34 build-tools;34.0.0 ndk;25.1.8937393'
 
-      - name: Setup Gradle
+      # 🔥 FIX: নির্দিষ্ট Gradle version ব্যবহার করুন (system এর 9.7.1 নয়)
+      - name: Setup Gradle 8.2
         uses: gradle/actions/setup-gradle@v4
         with:
+          gradle-version: 8.2
           cache-read-only: false
 
       - name: Create local.properties
         run: echo "sdk.dir=$ANDROID_HOME" > local.properties
 
-      # ./gradlew এর পরিবর্তে সরাসরি gradle কমান্ড ব্যবহার করা হয়েছে
+      - name: Grant execute permission for gradlew
+        run: chmod +x ./gradlew
+        continue-on-error: true
+
+      # 🔥 ./gradlew এর বদলে সরাসরি নির্দিষ্ট version এর gradle
       - name: Build Debug APK
-        run: gradle assembleDebug --stacktrace
+        run: gradle assembleDebug --stacktrace --warning-mode all
 
       - name: Build Release APK
         run: gradle assembleRelease --stacktrace
@@ -47,6 +53,7 @@ jobs:
         with:
           name: ModXLab-debug
           path: app/build/outputs/apk/debug/*.apk
+          if-no-files-found: warn
 
       - name: Upload Release APK
         if: success()
@@ -54,3 +61,4 @@ jobs:
         with:
           name: ModXLab-release
           path: app/build/outputs/apk/release/*.apk
+          if-no-files-found: warn
