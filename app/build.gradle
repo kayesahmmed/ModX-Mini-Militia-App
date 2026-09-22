@@ -12,7 +12,6 @@ android {
         versionCode 1
         versionName "4.0"
 
-        // Multidex — Firebase এর জন্য জরুরি
         multiDexEnabled true
 
         ndk {
@@ -20,7 +19,6 @@ android {
         }
     }
 
-    // 🌟 Android 14 এ resources.arsc কম্প্রেস হওয়া রোধ
     aaptOptions {
         noCompress 'resources.arsc'
     }
@@ -49,15 +47,12 @@ android {
         targetCompatibility JavaVersion.VERSION_1_8
     }
 
-    // BuildConfig class generate করার জন্য
     buildFeatures {
         buildConfig true
     }
 
     // ================================================================
-    // 🔥 FIX: একই .so ফাইল দুই জায়গায় থাকলে first টা নেবে (crash হবে না)
-    // এটা সেই error এর সমাধান:
-    //   "2 files found with path 'lib/arm64-v8a/libModXLab.so'"
+    // 🔥 Safety net: পুরনো ফাইল কোনোভাবে থেকে গেলে pickFirsts দিয়ে handle
     // ================================================================
     packagingOptions {
         jniLibs {
@@ -77,16 +72,57 @@ android {
             ]
         }
     }
-
-    // ⚠️ dexOptions বাদ দেওয়া হয়েছে (AGP 8.x এ obsolete)
 }
 
+// ====================================================================
+// 🔥 AUTO-CLEAN TASK
+// jniLibs ফোল্ডারের libModXLab.so আগের build এর থেকে এলে auto-delete
+// প্রতিবার build শুরু হওয়ার আগেই run হবে → আর ম্যানুয়ালি ডিলিট লাগবে না
+// ====================================================================
+tasks.register('cleanDuplicateSoFiles') {
+    description = 'Removes stale libModXLab.so from src/main/jniLibs before each build'
+    group = 'build'
+
+    doLast {
+        def jniLibsDir = file('src/main/jniLibs')
+        if (!jniLibsDir.exists()) {
+            println "✅ [AUTO-CLEAN] jniLibs folder নেই — কিছু ডিলিট করার নেই"
+            return
+        }
+
+        def deletedCount = 0
+        jniLibsDir.eachDir { abiDir ->
+            def soFile = new File(abiDir, 'libModXLab.so')
+            if (soFile.exists()) {
+                if (soFile.delete()) {
+                    deletedCount++
+                    println "🗑️  [AUTO-CLEAN] Deleted: ${soFile.absolutePath}"
+                } else {
+                    println "⚠️  [AUTO-CLEAN] Failed to delete: ${soFile.absolutePath}"
+                }
+            }
+        }
+
+        if (deletedCount == 0) {
+            println "✅ [AUTO-CLEAN] কোনো conflicting libModXLab.so পাওয়া যায়নি (clean state)"
+        } else {
+            println "✅ [AUTO-CLEAN] মোট ${deletedCount}টি ফাইল ডিলিট হয়েছে"
+        }
+    }
+}
+
+// preBuild task এর সাথে hook করা হচ্ছে — এটা debug + release দুটোর জন্যই আগে run হবে
+afterEvaluate {
+    tasks.matching { it.name == 'preBuild' }.configureEach {
+        dependsOn 'cleanDuplicateSoFiles'
+    }
+}
+
+// ====================================================================
 dependencies {
     implementation fileTree(dir: 'libs', include: ['*.jar'])
 
-    // ================================================================
-    // 🔥 Firebase BoM (একটি ভার্সন — বাকি সব auto-resolved)
-    // ================================================================
+    // Firebase BoM
     implementation platform('com.google.firebase:firebase-bom:32.7.4')
     implementation 'com.google.firebase:firebase-auth'
     implementation 'com.google.firebase:firebase-database'
@@ -94,10 +130,10 @@ dependencies {
     // Google Play Services Auth
     implementation 'com.google.android.gms:play-services-auth:20.7.0'
 
-    // AndroidX Multidex (Firebase এর জন্য জরুরি)
+    // AndroidX Multidex
     implementation 'androidx.multidex:multidex:2.0.1'
 
-    // AndroidX Core (Firebase এর transitive dependency কিন্তু explicit রাখা ভালো)
+    // AndroidX Core
     implementation 'androidx.appcompat:appcompat:1.6.1'
     implementation 'androidx.annotation:annotation:1.7.1'
 }
