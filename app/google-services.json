@@ -8,6 +8,25 @@
   "client": [
     {
       "client_info": {
+        "mobilesdk_app_id": "1:554451964724:android:89f25a0b88f676c67ccb61",
+        "android_client_info": {
+          "package_name": "com.android.support"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyALZMuCJ0UE8dc0VCNqDbH-VgPvrfo4WJc"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
         "mobilesdk_app_id": "1:554451964724:android:eaa343fe2a3e8d9c7ccb61",
         "android_client_info": {
           "package_name": "com.gamelogin.modxlab"
