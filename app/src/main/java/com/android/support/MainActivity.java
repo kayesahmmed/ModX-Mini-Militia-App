@@ -5,8 +5,6 @@ import android.content.Intent;
 import android.os.Bundle;
 import android.util.Log;
 
-import com.google.firebase.FirebaseApp;
-
 public class MainActivity extends Activity {
 
     // 🔥 Mini Militia game activity
@@ -17,8 +15,8 @@ public class MainActivity extends Activity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
-        // Firebase initialize — floating menu এর login এর জন্য জরুরি
-        FirebaseApp.initializeApp(this);
+        // ⚠️ Firebase SDK সরানো হয়েছে — এখন REST API ব্যবহার করছি
+        // তাই এখানে FirebaseApp.initializeApp() কল করার দরকার নেই
 
         if (!hasLaunched) {
             hasLaunched = true;
