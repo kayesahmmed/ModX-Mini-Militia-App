@@ -88,7 +88,6 @@ import java.util.WeakHashMap;
 import static android.view.ViewGroup.LayoutParams.WRAP_CONTENT;
 import static android.view.ViewGroup.LayoutParams.MATCH_PARENT;
 import static android.view.WindowManager.LayoutParams.FLAG_TRANSLUCENT_STATUS;
-import com.google.firebase.FirebaseApp;
 
 public class Menu {
 
@@ -217,7 +216,7 @@ private View sidebarDivider = null;
     public Menu(Context context) {
         getContext = context;
         Preferences.context = context;
-        FirebaseApp.initializeApp(context);
+        ModFirebase.getApp(context);
 
         // Drop Poppins / Inter files into assets/fonts to upgrade the typography.
         fontRegular = loadFont(new String[]{"fonts/poppins_regular.ttf", "fonts/inter_regular.ttf"}, "sans-serif", Typeface.NORMAL);

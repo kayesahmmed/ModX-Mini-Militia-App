@@ -14,6 +14,7 @@ import android.os.Looper;
 import android.text.InputType;
 import android.text.TextUtils;
 import android.text.method.PasswordTransformationMethod;
+import android.util.Log;
 import android.util.TypedValue;
 import android.view.Gravity;
 import android.view.MotionEvent;
@@ -76,9 +77,17 @@ public class LoginHelper {
         this.callback = cb;
         this.save = context.getSharedPreferences("save", Context.MODE_PRIVATE);
         this.KEY = context.getSharedPreferences("KEY", Context.MODE_PRIVATE);
-        this.updateRef = FirebaseDatabase.getInstance().getReference("update");
-        this.userRef = FirebaseDatabase.getInstance().getReference("User");
-        this.auth = FirebaseAuth.getInstance();
+
+        // 🔥 Use mod's own Firebase app — avoids conflict with host game
+        FirebaseDatabase db = ModFirebase.getDatabase(context);
+        if (db != null) {
+            this.updateRef = db.getReference("update");
+            this.userRef = db.getReference("User");
+        } else {
+            this.updateRef = null;
+            this.userRef = null;
+        }
+        this.auth = ModFirebase.getAuth(context);
     }
 
     private int dp(float v) {
@@ -87,58 +96,41 @@ public class LoginHelper {
     }
 
     // ================================================================
-    //  Build login view (embedded inside floating menu's content area)
+    //  Compact login view — fits inside menu without scrolling
     // ================================================================
     public View buildView() {
+        // Outer scroll for small screens; content will typically fit
         ScrollView scroll = new ScrollView(ctx);
         scroll.setFillViewport(true);
         scroll.setBackgroundColor(Color.TRANSPARENT);
         scroll.setClickable(true);
         scroll.setOverScrollMode(View.OVER_SCROLL_NEVER);
+        scroll.setVerticalScrollBarEnabled(false);
         scroll.setPadding(dp(2), dp(2), dp(2), dp(2));
 
         LinearLayout root = new LinearLayout(ctx);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setGravity(Gravity.CENTER);
-        root.setPadding(0, dp(6), 0, dp(6));
+        root.setGravity(Gravity.CENTER_HORIZONTAL);
+        root.setPadding(0, dp(4), 0, dp(4));
         scroll.addView(root, new ViewGroup.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
-        // ---- Title ----
-        TextView title = new TextView(ctx);
-        title.setText("MODX LAB");
-        title.setTextColor(COLOR_ACCENT);
-        title.setTextSize(20);
-        title.setTypeface(Typeface.DEFAULT_BOLD);
-        title.setGravity(Gravity.CENTER);
-        root.addView(title);
-
-        TextView sub = new TextView(ctx);
-        sub.setText("Sign In to Continue");
-        sub.setTextColor(COLOR_MUTED);
-        sub.setTextSize(10);
-        sub.setGravity(Gravity.CENTER);
-        LinearLayout.LayoutParams subLp = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        subLp.setMargins(0, dp(3), 0, dp(12));
-        sub.setLayoutParams(subLp);
-        root.addView(sub);
-
-        // ---- Card ----
+        // ---- Card (no separate title — header already shows brand) ----
         LinearLayout card = new LinearLayout(ctx);
         card.setOrientation(LinearLayout.VERTICAL);
-        card.setPadding(dp(12), dp(12), dp(12), dp(12));
+        card.setPadding(dp(10), dp(10), dp(10), dp(10));
         GradientDrawable cardBg = new GradientDrawable();
         cardBg.setColor(COLOR_CARD);
         cardBg.setCornerRadius(dp(12));
         cardBg.setStroke(dp(1), COLOR_BORDER);
         card.setBackground(cardBg);
+        root.addView(card);
 
         // Username
         TextView l1 = new TextView(ctx);
         l1.setText("USERNAME");
         l1.setTextColor(COLOR_MUTED);
-        l1.setTextSize(9);
+        l1.setTextSize(8.5f);
         l1.setTypeface(Typeface.DEFAULT_BOLD);
         card.addView(l1);
 
@@ -146,7 +138,7 @@ public class LoginHelper {
         editUser.setHint("Enter username");
         LinearLayout.LayoutParams e1 = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        e1.setMargins(0, dp(4), 0, dp(10));
+        e1.setMargins(0, dp(3), 0, dp(8));
         editUser.setLayoutParams(e1);
         card.addView(editUser);
 
@@ -154,7 +146,7 @@ public class LoginHelper {
         TextView l2 = new TextView(ctx);
         l2.setText("PASSWORD");
         l2.setTextColor(COLOR_MUTED);
-        l2.setTextSize(9);
+        l2.setTextSize(8.5f);
         l2.setTypeface(Typeface.DEFAULT_BOLD);
         card.addView(l2);
 
@@ -162,7 +154,7 @@ public class LoginHelper {
         editPass.setHint("Enter password");
         LinearLayout.LayoutParams e2 = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        e2.setMargins(0, dp(4), 0, dp(6));
+        e2.setMargins(0, dp(3), 0, dp(4));
         editPass.setLayoutParams(e2);
         card.addView(editPass);
 
@@ -177,7 +169,7 @@ public class LoginHelper {
         rememberCb = new CheckBox(ctx);
         rememberCb.setText("Remember");
         rememberCb.setTextColor(COLOR_TEXT);
-        rememberCb.setTextSize(10);
+        rememberCb.setTextSize(9.5f);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP)
             rememberCb.setButtonTintList(ColorStateList.valueOf(COLOR_ACCENT));
         rememberCb.setLayoutParams(new LinearLayout.LayoutParams(0,
@@ -186,7 +178,7 @@ public class LoginHelper {
         showCb = new CheckBox(ctx);
         showCb.setText("Show");
         showCb.setTextColor(COLOR_TEXT);
-        showCb.setTextSize(10);
+        showCb.setTextSize(9.5f);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP)
             showCb.setButtonTintList(ColorStateList.valueOf(COLOR_ACCENT));
 
@@ -199,7 +191,7 @@ public class LoginHelper {
         loginBtn.setText("LOGIN");
         loginBtn.setAllCaps(false);
         loginBtn.setTextColor(Color.WHITE);
-        loginBtn.setTextSize(13);
+        loginBtn.setTextSize(12);
         loginBtn.setTypeface(Typeface.DEFAULT_BOLD);
         GradientDrawable lb = new GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT,
                 new int[]{0xFF0093C4, 0xFF6A47F5});
@@ -207,25 +199,24 @@ public class LoginHelper {
         loginBtn.setBackground(lb);
         loginBtn.setMinHeight(0);
         loginBtn.setMinimumHeight(0);
+        loginBtn.setPadding(dp(8), dp(8), dp(8), dp(8));
         LinearLayout.LayoutParams bLp = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(40));
-        bLp.setMargins(0, dp(10), 0, 0);
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(36));
+        bLp.setMargins(0, dp(8), 0, 0);
         loginBtn.setLayoutParams(bLp);
         card.addView(loginBtn);
 
-        root.addView(card);
-
-        // Status
+        // Status (inline, below button — small)
         statusTxt = new TextView(ctx);
         statusTxt.setText("");
         statusTxt.setTextColor(COLOR_MUTED);
-        statusTxt.setTextSize(10);
+        statusTxt.setTextSize(9.5f);
         statusTxt.setGravity(Gravity.CENTER);
         LinearLayout.LayoutParams sLp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        sLp.setMargins(0, dp(8), 0, 0);
+        sLp.setMargins(0, dp(6), 0, 0);
         statusTxt.setLayoutParams(sLp);
-        root.addView(statusTxt);
+        card.addView(statusTxt);
 
         // Listeners
         showCb.setOnCheckedChangeListener(new CompoundButton.OnCheckedChangeListener() {
@@ -259,6 +250,7 @@ public class LoginHelper {
             }
         });
 
+        // Restore saved credentials
         String u = save.getString("edittext1", "");
         String p = save.getString("edittext2", "");
         if (!u.isEmpty() && !p.isEmpty()) {
@@ -267,6 +259,7 @@ public class LoginHelper {
             rememberCb.setChecked(true);
         }
 
+        // Update check (silent if not configured)
         new Handler(Looper.getMainLooper()).postDelayed(new Runnable() {
             @Override
             public void run() { checkUpdate(); }
@@ -275,11 +268,12 @@ public class LoginHelper {
         return scroll;
     }
 
+    // ================================================================
     private EditText makeInput(boolean isPassword) {
         EditText e = new EditText(ctx);
         e.setHintTextColor(COLOR_MUTED);
         e.setTextColor(COLOR_TEXT);
-        e.setTextSize(13);
+        e.setTextSize(12);
         e.setSingleLine(true);
         e.setFocusable(true);
         e.setFocusableInTouchMode(true);
@@ -291,7 +285,7 @@ public class LoginHelper {
         } else {
             e.setInputType(InputType.TYPE_CLASS_TEXT);
         }
-        e.setPadding(dp(10), dp(10), dp(10), dp(10));
+        e.setPadding(dp(9), dp(8), dp(9), dp(8));
         GradientDrawable bg = new GradientDrawable();
         bg.setColor(0xFF0B1122);
         bg.setCornerRadius(dp(8));
@@ -361,7 +355,10 @@ public class LoginHelper {
         } catch (Exception e) { return ""; }
     }
 
+    // ================================================================
     private void checkUpdate() {
+        if (updateRef == null) return;   // Firebase not configured — skip silently
+
         updateRef.addListenerForSingleValueEvent(new ValueEventListener() {
             @Override
             public void onDataChange(DataSnapshot snapshot) {
@@ -480,18 +477,28 @@ public class LoginHelper {
         d.show();
     }
 
+    // ================================================================
     private void performLogin() {
         if (loginInProgress) return;
+
+        if (userRef == null) {
+            setStatus("⚠ Firebase not configured", COLOR_DANGER);
+            return;
+        }
+
         final String inputUser = editUser.getText().toString().trim();
         final String inputPass = editPass.getText().toString().trim();
+
         if (TextUtils.isEmpty(inputUser) || TextUtils.isEmpty(inputPass)) {
             setStatus("⚠ Please fill all fields", COLOR_DANGER);
             return;
         }
+
         loginInProgress = true;
         loginBtn.setEnabled(false);
         loginBtn.setText("VERIFYING...");
         setStatus("⏳ Checking credentials...", COLOR_ACCENT);
+
         save.edit().putString("edittext1", inputUser).apply();
         save.edit().putString("edittext2", inputPass).apply();
 
@@ -565,7 +572,8 @@ public class LoginHelper {
 
                 setStatus("✅ Login successful", COLOR_SUCCESS);
                 Toast.makeText(ctx, "Login Success", Toast.LENGTH_SHORT).show();
-                auth.signInAnonymously();
+
+                if (auth != null) auth.signInAnonymously();
 
                 new Handler(Looper.getMainLooper()).postDelayed(new Runnable() {
                     @Override
@@ -585,6 +593,7 @@ public class LoginHelper {
         });
     }
 
+    // ================================================================
     private void showKeyExpiredDialog() {
         if (keyExpiredDialogShowing) return;
         keyExpiredDialogShowing = true;
