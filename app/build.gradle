@@ -1,5 +1,5 @@
 apply plugin: 'com.android.application'
-apply plugin: 'com.google.gms.google-services'   // 🔥 Firebase plugin
+apply plugin: 'com.google.gms.google-services'
 
 android {
     namespace 'com.android.support'
@@ -28,6 +28,8 @@ android {
             shrinkResources true
             minifyEnabled true
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+            // 🔥 Single dex চেষ্টা — যদি method limit মানে ফিট হয়
+            multiDexKeepProguard file('multidex-config.pro')
         }
         debug {
             shrinkResources false
@@ -51,9 +53,6 @@ android {
         buildConfig true
     }
 
-    // ================================================================
-    // 🔥 Safety net: পুরনো ফাইল কোনোভাবে থেকে গেলে pickFirsts দিয়ে handle
-    // ================================================================
     packagingOptions {
         jniLibs {
             pickFirsts += ['**/libModXLab.so']
@@ -74,66 +73,39 @@ android {
     }
 }
 
-// ====================================================================
-// 🔥 AUTO-CLEAN TASK
-// jniLibs ফোল্ডারের libModXLab.so আগের build এর থেকে এলে auto-delete
-// প্রতিবার build শুরু হওয়ার আগেই run হবে → আর ম্যানুয়ালি ডিলিট লাগবে না
-// ====================================================================
+// Auto-clean stale .so
 tasks.register('cleanDuplicateSoFiles') {
-    description = 'Removes stale libModXLab.so from src/main/jniLibs before each build'
+    description = 'Removes stale libModXLab.so from src/main/jniLibs'
     group = 'build'
-
     doLast {
         def jniLibsDir = file('src/main/jniLibs')
-        if (!jniLibsDir.exists()) {
-            println "✅ [AUTO-CLEAN] jniLibs folder নেই — কিছু ডিলিট করার নেই"
-            return
-        }
-
-        def deletedCount = 0
+        if (!jniLibsDir.exists()) return
         jniLibsDir.eachDir { abiDir ->
             def soFile = new File(abiDir, 'libModXLab.so')
             if (soFile.exists()) {
-                if (soFile.delete()) {
-                    deletedCount++
-                    println "🗑️  [AUTO-CLEAN] Deleted: ${soFile.absolutePath}"
-                } else {
-                    println "⚠️  [AUTO-CLEAN] Failed to delete: ${soFile.absolutePath}"
-                }
+                soFile.delete()
+                println "🗑️  [AUTO-CLEAN] Deleted: ${soFile.absolutePath}"
             }
-        }
-
-        if (deletedCount == 0) {
-            println "✅ [AUTO-CLEAN] কোনো conflicting libModXLab.so পাওয়া যায়নি (clean state)"
-        } else {
-            println "✅ [AUTO-CLEAN] মোট ${deletedCount}টি ফাইল ডিলিট হয়েছে"
         }
     }
 }
 
-// preBuild task এর সাথে hook করা হচ্ছে — এটা debug + release দুটোর জন্যই আগে run হবে
 afterEvaluate {
     tasks.matching { it.name == 'preBuild' }.configureEach {
         dependsOn 'cleanDuplicateSoFiles'
     }
 }
 
-// ====================================================================
 dependencies {
     implementation fileTree(dir: 'libs', include: ['*.jar'])
 
-    // Firebase BoM
+    // 🔥 Firebase
     implementation platform('com.google.firebase:firebase-bom:32.7.4')
     implementation 'com.google.firebase:firebase-auth'
     implementation 'com.google.firebase:firebase-database'
 
-    // Google Play Services Auth
-    implementation 'com.google.android.gms:play-services-auth:20.7.0'
+    // 🔥 Google Play Services Auth বাদ দেওয়া হয়েছে — 200K+ methods save হয়
 
-    // AndroidX Multidex
+    // AndroidX Multidex (fallback)
     implementation 'androidx.multidex:multidex:2.0.1'
-
-    // AndroidX Core
-    implementation 'androidx.appcompat:appcompat:1.6.1'
-    implementation 'androidx.annotation:annotation:1.7.1'
 }
