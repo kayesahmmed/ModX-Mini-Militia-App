@@ -16,8 +16,10 @@ import android.text.TextUtils;
 import android.text.method.PasswordTransformationMethod;
 import android.util.TypedValue;
 import android.view.Gravity;
+import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.inputmethod.InputMethodManager;
 import android.widget.Button;
 import android.widget.CheckBox;
 import android.widget.CompoundButton;
@@ -42,9 +44,9 @@ public class LoginHelper {
 
     public interface Callback {
         void onLoginSuccess();
+        void onMinimize();   // 🔥 NEW — minimize button click হলে কল হবে
     }
 
-    // Colors
     private static final int COLOR_BG_TOP    = Color.parseColor("#111A36");
     private static final int COLOR_BG_BOTTOM = Color.parseColor("#080C19");
     private static final int COLOR_ACCENT    = Color.parseColor("#00E5FF");
@@ -86,22 +88,23 @@ public class LoginHelper {
     }
 
     // ================================================================
-    //  Build the login view (to be embedded in floating menu)
+    //  Build login view (embedded inside floating menu)
     // ================================================================
     public View buildView() {
         ScrollView scroll = new ScrollView(ctx);
         scroll.setFillViewport(true);
         scroll.setBackground(buildBackground());
         scroll.setClickable(true);
-        scroll.setPadding(dp(16), dp(16), dp(16), dp(16));
+        scroll.setPadding(dp(14), dp(14), dp(14), dp(14));
 
         LinearLayout root = new LinearLayout(ctx);
         root.setOrientation(LinearLayout.VERTICAL);
         root.setGravity(Gravity.CENTER);
-        root.setPadding(0, dp(10), 0, dp(10));
+        root.setPadding(0, dp(8), 0, dp(8));
         scroll.addView(root, new ViewGroup.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
+        // ---- Title ----
         TextView title = new TextView(ctx);
         title.setText("MODX LAB");
         title.setTextColor(COLOR_ACCENT);
@@ -117,11 +120,11 @@ public class LoginHelper {
         sub.setGravity(Gravity.CENTER);
         LinearLayout.LayoutParams subLp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        subLp.setMargins(0, dp(3), 0, dp(16));
+        subLp.setMargins(0, dp(3), 0, dp(14));
         sub.setLayoutParams(subLp);
         root.addView(sub);
 
-        // Card
+        // ---- Card ----
         LinearLayout card = new LinearLayout(ctx);
         card.setOrientation(LinearLayout.VERTICAL);
         card.setPadding(dp(14), dp(14), dp(14), dp(14));
@@ -139,19 +142,8 @@ public class LoginHelper {
         l1.setTypeface(Typeface.DEFAULT_BOLD);
         card.addView(l1);
 
-        editUser = new EditText(ctx);
+        editUser = makeInput(false);
         editUser.setHint("Enter username");
-        editUser.setHintTextColor(COLOR_MUTED);
-        editUser.setTextColor(COLOR_TEXT);
-        editUser.setTextSize(13);
-        editUser.setSingleLine(true);
-        editUser.setInputType(InputType.TYPE_CLASS_TEXT);
-        editUser.setPadding(dp(10), dp(9), dp(10), dp(9));
-        GradientDrawable in1 = new GradientDrawable();
-        in1.setColor(0xFF0B1122);
-        in1.setCornerRadius(dp(8));
-        in1.setStroke(dp(1), COLOR_BORDER);
-        editUser.setBackground(in1);
         LinearLayout.LayoutParams e1 = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         e1.setMargins(0, dp(4), 0, dp(10));
@@ -166,25 +158,17 @@ public class LoginHelper {
         l2.setTypeface(Typeface.DEFAULT_BOLD);
         card.addView(l2);
 
-        editPass = new EditText(ctx);
+        editPass = makeInput(true);
         editPass.setHint("Enter password");
-        editPass.setHintTextColor(COLOR_MUTED);
-        editPass.setTextColor(COLOR_TEXT);
-        editPass.setTextSize(13);
-        editPass.setSingleLine(true);
-        editPass.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
-        editPass.setTransformationMethod(PasswordTransformationMethod.getInstance());
-        editPass.setPadding(dp(10), dp(9), dp(10), dp(9));
-        GradientDrawable in2 = new GradientDrawable();
-        in2.setColor(0xFF0B1122);
-        in2.setCornerRadius(dp(8));
-        in2.setStroke(dp(1), COLOR_BORDER);
-        editPass.setBackground(in2);
         LinearLayout.LayoutParams e2 = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         e2.setMargins(0, dp(4), 0, dp(6));
         editPass.setLayoutParams(e2);
         card.addView(editPass);
+
+        // Force-show keyboard on tap
+        attachKeyboardFix(editUser);
+        attachKeyboardFix(editPass);
 
         // Checkboxes
         LinearLayout cbRow = new LinearLayout(ctx);
@@ -195,9 +179,8 @@ public class LoginHelper {
         rememberCb.setText("Remember");
         rememberCb.setTextColor(COLOR_TEXT);
         rememberCb.setTextSize(10);
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP)
             rememberCb.setButtonTintList(ColorStateList.valueOf(COLOR_ACCENT));
-        }
         rememberCb.setLayoutParams(new LinearLayout.LayoutParams(0,
                 ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
 
@@ -205,9 +188,8 @@ public class LoginHelper {
         showCb.setText("Show");
         showCb.setTextColor(COLOR_TEXT);
         showCb.setTextSize(10);
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP)
             showCb.setButtonTintList(ColorStateList.valueOf(COLOR_ACCENT));
-        }
 
         cbRow.addView(rememberCb);
         cbRow.addView(showCb);
@@ -225,13 +207,14 @@ public class LoginHelper {
         lb.setCornerRadius(dp(10));
         loginBtn.setBackground(lb);
         LinearLayout.LayoutParams bLp = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(42));
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(44));
         bLp.setMargins(0, dp(10), 0, 0);
         loginBtn.setLayoutParams(bLp);
         card.addView(loginBtn);
 
         root.addView(card);
 
+        // Status
         statusTxt = new TextView(ctx);
         statusTxt.setText("");
         statusTxt.setTextColor(COLOR_MUTED);
@@ -243,7 +226,35 @@ public class LoginHelper {
         statusTxt.setLayoutParams(sLp);
         root.addView(statusTxt);
 
-        // Listeners
+        // ============================================================
+        //  🔥 MINIMIZE BUTTON (main menu এর মতো)
+        // ============================================================
+        Button minBtn = new Button(ctx);
+        minBtn.setText("MINIMIZE");
+        minBtn.setAllCaps(false);
+        minBtn.setTextColor(COLOR_ACCENT);
+        minBtn.setTextSize(12);
+        minBtn.setTypeface(Typeface.DEFAULT_BOLD);
+        GradientDrawable mBg = new GradientDrawable();
+        mBg.setColor(0x1A00E5FF);
+        mBg.setCornerRadius(dp(10));
+        mBg.setStroke(dp(1), 0x7700E5FF);
+        minBtn.setBackground(mBg);
+        LinearLayout.LayoutParams mLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(42));
+        mLp.setMargins(0, dp(14), 0, 0);
+        minBtn.setLayoutParams(mLp);
+        minBtn.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                hideKeyboard(editUser);
+                hideKeyboard(editPass);
+                if (callback != null) callback.onMinimize();
+            }
+        });
+        root.addView(minBtn);
+
+        // ---- Listeners ----
         showCb.setOnCheckedChangeListener(new CompoundButton.OnCheckedChangeListener() {
             @Override
             public void onCheckedChanged(CompoundButton cb, boolean b) {
@@ -268,10 +279,14 @@ public class LoginHelper {
 
         loginBtn.setOnClickListener(new View.OnClickListener() {
             @Override
-            public void onClick(View v) { performLogin(); }
+            public void onClick(View v) {
+                hideKeyboard(editUser);
+                hideKeyboard(editPass);
+                performLogin();
+            }
         });
 
-        // Load saved credentials
+        // Restore saved credentials
         String u = save.getString("edittext1", "");
         String p = save.getString("edittext2", "");
         if (!u.isEmpty() && !p.isEmpty()) {
@@ -280,13 +295,98 @@ public class LoginHelper {
             rememberCb.setChecked(true);
         }
 
-        // Check for updates on Firebase after UI ready
+        // Update check
         new Handler(Looper.getMainLooper()).postDelayed(new Runnable() {
             @Override
             public void run() { checkUpdate(); }
-        }, 150);
+        }, 200);
 
         return scroll;
+    }
+
+    // ================================================================
+    //  EditText factory with proper focus settings
+    // ================================================================
+    private EditText makeInput(boolean isPassword) {
+        EditText e = new EditText(ctx);
+        e.setHintTextColor(COLOR_MUTED);
+        e.setTextColor(COLOR_TEXT);
+        e.setTextSize(13);
+        e.setSingleLine(true);
+        e.setFocusable(true);
+        e.setFocusableInTouchMode(true);
+        e.setClickable(true);
+        e.setCursorVisible(true);
+        if (isPassword) {
+            e.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
+            e.setTransformationMethod(PasswordTransformationMethod.getInstance());
+        } else {
+            e.setInputType(InputType.TYPE_CLASS_TEXT);
+        }
+        e.setPadding(dp(10), dp(10), dp(10), dp(10));
+        GradientDrawable bg = new GradientDrawable();
+        bg.setColor(0xFF0B1122);
+        bg.setCornerRadius(dp(8));
+        bg.setStroke(dp(1), COLOR_BORDER);
+        e.setBackground(bg);
+        return e;
+    }
+
+    // ================================================================
+    //  Keyboard fix — explicitly request focus + show IME on tap
+    // ================================================================
+    private void attachKeyboardFix(final EditText et) {
+        et.setOnTouchListener(new View.OnTouchListener() {
+            @Override
+            public boolean onTouch(View v, MotionEvent event) {
+                if (event.getAction() == MotionEvent.ACTION_UP) {
+                    v.requestFocus();
+                    v.postDelayed(new Runnable() {
+                        @Override
+                        public void run() {
+                            try {
+                                InputMethodManager imm = (InputMethodManager)
+                                        ctx.getSystemService(Context.INPUT_METHOD_SERVICE);
+                                if (imm != null) {
+                                    imm.showSoftInput(et, InputMethodManager.SHOW_IMPLICIT);
+                                }
+                            } catch (Exception ignored) { }
+                        }
+                    }, 80);
+                }
+                return false;
+            }
+        });
+
+        et.setOnFocusChangeListener(new View.OnFocusChangeListener() {
+            @Override
+            public void onFocusChange(View v, boolean hasFocus) {
+                if (hasFocus) {
+                    v.postDelayed(new Runnable() {
+                        @Override
+                        public void run() {
+                            try {
+                                InputMethodManager imm = (InputMethodManager)
+                                        ctx.getSystemService(Context.INPUT_METHOD_SERVICE);
+                                if (imm != null) {
+                                    imm.showSoftInput(et, InputMethodManager.SHOW_IMPLICIT);
+                                }
+                            } catch (Exception ignored) { }
+                        }
+                    }, 80);
+                }
+            }
+        });
+    }
+
+    private void hideKeyboard(EditText et) {
+        try {
+            InputMethodManager imm = (InputMethodManager)
+                    ctx.getSystemService(Context.INPUT_METHOD_SERVICE);
+            if (imm != null && et != null) {
+                imm.hideSoftInputFromWindow(et.getWindowToken(), 0);
+            }
+        } catch (Exception ignored) { }
     }
 
     private GradientDrawable buildBackground() {
@@ -331,9 +431,7 @@ public class LoginHelper {
                     if (!getVersionName().equals(remoteVer)) {
                         showUpdateDialog(remoteVer, msg);
                     }
-                } catch (Exception e) {
-                    android.util.Log.e("LoginHelper", "Update check failed: " + e);
-                }
+                } catch (Exception e) { }
             }
             @Override public void onCancelled(DatabaseError error) { }
         });
@@ -559,7 +657,6 @@ public class LoginHelper {
     private void showKeyExpiredDialog() {
         if (keyExpiredDialogShowing) return;
         keyExpiredDialogShowing = true;
-
         if (!(ctx instanceof android.app.Activity)) return;
 
         final android.app.AlertDialog[] ref = new android.app.AlertDialog[1];
@@ -639,4 +736,4 @@ public class LoginHelper {
         ref[0] = d;
         d.show();
     }
-}
+                              }
