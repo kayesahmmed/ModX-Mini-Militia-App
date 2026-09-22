@@ -196,6 +196,9 @@ public class Menu {
     boolean stopChecking, overlayRequired;
     Context getContext;
 
+    private int savedWindowFlags = 0;
+private boolean windowIsFocusable = false;
+
     ESPView espview;
     WindowManager espWindowManager;
     WindowManager.LayoutParams espParams;
@@ -695,6 +698,7 @@ public class Menu {
     }
 
     private void collapseMenu(float iconAlpha) {
+        setWindowFocusable(false);
         stopGlowAnimator();
         mCollapsed.setVisibility(View.VISIBLE);
         mCollapsed.setAlpha(iconAlpha);
@@ -1987,30 +1991,49 @@ public class Menu {
 // 🔥 NEW: Login Overlay — floating menu এর উপরে login UI দেখায়
 // ================================================================
 private void showLoginOverlay() {
+    // 🔥 Step 1: Window কে focusable করি যাতে keyboard open হয়
+    setWindowFocusable(true);
+
     final FrameLayout overlay = new FrameLayout(getContext);
     overlay.setClickable(true);
     overlay.setFocusable(true);
+    overlay.setFocusableInTouchMode(true);
 
     LoginHelper loginHelper = new LoginHelper(getContext, new LoginHelper.Callback() {
+
         @Override
         public void onLoginSuccess() {
-            // Login সফল → overlay সরিয়ে main menu দেখাই
+            // 🔥 Step 2: Window কে আবার unfocusable করি
+            setWindowFocusable(false);
+
             try {
                 if (overlay.getParent() != null) {
                     menuFrame.removeView(overlay);
                 }
             } catch (Exception ignored) { }
+
             buildFeaturesAndCategories(GetFeatureList());
+        }
+
+        @Override
+        public void onMinimize() {
+            // 🔥 Minimize চাপলে unfocusable + collapse
+            setWindowFocusable(false);
+            try {
+                if (overlay.getParent() != null) {
+                    menuFrame.removeView(overlay);
+                }
+            } catch (Exception ignored) { }
+            collapseMenu(ICON_ALPHA);
         }
     });
 
     View loginView = loginHelper.buildView();
     overlay.addView(loginView, new FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT));
 
-    // menuFrame এর উপরে overlay বসাই (resize handle সহ সব কিছু ঢেকে দেবে)
     menuFrame.addView(overlay, new FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT));
 
-    // Collapsed থাকলে auto expand করি যাতে user login দেখতে পায়
+    // Collapsed থাকলে auto expand
     if (isViewCollapsed()) {
         menuFrame.post(new Runnable() {
             @Override
@@ -2020,7 +2043,6 @@ private void showLoginOverlay() {
         });
     }
 }
-
     @SuppressLint("WrongConstant")
     public void SetWindowManagerWindowService() {
         int iparams = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O ? 2038 : 2002;
@@ -2048,14 +2070,41 @@ private void showLoginOverlay() {
     private int dp(int i) { return (int) TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, (float) i, getContext.getResources().getDisplayMetrics()); }
     private float dpf(float v) { return TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, v, getContext.getResources().getDisplayMetrics()); }
     public void setVisibility(int view) { if (rootFrame != null) rootFrame.setVisibility(view); }
+    // ================================================================
+// 🔥 Make the floating window focusable so EditText can open keyboard
+// Login দেখানোর সময় focusable বানাই, লগইন শেষে আবার unfocusable
+// ================================================================
+private void setWindowFocusable(boolean focusable) {
+    if (vmParams == null || mWindowManager == null || rootFrame == null) return;
+    try {
+        if (focusable) {
+            if (!windowIsFocusable) {
+                savedWindowFlags = vmParams.flags;
+                // FLAG_NOT_FOCUSABLE সরালেই window IME/keyboard support পায়
+                vmParams.flags &= ~WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE;
+                // Touches outside still reach the game
+                vmParams.flags |= WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL;
+                windowIsFocusable = true;
+            }
+        } else {
+            if (windowIsFocusable) {
+                vmParams.flags = savedWindowFlags;
+                windowIsFocusable = false;
+            }
+        }
+        mWindowManager.updateViewLayout(rootFrame, vmParams);
+    } catch (Exception e) {
+        Log.e(TAG, "setWindowFocusable: " + e);
+    }
+}
     public void onDestroy() {
-        stopGlowAnimator();
-        if (rootFrame != null && mWindowManager != null) {
-            try { mWindowManager.removeView(rootFrame); } catch (Exception e) {}
-        }
-        if (espview != null && espWindowManager != null) {
-            try { espWindowManager.removeView(espview); } catch (Exception e) {}
-        }
+    stopGlowAnimator();
+    if (rootFrame != null && mWindowManager != null) {
+        try { mWindowManager.removeView(rootFrame); } catch (Exception e) {}
+    }
+    if (espview != null && espWindowManager != null) {
+        try { espWindowManager.removeView(espview); } catch (Exception e) {}
+    }
     }
 
     // ================================================================
