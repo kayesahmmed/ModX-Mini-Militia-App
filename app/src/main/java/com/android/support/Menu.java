@@ -198,6 +198,8 @@ public class Menu {
 
     private int savedWindowFlags = 0;
 private boolean windowIsFocusable = false;
+private boolean isLoggedIn = false;
+private LinearLayout sidebarDivider = null;
 
     ESPView espview;
     WindowManager espWindowManager;
@@ -421,6 +423,7 @@ private boolean windowIsFocusable = false;
 
         mainContainer.addView(sidebarScroll);
         mainContainer.addView(makeDivider(true));
+        mainContainer.addView(sidebarDivider);
         mainContainer.addView(contentScrollView);
 
         // ---------------- Bottom bar (HIDE/KILL + MINIMIZE) ----------------
@@ -1257,7 +1260,7 @@ private boolean windowIsFocusable = false;
     // ================================================================
     private static class SlimScrollView extends ScrollView {
         private static final int ACTIVE_ALPHA = 255;
-        private static final int IDLE_ALPHA = 90;
+        private static final int IDLE_ALPHA = 0;
 
         private final Paint thumbPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
         private final Paint trackPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -1299,7 +1302,6 @@ private boolean windowIsFocusable = false;
         @Override
         protected void onSizeChanged(int w, int h, int oldw, int oldh) {
             super.onSizeChanged(w, h, oldw, oldh);
-            flashBar();
         }
 
         @Override
@@ -1926,9 +1928,6 @@ private boolean windowIsFocusable = false;
         return false;
     }
 
-    // ================================================================
-    // Show menu / window setup
-    // ================================================================
     public void ShowMenu() {
     rootFrame.addView(mRootContainer);
     final Handler handler = new Handler();
@@ -1969,8 +1968,7 @@ private boolean windowIsFocusable = false;
                     forceBtn.setOnClickListener(new View.OnClickListener() {
                             public void onClick(View v) {
                                 stopChecking = true;
-                                contentLayout.removeAllViews();
-                                showLoginOverlay();   // 🔥 Login দেখাবে
+                                showLoginScreen();
                             }
                         });
                     contentLayout.addView(forceBtn);
@@ -1979,9 +1977,12 @@ private boolean windowIsFocusable = false;
                 }
                 handler.postDelayed(this, 600);
             } else {
-                // Game lib ready → এখন login দেখাব
-                contentLayout.removeAllViews();
-                showLoginOverlay();   // 🔥 এখানে login overlay
+                // Game lib ready → login বা main menu
+                if (!isLoggedIn) {
+                    showLoginScreen();
+                } else {
+                    buildFeaturesAndCategories(GetFeatureList());
+                }
             }
         }
     }, 500);
@@ -1990,30 +1991,50 @@ private boolean windowIsFocusable = false;
 // ================================================================
 // 🔥 NEW: Login Overlay — floating menu এর উপরে login UI দেখায়
 // ================================================================
-private void showLoginOverlay() {
-    // 🔥 Step 1: Window কে focusable করি যাতে keyboard open হয়
+// ================================================================
+// 🔥 Login screen — sidebar লুকিয়ে content area তে login দেখায়
+// ================================================================
+private void showLoginScreen() {
+    if (isLoggedIn) return;
+
+    // Sidebar hide করি যাতে login full-width দেখায়
+    if (sidebarScroll != null) sidebarScroll.setVisibility(View.GONE);
+    if (sidebarDivider != null) sidebarDivider.setVisibility(View.GONE);
+
+    contentLayout.removeAllViews();
+
+    // Focusable বানাই (keyboard এর জন্য)
     setWindowFocusable(true);
 
-    final FrameLayout overlay = new FrameLayout(getContext);
-    overlay.setClickable(true);
-    overlay.setFocusable(true);
-    overlay.setFocusableInTouchMode(true);
-
     LoginHelper loginHelper = new LoginHelper(getContext, new LoginHelper.Callback() {
-
         @Override
         public void onLoginSuccess() {
-            // 🔥 Step 2: Window কে আবার unfocusable করি
             setWindowFocusable(false);
+            isLoggedIn = true;
 
-            try {
-                if (overlay.getParent() != null) {
-                    menuFrame.removeView(overlay);
-                }
-            } catch (Exception ignored) { }
+            // Sidebar আবার দেখাই
+            if (sidebarScroll != null) sidebarScroll.setVisibility(View.VISIBLE);
+            if (sidebarDivider != null) sidebarDivider.setVisibility(View.VISIBLE);
 
+            contentLayout.removeAllViews();
             buildFeaturesAndCategories(GetFeatureList());
         }
+    });
+
+    View loginView = loginHelper.buildView();
+    contentLayout.addView(loginView,
+            new LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT));
+
+    // Collapsed থাকলে auto expand
+    if (isViewCollapsed()) {
+        menuFrame.post(new Runnable() {
+            @Override
+            public void run() {
+                try { expandMenu(); } catch (Exception ignored) { }
+            }
+        });
+    }
+}
 
         @Override
         public void onMinimize() {
@@ -2070,9 +2091,8 @@ private void showLoginOverlay() {
     private int dp(int i) { return (int) TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, (float) i, getContext.getResources().getDisplayMetrics()); }
     private float dpf(float v) { return TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, v, getContext.getResources().getDisplayMetrics()); }
     public void setVisibility(int view) { if (rootFrame != null) rootFrame.setVisibility(view); }
-    // ================================================================
-// 🔥 Make the floating window focusable so EditText can open keyboard
-// Login দেখানোর সময় focusable বানাই, লগইন শেষে আবার unfocusable
+// ================================================================
+// 🔥 Login এর সময় window focusable বানাই যাতে keyboard কাজ করে
 // ================================================================
 private void setWindowFocusable(boolean focusable) {
     if (vmParams == null || mWindowManager == null || rootFrame == null) return;
@@ -2080,9 +2100,7 @@ private void setWindowFocusable(boolean focusable) {
         if (focusable) {
             if (!windowIsFocusable) {
                 savedWindowFlags = vmParams.flags;
-                // FLAG_NOT_FOCUSABLE সরালেই window IME/keyboard support পায়
                 vmParams.flags &= ~WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE;
-                // Touches outside still reach the game
                 vmParams.flags |= WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL;
                 windowIsFocusable = true;
             }
