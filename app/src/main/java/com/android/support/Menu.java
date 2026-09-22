@@ -199,7 +199,7 @@ public class Menu {
     private int savedWindowFlags = 0;
 private boolean windowIsFocusable = false;
 private boolean isLoggedIn = false;
-private LinearLayout sidebarDivider = null;
+private View sidebarDivider = null;
 
     ESPView espview;
     WindowManager espWindowManager;
@@ -422,7 +422,7 @@ private LinearLayout sidebarDivider = null;
         contentScrollView.addView(contentLayout);
 
         mainContainer.addView(sidebarScroll);
-        mainContainer.addView(makeDivider(true));
+        sidebarDivider = makeDivider(true);
         mainContainer.addView(sidebarDivider);
         mainContainer.addView(contentScrollView);
 
@@ -2035,34 +2035,8 @@ private void showLoginScreen() {
         });
     }
 }
+// ← এখানে method close — এর পরে সরাসরি SetWindowManagerWindowService() শুরু হবে
 
-        @Override
-        public void onMinimize() {
-            // 🔥 Minimize চাপলে unfocusable + collapse
-            setWindowFocusable(false);
-            try {
-                if (overlay.getParent() != null) {
-                    menuFrame.removeView(overlay);
-                }
-            } catch (Exception ignored) { }
-            collapseMenu(ICON_ALPHA);
-        }
-    });
-
-    View loginView = loginHelper.buildView();
-    overlay.addView(loginView, new FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT));
-
-    menuFrame.addView(overlay, new FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT));
-
-    // Collapsed থাকলে auto expand
-    if (isViewCollapsed()) {
-        menuFrame.post(new Runnable() {
-            @Override
-            public void run() {
-                try { expandMenu(); } catch (Exception ignored) { }
-            }
-        });
-    }
     @SuppressLint("WrongConstant")
     public void SetWindowManagerWindowService() {
         int iparams = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O ? 2038 : 2002;
@@ -2122,7 +2096,7 @@ private void setWindowFocusable(boolean focusable) {
     if (espview != null && espWindowManager != null) {
         try { espWindowManager.removeView(espview); } catch (Exception e) {}
     }
-    }
+}
 
     // ================================================================
     // Styled dialog (premium replacement for the default AlertDialog look)
