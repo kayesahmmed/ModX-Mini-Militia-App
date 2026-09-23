@@ -58,19 +58,20 @@ public class LoginHelper {
 
     private static final String TAG = "LoginHelper";
 
-    private static final int COLOR_BG_1       = Color.parseColor("#0B1224");
-    private static final int COLOR_BG_2       = Color.parseColor("#050810");
-    private static final int COLOR_ACCENT     = Color.parseColor("#00E5FF");
-    private static final int COLOR_ACCENT_2   = Color.parseColor("#7C4DFF");
-    private static final int COLOR_SUCCESS    = Color.parseColor("#00F5A0");
-    private static final int COLOR_DANGER     = Color.parseColor("#FF4D6D");
-    private static final int COLOR_WARN       = Color.parseColor("#FFB300");
-    private static final int COLOR_TEXT       = Color.parseColor("#ECF2FF");
-    private static final int COLOR_MUTED      = Color.parseColor("#6F7FA8");
-    private static final int COLOR_FIELD_BG   = Color.parseColor("#0D1526");
-    private static final int COLOR_FIELD_BORD = Color.parseColor("#1C2742");
-    private static final int COLOR_INPUT_HINT = Color.parseColor("#3E4A6B");
-    private static final int COLOR_CHECKED_BG = Color.parseColor("#0A1A2E");
+    private static final int COLOR_BG_1       = Color.parseColor("#0A0B0E");
+    private static final int COLOR_BG_2       = Color.parseColor("#050608");
+    private static final int COLOR_CARD       = Color.parseColor("#111316");
+    private static final int COLOR_BORDER     = Color.parseColor("#1F2126");
+    private static final int COLOR_FIELD_BG   = Color.parseColor("#0D0E12");
+    private static final int COLOR_FIELD_BORD = Color.parseColor("#26282F");
+    private static final int COLOR_ACCENT     = Color.parseColor("#6366F1");
+    private static final int COLOR_ACCENT_HI  = Color.parseColor("#818CF8");
+    private static final int COLOR_SUCCESS    = Color.parseColor("#10B981");
+    private static final int COLOR_DANGER     = Color.parseColor("#F43F5E");
+    private static final int COLOR_WARN       = Color.parseColor("#F59E0B");
+    private static final int COLOR_TEXT       = Color.parseColor("#E7E9EB");
+    private static final int COLOR_TEXT_MUTED = Color.parseColor("#7C8291");
+    private static final int COLOR_HINT       = Color.parseColor("#4B5160");
 
     private static final int WRAP_CONTENT = ViewGroup.LayoutParams.WRAP_CONTENT;
     private static final int MATCH_PARENT = ViewGroup.LayoutParams.MATCH_PARENT;
@@ -116,17 +117,13 @@ public class LoginHelper {
 
         LinearLayout card = new LinearLayout(ctx);
         card.setOrientation(LinearLayout.VERTICAL);
-        card.setPadding(dp(12), dp(12), dp(12), dp(12));
+        card.setPadding(dp(14), dp(14), dp(14), dp(14));
 
-        GradientDrawable cardBg = new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,
-                new int[]{COLOR_BG_1, COLOR_BG_2});
-        cardBg.setCornerRadius(dp(14));
-        cardBg.setStroke(dp(1), 0x33FFFFFF);
+        GradientDrawable cardBg = new GradientDrawable();
+        cardBg.setColor(COLOR_CARD);
+        cardBg.setCornerRadius(dp(12));
+        cardBg.setStroke(dp(1), COLOR_BORDER);
         card.setBackground(cardBg);
-
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-            card.setElevation(dp(6));
-        }
         root.addView(card);
 
         TextView userLabel = makeFieldLabel("USERNAME");
@@ -134,10 +131,10 @@ public class LoginHelper {
 
         userBox = makeFieldContainer();
         ImageView userIcon = new ImageView(ctx);
-        userIcon.setImageDrawable(new FieldIcon(FieldIcon.USER, COLOR_MUTED));
+        userIcon.setImageDrawable(new FieldIcon(FieldIcon.USER, COLOR_TEXT_MUTED));
         userIcon.setScaleType(ImageView.ScaleType.FIT_CENTER);
         LinearLayout.LayoutParams uiLp = new LinearLayout.LayoutParams(dp(16), dp(16));
-        uiLp.setMargins(dp(10), 0, 0, 0);
+        uiLp.setMargins(dp(11), 0, 0, 0);
         userIcon.setLayoutParams(uiLp);
         userBox.addView(userIcon);
 
@@ -149,8 +146,8 @@ public class LoginHelper {
         editUser.setLayoutParams(ueLp);
         userBox.addView(editUser);
 
-        LinearLayout.LayoutParams uLp = new LinearLayout.LayoutParams(MATCH_PARENT, dp(34));
-        uLp.setMargins(0, dp(3), 0, dp(10));
+        LinearLayout.LayoutParams uLp = new LinearLayout.LayoutParams(MATCH_PARENT, dp(36));
+        uLp.setMargins(0, dp(4), 0, dp(12));
         userBox.setLayoutParams(uLp);
         card.addView(userBox);
 
@@ -159,10 +156,10 @@ public class LoginHelper {
 
         passBox = makeFieldContainer();
         ImageView passIcon = new ImageView(ctx);
-        passIcon.setImageDrawable(new FieldIcon(FieldIcon.LOCK, COLOR_MUTED));
+        passIcon.setImageDrawable(new FieldIcon(FieldIcon.LOCK, COLOR_TEXT_MUTED));
         passIcon.setScaleType(ImageView.ScaleType.FIT_CENTER);
         LinearLayout.LayoutParams piLp = new LinearLayout.LayoutParams(dp(16), dp(16));
-        piLp.setMargins(dp(10), 0, 0, 0);
+        piLp.setMargins(dp(11), 0, 0, 0);
         passIcon.setLayoutParams(piLp);
         passBox.addView(passIcon);
 
@@ -175,8 +172,8 @@ public class LoginHelper {
         editPass.setLayoutParams(peLp);
         passBox.addView(editPass);
 
-        LinearLayout.LayoutParams pLp = new LinearLayout.LayoutParams(MATCH_PARENT, dp(34));
-        pLp.setMargins(0, dp(3), 0, dp(8));
+        LinearLayout.LayoutParams pLp = new LinearLayout.LayoutParams(MATCH_PARENT, dp(36));
+        pLp.setMargins(0, dp(4), 0, dp(10));
         passBox.setLayoutParams(pLp);
         card.addView(passBox);
 
@@ -253,20 +250,19 @@ public class LoginHelper {
         loginBtn.setText("SIGN IN");
         loginBtn.setAllCaps(false);
         loginBtn.setTextColor(Color.WHITE);
-        loginBtn.setTextSize(12.5f);
+        loginBtn.setTextSize(12f);
         loginBtn.setTypeface(tfBold);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-            loginBtn.setLetterSpacing(0.12f);
+            loginBtn.setLetterSpacing(0.14f);
         }
 
-        GradientDrawable lb = new GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT,
-                new int[]{0xFF0093C4, 0xFF6A47F5});
-        lb.setCornerRadius(dp(10));
+        GradientDrawable lb = new GradientDrawable();
+        lb.setColor(COLOR_ACCENT);
+        lb.setCornerRadius(dp(8));
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
             RippleDrawable ripple = new RippleDrawable(
-                    ColorStateList.valueOf(0x55FFFFFF), lb, null);
+                    ColorStateList.valueOf(0x44FFFFFF), lb, null);
             loginBtn.setBackground(ripple);
-            loginBtn.setElevation(dp(3));
         } else {
             loginBtn.setBackground(lb);
         }
@@ -275,14 +271,14 @@ public class LoginHelper {
         loginBtn.setMinWidth(0);
         loginBtn.setMinimumWidth(0);
         loginBtn.setPadding(dp(8), 0, dp(8), 0);
-        LinearLayout.LayoutParams bLp = new LinearLayout.LayoutParams(MATCH_PARENT, dp(38));
-        bLp.setMargins(0, dp(10), 0, 0);
+        LinearLayout.LayoutParams bLp = new LinearLayout.LayoutParams(MATCH_PARENT, dp(40));
+        bLp.setMargins(0, dp(12), 0, 0);
         loginBtn.setLayoutParams(bLp);
         card.addView(loginBtn);
 
         statusTxt = new TextView(ctx);
         statusTxt.setText("");
-        statusTxt.setTextColor(COLOR_MUTED);
+        statusTxt.setTextColor(COLOR_TEXT_MUTED);
         statusTxt.setTextSize(10f);
         statusTxt.setTypeface(tfMedium);
         statusTxt.setGravity(Gravity.CENTER);
@@ -296,7 +292,7 @@ public class LoginHelper {
         loginBtn.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
-                v.animate().scaleX(0.96f).scaleY(0.96f).setDuration(80)
+                v.animate().scaleX(0.97f).scaleY(0.97f).setDuration(80)
                         .withEndAction(new Runnable() {
                             @Override
                             public void run() {
@@ -327,11 +323,11 @@ public class LoginHelper {
     private TextView makeFieldLabel(String text) {
         TextView tv = new TextView(ctx);
         tv.setText(text);
-        tv.setTextColor(COLOR_MUTED);
-        tv.setTextSize(8f);
-        tv.setTypeface(tfBold);
+        tv.setTextColor(COLOR_TEXT_MUTED);
+        tv.setTextSize(9f);
+        tv.setTypeface(tfMedium);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-            tv.setLetterSpacing(0.18f);
+            tv.setLetterSpacing(0.12f);
         }
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(WRAP_CONTENT, WRAP_CONTENT);
         lp.setMargins(dp(2), 0, 0, 0);
@@ -345,7 +341,7 @@ public class LoginHelper {
         box.setGravity(Gravity.CENTER_VERTICAL);
         GradientDrawable bg = new GradientDrawable();
         bg.setColor(COLOR_FIELD_BG);
-        bg.setCornerRadius(dp(10));
+        bg.setCornerRadius(dp(8));
         bg.setStroke(dp(1), COLOR_FIELD_BORD);
         box.setBackground(bg);
         box.setClipToPadding(false);
@@ -354,10 +350,10 @@ public class LoginHelper {
 
     private EditText makeInput() {
         EditText e = new EditText(ctx);
-        e.setHintTextColor(COLOR_INPUT_HINT);
+        e.setHintTextColor(COLOR_HINT);
         e.setTextColor(COLOR_TEXT);
-        e.setTextSize(12f);
-        e.setTypeface(tfMedium);
+        e.setTextSize(12.5f);
+        e.setTypeface(tfRegular);
         e.setSingleLine(true);
         e.setFocusable(true);
         e.setFocusableInTouchMode(true);
@@ -379,25 +375,18 @@ public class LoginHelper {
                 int toColor   = hasFocus ? COLOR_ACCENT      : COLOR_FIELD_BORD;
 
                 ValueAnimator va = ValueAnimator.ofObject(new ArgbEvaluator(), fromColor, toColor);
-                va.setDuration(240);
+                va.setDuration(200);
                 va.addUpdateListener(new ValueAnimator.AnimatorUpdateListener() {
                     @Override
                     public void onAnimationUpdate(ValueAnimator a) {
-                        bg.setStroke(dp(hasFocus ? 1.4f : 1f), (Integer) a.getAnimatedValue());
+                        bg.setStroke(dp(hasFocus ? 1.5f : 1f), (Integer) a.getAnimatedValue());
                     }
                 });
                 va.start();
 
                 FieldIcon fi = (FieldIcon) icon.getDrawable();
                 if (fi != null) {
-                    fi.animateColor(hasFocus ? COLOR_ACCENT : COLOR_MUTED, 240);
-                }
-
-                if (hasFocus) {
-                    v.postDelayed(new Runnable() {
-                        @Override
-                        public void run() { forceShowKeyboard(et); }
-                    }, 80);
+                    fi.animateColor(hasFocus ? COLOR_ACCENT_HI : COLOR_TEXT_MUTED, 200);
                 }
             }
         });
@@ -495,7 +484,7 @@ public class LoginHelper {
         loginInProgress = true;
         loginBtn.setEnabled(false);
         loginBtn.setText("SIGNING IN...");
-        setStatus("Verifying credentials...", COLOR_ACCENT);
+        setStatus("Verifying credentials...", COLOR_ACCENT_HI);
 
         save.edit().putString("edittext1", inputUser).apply();
         save.edit().putString("edittext2", inputPass).apply();
@@ -633,34 +622,30 @@ public class LoginHelper {
     }
 
     private void showUpdateDialog(String version, String msg) {
-        if (!(ctx instanceof android.app.Activity)) {
-            proceedToMenu();
-            return;
-        }
         final android.app.AlertDialog[] ref = new android.app.AlertDialog[1];
 
         LinearLayout box = new LinearLayout(ctx);
         box.setOrientation(LinearLayout.VERTICAL);
         box.setPadding(dp(20), dp(18), dp(20), dp(16));
-        GradientDrawable bg = new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,
-                new int[]{COLOR_BG_1, COLOR_BG_2});
-        bg.setCornerRadius(dp(16));
-        bg.setStroke(dp(1.2f), COLOR_ACCENT);
+        GradientDrawable bg = new GradientDrawable();
+        bg.setColor(COLOR_CARD);
+        bg.setCornerRadius(dp(14));
+        bg.setStroke(dp(1), COLOR_BORDER);
         box.setBackground(bg);
 
         TextView t = new TextView(ctx);
-        t.setText("New Update Available");
-        t.setTextColor(COLOR_ACCENT);
+        t.setText("Update Available");
+        t.setTextColor(COLOR_TEXT);
         t.setTextSize(15);
         t.setTypeface(tfBold);
         box.addView(t);
 
         TextView body = new TextView(ctx);
         String txt = "Version " + version + " is now available.\n" +
-                "You're currently on version " + getVersionName() + ".";
+                "You're on version " + getVersionName() + ".";
         if (msg != null && !msg.isEmpty()) txt += "\n\n" + msg;
         body.setText(txt);
-        body.setTextColor(COLOR_TEXT);
+        body.setTextColor(COLOR_TEXT_MUTED);
         body.setTextSize(12);
         LinearLayout.LayoutParams bLp = new LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT);
         bLp.setMargins(0, dp(10), 0, 0);
@@ -676,14 +661,16 @@ public class LoginHelper {
         Button continueBtn = new Button(ctx);
         continueBtn.setText("Continue");
         continueBtn.setAllCaps(false);
-        continueBtn.setTextColor(COLOR_MUTED);
+        continueBtn.setTextColor(COLOR_TEXT_MUTED);
         continueBtn.setTextSize(12);
         continueBtn.setTypeface(tfMedium);
         GradientDrawable cbg = new GradientDrawable();
         cbg.setColor(0x14FFFFFF);
-        cbg.setCornerRadius(dp(10));
+        cbg.setCornerRadius(dp(8));
         continueBtn.setBackground(cbg);
         continueBtn.setPadding(dp(18), dp(10), dp(18), dp(10));
+        continueBtn.setMinHeight(0);
+        continueBtn.setMinimumHeight(0);
 
         Button updateBtn = new Button(ctx);
         updateBtn.setText("Update");
@@ -691,11 +678,13 @@ public class LoginHelper {
         updateBtn.setTextColor(Color.WHITE);
         updateBtn.setTextSize(12);
         updateBtn.setTypeface(tfBold);
-        GradientDrawable ubg = new GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT,
-                new int[]{0xFF0093C4, 0xFF6A47F5});
-        ubg.setCornerRadius(dp(10));
+        GradientDrawable ubg = new GradientDrawable();
+        ubg.setColor(COLOR_ACCENT);
+        ubg.setCornerRadius(dp(8));
         updateBtn.setBackground(ubg);
         updateBtn.setPadding(dp(18), dp(10), dp(18), dp(10));
+        updateBtn.setMinHeight(0);
+        updateBtn.setMinimumHeight(0);
         LinearLayout.LayoutParams uLp = new LinearLayout.LayoutParams(WRAP_CONTENT, WRAP_CONTENT);
         uLp.setMargins(dp(8), 0, 0, 0);
         updateBtn.setLayoutParams(uLp);
@@ -738,16 +727,15 @@ public class LoginHelper {
     private void showKeyExpiredDialog() {
         if (keyExpiredDialogShowing) return;
         keyExpiredDialogShowing = true;
-        if (!(ctx instanceof android.app.Activity)) return;
 
         final android.app.AlertDialog[] ref = new android.app.AlertDialog[1];
         LinearLayout box = new LinearLayout(ctx);
         box.setOrientation(LinearLayout.VERTICAL);
         box.setPadding(dp(20), dp(18), dp(20), dp(16));
-        GradientDrawable bg = new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,
-                new int[]{COLOR_BG_1, COLOR_BG_2});
-        bg.setCornerRadius(dp(16));
-        bg.setStroke(dp(1.2f), COLOR_DANGER);
+        GradientDrawable bg = new GradientDrawable();
+        bg.setColor(COLOR_CARD);
+        bg.setCornerRadius(dp(14));
+        bg.setStroke(dp(1), COLOR_BORDER);
         box.setBackground(bg);
 
         TextView t = new TextView(ctx);
@@ -760,7 +748,7 @@ public class LoginHelper {
         TextView body = new TextView(ctx);
         body.setText("Your subscription has ended or the account is blocked.\n\n" +
                 "Contact the seller to renew access.");
-        body.setTextColor(COLOR_TEXT);
+        body.setTextColor(COLOR_TEXT_MUTED);
         body.setTextSize(12);
         LinearLayout.LayoutParams bLp = new LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT);
         bLp.setMargins(0, dp(10), 0, 0);
@@ -770,11 +758,11 @@ public class LoginHelper {
         contact.setText("CONTACT SELLER");
         contact.setAllCaps(false);
         contact.setTextColor(Color.WHITE);
-        contact.setTextSize(13);
+        contact.setTextSize(12);
         contact.setTypeface(tfBold);
-        GradientDrawable cbg = new GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT,
-                new int[]{0xFF00B489, 0xFF00F5A0});
-        cbg.setCornerRadius(dp(20));
+        GradientDrawable cbg = new GradientDrawable();
+        cbg.setColor(COLOR_DANGER);
+        cbg.setCornerRadius(dp(8));
         contact.setBackground(cbg);
         LinearLayout.LayoutParams cLp = new LinearLayout.LayoutParams(MATCH_PARENT, dp(42));
         cLp.setMargins(0, dp(14), 0, 0);
@@ -803,7 +791,6 @@ public class LoginHelper {
             @Override
             public void onCancel(android.content.DialogInterface di) {
                 keyExpiredDialogShowing = false;
-                ((android.app.Activity) ctx).finishAffinity();
             }
         });
         if (d.getWindow() != null) {
@@ -830,20 +817,20 @@ public class LoginHelper {
 
             FrameLayout box = new FrameLayout(ctx);
             LinearLayout.LayoutParams boxLp = new LinearLayout.LayoutParams(dp(16), dp(16));
-            boxLp.setMargins(0, 0, dp(6), 0);
+            boxLp.setMargins(0, 0, dp(8), 0);
             box.setLayoutParams(boxLp);
 
             boxBg = new GradientDrawable();
             boxBg.setCornerRadius(dp(4));
-            boxBg.setStroke(dp(1.4f), initial ? COLOR_ACCENT : COLOR_FIELD_BORD);
-            boxBg.setColor(initial ? COLOR_CHECKED_BG : Color.TRANSPARENT);
+            boxBg.setStroke(dp(1.5f), initial ? COLOR_ACCENT : COLOR_FIELD_BORD);
+            boxBg.setColor(initial ? withAlpha(COLOR_ACCENT, 0x22) : Color.TRANSPARENT);
             box.setBackground(boxBg);
 
             checkmark = new View(ctx);
             FrameLayout.LayoutParams cmLp = new FrameLayout.LayoutParams(dp(8), dp(8), Gravity.CENTER);
             checkmark.setLayoutParams(cmLp);
-            GradientDrawable cmBg = new GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT,
-                    new int[]{COLOR_ACCENT, COLOR_ACCENT_2});
+            GradientDrawable cmBg = new GradientDrawable();
+            cmBg.setColor(COLOR_ACCENT);
             cmBg.setCornerRadius(dp(2));
             checkmark.setBackground(cmBg);
             checkmark.setVisibility(initial ? View.VISIBLE : View.GONE);
@@ -851,7 +838,7 @@ public class LoginHelper {
 
             TextView labelView = new TextView(ctx);
             labelView.setText(label);
-            labelView.setTextColor(COLOR_MUTED);
+            labelView.setTextColor(COLOR_TEXT_MUTED);
             labelView.setTextSize(10f);
             labelView.setTypeface(tfRegular);
 
@@ -877,10 +864,14 @@ public class LoginHelper {
         private void toggle() {
             checked = !checked;
             checkmark.setVisibility(checked ? View.VISIBLE : View.GONE);
-            boxBg.setStroke(dp(1.4f), checked ? COLOR_ACCENT : COLOR_FIELD_BORD);
-            boxBg.setColor(checked ? COLOR_CHECKED_BG : Color.TRANSPARENT);
+            boxBg.setStroke(dp(1.5f), checked ? COLOR_ACCENT : COLOR_FIELD_BORD);
+            boxBg.setColor(checked ? withAlpha(COLOR_ACCENT, 0x22) : Color.TRANSPARENT);
             if (listener != null) listener.onChanged(checked);
         }
+    }
+
+    private static int withAlpha(int color, int alpha) {
+        return (color & 0x00FFFFFF) | ((alpha & 0xFF) << 24);
     }
 
     private static class FieldIcon extends Drawable {
@@ -922,7 +913,7 @@ public class LoginHelper {
             if (b.width() <= 0 || b.height() <= 0) return;
             float size = Math.min(b.width(), b.height());
             float s = size / 24f;
-            paint.setStrokeWidth(1.8f * s);
+            paint.setStrokeWidth(1.9f * s);
 
             canvas.save();
             canvas.translate(b.left + (b.width() - size) / 2f,
@@ -954,4 +945,4 @@ public class LoginHelper {
         @Override public void setColorFilter(ColorFilter cf) { paint.setColorFilter(cf); }
         @Override public int getOpacity() { return PixelFormat.TRANSLUCENT; }
     }
-            }
+}

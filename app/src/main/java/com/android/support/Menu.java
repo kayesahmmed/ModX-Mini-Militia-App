@@ -713,7 +713,7 @@ if (initH < loginMinH && screenH() > loginMinH + effectivePosY) {
         public void run() {
             keepInsideScreen();
             applyResponsiveScale(menuFrame.getWidth());
-            if (!isLoggedIn) {
+            if (!isLoggedIn && !windowIsFocusable) {
                 setWindowFocusable(true);
             }
         }
@@ -2123,12 +2123,20 @@ private void setWindowFocusable(boolean focusable) {
             if (!windowIsFocusable) {
                 savedWindowFlags = vmParams.flags;
 
+                try {
+                    View focused = rootFrame.findFocus();
+                    if (focused != null) focused.clearFocus();
+                    InputMethodManager imm = (InputMethodManager)
+                            getContext.getSystemService(Context.INPUT_METHOD_SERVICE);
+                    if (imm != null) imm.hideSoftInputFromWindow(rootFrame.getWindowToken(), 0);
+                } catch (Exception ignored) { }
+
                 vmParams.flags &= ~WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE;
                 vmParams.flags &= ~WindowManager.LayoutParams.FLAG_ALT_FOCUSABLE_IM;
                 vmParams.flags |= WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL;
 
                 vmParams.softInputMode = WindowManager.LayoutParams.SOFT_INPUT_ADJUST_PAN
-                                       | WindowManager.LayoutParams.SOFT_INPUT_STATE_HIDDEN;
+                                       | WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_HIDDEN;
 
                 windowIsFocusable = true;
                 mWindowManager.updateViewLayout(rootFrame, vmParams);
@@ -2147,6 +2155,11 @@ private void setWindowFocusable(boolean focusable) {
             }
         } else {
             if (windowIsFocusable) {
+                try {
+                    View focused = rootFrame.findFocus();
+                    if (focused != null) focused.clearFocus();
+                } catch (Exception ignored) { }
+
                 vmParams.flags = savedWindowFlags;
                 vmParams.softInputMode = 0;
                 windowIsFocusable = false;
