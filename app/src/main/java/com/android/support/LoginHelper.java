@@ -59,7 +59,6 @@ public class LoginHelper {
     private static final String TAG = "LoginHelper";
 
     private static final int COLOR_BG_1       = Color.parseColor("#0A0B0E");
-    private static final int COLOR_BG_2       = Color.parseColor("#050608");
     private static final int COLOR_CARD       = Color.parseColor("#111316");
     private static final int COLOR_BORDER     = Color.parseColor("#1F2126");
     private static final int COLOR_FIELD_BG   = Color.parseColor("#0D0E12");
@@ -72,6 +71,14 @@ public class LoginHelper {
     private static final int COLOR_TEXT       = Color.parseColor("#E7E9EB");
     private static final int COLOR_TEXT_MUTED = Color.parseColor("#7C8291");
     private static final int COLOR_HINT       = Color.parseColor("#4B5160");
+
+    private static final int COLOR_DIALOG_BG     = Color.parseColor("#FFFFFF");
+    private static final int COLOR_DIALOG_TITLE  = Color.parseColor("#0B1224");
+    private static final int COLOR_DIALOG_SUB    = Color.parseColor("#6B7280");
+    private static final int COLOR_DIALOG_SUB2   = Color.parseColor("#9CA3AF");
+    private static final int COLOR_DIALOG_BODY   = Color.parseColor("#4B5563");
+    private static final int COLOR_GREEN         = Color.parseColor("#00B489");
+    private static final int COLOR_OUTLINE       = Color.parseColor("#D1D5DB");
 
     private static final int WRAP_CONTENT = ViewGroup.LayoutParams.WRAP_CONTENT;
     private static final int MATCH_PARENT = ViewGroup.LayoutParams.MATCH_PARENT;
@@ -624,77 +631,140 @@ public class LoginHelper {
     private void showUpdateDialog(String version, String msg) {
         final android.app.AlertDialog[] ref = new android.app.AlertDialog[1];
 
-        LinearLayout box = new LinearLayout(ctx);
-        box.setOrientation(LinearLayout.VERTICAL);
-        box.setPadding(dp(20), dp(18), dp(20), dp(16));
-        GradientDrawable bg = new GradientDrawable();
-        bg.setColor(COLOR_CARD);
-        bg.setCornerRadius(dp(14));
-        bg.setStroke(dp(1), COLOR_BORDER);
-        box.setBackground(bg);
+        FrameLayout dialogRoot = new FrameLayout(ctx);
+        dialogRoot.setPadding(dp(18), dp(18), dp(18), dp(18));
 
-        TextView t = new TextView(ctx);
-        t.setText("Update Available");
-        t.setTextColor(COLOR_TEXT);
-        t.setTextSize(15);
-        t.setTypeface(tfBold);
-        box.addView(t);
+        LinearLayout card = new LinearLayout(ctx);
+        card.setOrientation(LinearLayout.VERTICAL);
+        card.setPadding(dp(22), dp(24), dp(22), dp(20));
+        card.setGravity(Gravity.CENTER_HORIZONTAL);
 
-        TextView body = new TextView(ctx);
-        String txt = "Version " + version + " is now available.\n" +
-                "You're on version " + getVersionName() + ".";
-        if (msg != null && !msg.isEmpty()) txt += "\n\n" + msg;
-        body.setText(txt);
-        body.setTextColor(COLOR_TEXT_MUTED);
-        body.setTextSize(12);
-        LinearLayout.LayoutParams bLp = new LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT);
-        bLp.setMargins(0, dp(10), 0, 0);
-        box.addView(body, bLp);
+        GradientDrawable cardBg = new GradientDrawable();
+        cardBg.setColor(COLOR_DIALOG_BG);
+        cardBg.setCornerRadius(dp(20));
+        card.setBackground(cardBg);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+            card.setElevation(dp(12));
+        }
 
-        LinearLayout row = new LinearLayout(ctx);
-        row.setOrientation(LinearLayout.HORIZONTAL);
-        row.setGravity(Gravity.RIGHT);
-        LinearLayout.LayoutParams rLp = new LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT);
-        rLp.setMargins(0, dp(16), 0, 0);
-        box.addView(row, rLp);
+        FrameLayout iconHolder = new FrameLayout(ctx);
+        int iconSize = dp(64);
+        LinearLayout.LayoutParams ihLp = new LinearLayout.LayoutParams(iconSize, iconSize);
+        ihLp.setMargins(0, 0, 0, dp(14));
+        iconHolder.setLayoutParams(ihLp);
 
-        Button continueBtn = new Button(ctx);
-        continueBtn.setText("Continue");
-        continueBtn.setAllCaps(false);
-        continueBtn.setTextColor(COLOR_TEXT_MUTED);
-        continueBtn.setTextSize(12);
-        continueBtn.setTypeface(tfMedium);
-        GradientDrawable cbg = new GradientDrawable();
-        cbg.setColor(0x14FFFFFF);
-        cbg.setCornerRadius(dp(8));
-        continueBtn.setBackground(cbg);
-        continueBtn.setPadding(dp(18), dp(10), dp(18), dp(10));
-        continueBtn.setMinHeight(0);
-        continueBtn.setMinimumHeight(0);
+        GradientDrawable circle = new GradientDrawable();
+        circle.setShape(GradientDrawable.OVAL);
+        circle.setColor(COLOR_GREEN);
+        iconHolder.setBackground(circle);
+
+        ImageView icon = new ImageView(ctx);
+        icon.setImageDrawable(new UpdateIcon(Color.WHITE));
+        FrameLayout.LayoutParams icLp = new FrameLayout.LayoutParams(dp(34), dp(34), Gravity.CENTER);
+        icon.setLayoutParams(icLp);
+        iconHolder.addView(icon);
+        card.addView(iconHolder);
+
+        TextView title = new TextView(ctx);
+        title.setText("NEW UPDATE");
+        title.setTextColor(COLOR_DIALOG_TITLE);
+        title.setTextSize(16f);
+        title.setTypeface(tfBold);
+        title.setGravity(Gravity.CENTER);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+            title.setLetterSpacing(0.08f);
+        }
+        card.addView(title);
+
+        TextView versionView = new TextView(ctx);
+        versionView.setText("Version " + version + " is available now");
+        versionView.setTextColor(COLOR_DIALOG_SUB);
+        versionView.setTextSize(12f);
+        versionView.setTypeface(tfRegular);
+        versionView.setGravity(Gravity.CENTER);
+        LinearLayout.LayoutParams vLp = new LinearLayout.LayoutParams(WRAP_CONTENT, WRAP_CONTENT);
+        vLp.setMargins(0, dp(6), 0, 0);
+        versionView.setLayoutParams(vLp);
+        card.addView(versionView);
+
+        TextView currentView = new TextView(ctx);
+        currentView.setText("Your version: " + getVersionName());
+        currentView.setTextColor(COLOR_DIALOG_SUB2);
+        currentView.setTextSize(10.5f);
+        currentView.setTypeface(tfRegular);
+        currentView.setGravity(Gravity.CENTER);
+        LinearLayout.LayoutParams curLp = new LinearLayout.LayoutParams(WRAP_CONTENT, WRAP_CONTENT);
+        curLp.setMargins(0, dp(3), 0, 0);
+        currentView.setLayoutParams(curLp);
+        card.addView(currentView);
+
+        if (msg != null && !msg.trim().isEmpty()) {
+            TextView msgView = new TextView(ctx);
+            msgView.setText(msg);
+            msgView.setTextColor(COLOR_DIALOG_BODY);
+            msgView.setTextSize(11f);
+            msgView.setTypeface(tfRegular);
+            msgView.setGravity(Gravity.CENTER);
+            msgView.setMaxLines(3);
+            msgView.setEllipsize(TextUtils.TruncateAt.END);
+            LinearLayout.LayoutParams mLp = new LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT);
+            mLp.setMargins(0, dp(12), 0, 0);
+            msgView.setLayoutParams(mLp);
+            card.addView(msgView);
+        }
 
         Button updateBtn = new Button(ctx);
-        updateBtn.setText("Update");
+        updateBtn.setText("UPDATE NOW");
         updateBtn.setAllCaps(false);
         updateBtn.setTextColor(Color.WHITE);
-        updateBtn.setTextSize(12);
+        updateBtn.setTextSize(12.5f);
         updateBtn.setTypeface(tfBold);
-        GradientDrawable ubg = new GradientDrawable();
-        ubg.setColor(COLOR_ACCENT);
-        ubg.setCornerRadius(dp(8));
-        updateBtn.setBackground(ubg);
-        updateBtn.setPadding(dp(18), dp(10), dp(18), dp(10));
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+            updateBtn.setLetterSpacing(0.1f);
+        }
+        GradientDrawable uBg = new GradientDrawable();
+        uBg.setColor(COLOR_GREEN);
+        uBg.setCornerRadius(dp(25));
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+            RippleDrawable uRipple = new RippleDrawable(
+                    ColorStateList.valueOf(0x44FFFFFF), uBg, null);
+            updateBtn.setBackground(uRipple);
+            updateBtn.setElevation(dp(3));
+        } else {
+            updateBtn.setBackground(uBg);
+        }
         updateBtn.setMinHeight(0);
         updateBtn.setMinimumHeight(0);
-        LinearLayout.LayoutParams uLp = new LinearLayout.LayoutParams(WRAP_CONTENT, WRAP_CONTENT);
-        uLp.setMargins(dp(8), 0, 0, 0);
+        updateBtn.setMinWidth(0);
+        updateBtn.setMinimumWidth(0);
+        updateBtn.setPadding(dp(20), 0, dp(20), 0);
+        LinearLayout.LayoutParams uLp = new LinearLayout.LayoutParams(MATCH_PARENT, dp(48));
+        uLp.setMargins(0, dp(20), 0, 0);
         updateBtn.setLayoutParams(uLp);
+        card.addView(updateBtn);
 
-        continueBtn.setOnClickListener(new View.OnClickListener() {
-            @Override public void onClick(View v) {
-                if (ref[0] != null) ref[0].dismiss();
-                proceedToMenu();
-            }
-        });
+        Button continueBtn = new Button(ctx);
+        continueBtn.setText("Continue to game");
+        continueBtn.setAllCaps(false);
+        continueBtn.setTextColor(COLOR_DIALOG_SUB);
+        continueBtn.setTextSize(12f);
+        continueBtn.setTypeface(tfMedium);
+        GradientDrawable cBg = new GradientDrawable();
+        cBg.setColor(Color.TRANSPARENT);
+        cBg.setStroke(dp(1.5f), COLOR_OUTLINE);
+        cBg.setCornerRadius(dp(25));
+        continueBtn.setBackground(cBg);
+        continueBtn.setMinHeight(0);
+        continueBtn.setMinimumHeight(0);
+        continueBtn.setMinWidth(0);
+        continueBtn.setMinimumWidth(0);
+        continueBtn.setPadding(dp(20), 0, dp(20), 0);
+        LinearLayout.LayoutParams cLp = new LinearLayout.LayoutParams(MATCH_PARENT, dp(44));
+        cLp.setMargins(0, dp(8), 0, 0);
+        continueBtn.setLayoutParams(cLp);
+        card.addView(continueBtn);
+
+        dialogRoot.addView(card, new FrameLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT));
 
         updateBtn.setOnClickListener(new View.OnClickListener() {
             @Override public void onClick(View v) {
@@ -707,11 +777,15 @@ public class LoginHelper {
             }
         });
 
-        row.addView(continueBtn);
-        row.addView(updateBtn);
+        continueBtn.setOnClickListener(new View.OnClickListener() {
+            @Override public void onClick(View v) {
+                if (ref[0] != null) ref[0].dismiss();
+                proceedToMenu();
+            }
+        });
 
         android.app.AlertDialog.Builder b = new android.app.AlertDialog.Builder(ctx);
-        b.setView(box);
+        b.setView(dialogRoot);
         android.app.AlertDialog d = b.create();
         d.setCanceledOnTouchOutside(false);
         d.setCancelable(false);
@@ -729,45 +803,94 @@ public class LoginHelper {
         keyExpiredDialogShowing = true;
 
         final android.app.AlertDialog[] ref = new android.app.AlertDialog[1];
-        LinearLayout box = new LinearLayout(ctx);
-        box.setOrientation(LinearLayout.VERTICAL);
-        box.setPadding(dp(20), dp(18), dp(20), dp(16));
-        GradientDrawable bg = new GradientDrawable();
-        bg.setColor(COLOR_CARD);
-        bg.setCornerRadius(dp(14));
-        bg.setStroke(dp(1), COLOR_BORDER);
-        box.setBackground(bg);
 
-        TextView t = new TextView(ctx);
-        t.setText("Access Expired");
-        t.setTextColor(COLOR_DANGER);
-        t.setTextSize(15);
-        t.setTypeface(tfBold);
-        box.addView(t);
+        FrameLayout dialogRoot = new FrameLayout(ctx);
+        dialogRoot.setPadding(dp(18), dp(18), dp(18), dp(18));
+
+        LinearLayout card = new LinearLayout(ctx);
+        card.setOrientation(LinearLayout.VERTICAL);
+        card.setPadding(dp(22), dp(24), dp(22), dp(20));
+        card.setGravity(Gravity.CENTER_HORIZONTAL);
+
+        GradientDrawable cardBg = new GradientDrawable();
+        cardBg.setColor(COLOR_DIALOG_BG);
+        cardBg.setCornerRadius(dp(20));
+        card.setBackground(cardBg);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+            card.setElevation(dp(12));
+        }
+
+        FrameLayout iconHolder = new FrameLayout(ctx);
+        int iconSize = dp(64);
+        LinearLayout.LayoutParams ihLp = new LinearLayout.LayoutParams(iconSize, iconSize);
+        ihLp.setMargins(0, 0, 0, dp(14));
+        iconHolder.setLayoutParams(ihLp);
+
+        GradientDrawable circle = new GradientDrawable();
+        circle.setShape(GradientDrawable.OVAL);
+        circle.setColor(Color.parseColor("#F43F5E"));
+        iconHolder.setBackground(circle);
+
+        ImageView icon = new ImageView(ctx);
+        icon.setImageDrawable(new LockIcon(Color.WHITE));
+        FrameLayout.LayoutParams icLp = new FrameLayout.LayoutParams(dp(34), dp(34), Gravity.CENTER);
+        icon.setLayoutParams(icLp);
+        iconHolder.addView(icon);
+        card.addView(iconHolder);
+
+        TextView title = new TextView(ctx);
+        title.setText("ACCESS EXPIRED");
+        title.setTextColor(COLOR_DIALOG_TITLE);
+        title.setTextSize(16f);
+        title.setTypeface(tfBold);
+        title.setGravity(Gravity.CENTER);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+            title.setLetterSpacing(0.08f);
+        }
+        card.addView(title);
 
         TextView body = new TextView(ctx);
-        body.setText("Your subscription has ended or the account is blocked.\n\n" +
-                "Contact the seller to renew access.");
-        body.setTextColor(COLOR_TEXT_MUTED);
-        body.setTextSize(12);
+        body.setText("Your subscription has ended or the account is blocked.\n\nContact the seller to renew access.");
+        body.setTextColor(COLOR_DIALOG_BODY);
+        body.setTextSize(12f);
+        body.setTypeface(tfRegular);
+        body.setGravity(Gravity.CENTER);
         LinearLayout.LayoutParams bLp = new LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT);
-        bLp.setMargins(0, dp(10), 0, 0);
-        box.addView(body, bLp);
+        bLp.setMargins(0, dp(12), 0, 0);
+        body.setLayoutParams(bLp);
+        card.addView(body);
 
         Button contact = new Button(ctx);
         contact.setText("CONTACT SELLER");
         contact.setAllCaps(false);
         contact.setTextColor(Color.WHITE);
-        contact.setTextSize(12);
+        contact.setTextSize(12.5f);
         contact.setTypeface(tfBold);
-        GradientDrawable cbg = new GradientDrawable();
-        cbg.setColor(COLOR_DANGER);
-        cbg.setCornerRadius(dp(8));
-        contact.setBackground(cbg);
-        LinearLayout.LayoutParams cLp = new LinearLayout.LayoutParams(MATCH_PARENT, dp(42));
-        cLp.setMargins(0, dp(14), 0, 0);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+            contact.setLetterSpacing(0.1f);
+        }
+        GradientDrawable cBg = new GradientDrawable();
+        cBg.setColor(COLOR_GREEN);
+        cBg.setCornerRadius(dp(25));
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+            RippleDrawable cRipple = new RippleDrawable(
+                    ColorStateList.valueOf(0x44FFFFFF), cBg, null);
+            contact.setBackground(cRipple);
+            contact.setElevation(dp(3));
+        } else {
+            contact.setBackground(cBg);
+        }
+        contact.setMinHeight(0);
+        contact.setMinimumHeight(0);
+        contact.setMinWidth(0);
+        contact.setMinimumWidth(0);
+        contact.setPadding(dp(20), 0, dp(20), 0);
+        LinearLayout.LayoutParams cLp = new LinearLayout.LayoutParams(MATCH_PARENT, dp(48));
+        cLp.setMargins(0, dp(20), 0, 0);
         contact.setLayoutParams(cLp);
-        box.addView(contact);
+        card.addView(contact);
+
+        dialogRoot.addView(card, new FrameLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT));
 
         contact.setOnClickListener(new View.OnClickListener() {
             @Override public void onClick(View v) {
@@ -783,7 +906,7 @@ public class LoginHelper {
         });
 
         android.app.AlertDialog.Builder b = new android.app.AlertDialog.Builder(ctx);
-        b.setView(box);
+        b.setView(dialogRoot);
         android.app.AlertDialog d = b.create();
         d.setCanceledOnTouchOutside(false);
         d.setCancelable(true);
@@ -938,6 +1061,98 @@ public class LoginHelper {
                 canvas.drawPath(path, paint);
                 canvas.drawCircle(12f, 15.5f, 1.2f, paint);
             }
+            canvas.restore();
+        }
+
+        @Override public void setAlpha(int alpha) { paint.setAlpha(alpha); }
+        @Override public void setColorFilter(ColorFilter cf) { paint.setColorFilter(cf); }
+        @Override public int getOpacity() { return PixelFormat.TRANSLUCENT; }
+    }
+
+    private static class UpdateIcon extends Drawable {
+        private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final Path path = new Path();
+
+        UpdateIcon(int color) {
+            paint.setColor(color);
+            paint.setStyle(Paint.Style.STROKE);
+            paint.setStrokeCap(Paint.Cap.ROUND);
+            paint.setStrokeJoin(Paint.Join.ROUND);
+        }
+
+        @Override
+        public void draw(Canvas canvas) {
+            android.graphics.Rect b = getBounds();
+            if (b.width() <= 0 || b.height() <= 0) return;
+            float size = Math.min(b.width(), b.height());
+            float s = size / 24f;
+            paint.setStrokeWidth(2.2f * s);
+
+            canvas.save();
+            canvas.translate(b.left + (b.width() - size) / 2f,
+                             b.top + (b.height() - size) / 2f);
+            canvas.scale(s, s);
+            path.reset();
+
+            path.moveTo(12f, 3f);
+            path.lineTo(12f, 15f);
+            canvas.drawPath(path, paint);
+
+            path.reset();
+            path.moveTo(6f, 10f);
+            path.lineTo(12f, 16f);
+            path.lineTo(18f, 10f);
+            canvas.drawPath(path, paint);
+
+            path.reset();
+            path.moveTo(4f, 20.5f);
+            path.lineTo(20f, 20.5f);
+            canvas.drawPath(path, paint);
+
+            canvas.restore();
+        }
+
+        @Override public void setAlpha(int alpha) { paint.setAlpha(alpha); }
+        @Override public void setColorFilter(ColorFilter cf) { paint.setColorFilter(cf); }
+        @Override public int getOpacity() { return PixelFormat.TRANSLUCENT; }
+    }
+
+    private static class LockIcon extends Drawable {
+        private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final Path path = new Path();
+        private final RectF rect = new RectF();
+
+        LockIcon(int color) {
+            paint.setColor(color);
+            paint.setStyle(Paint.Style.STROKE);
+            paint.setStrokeCap(Paint.Cap.ROUND);
+            paint.setStrokeJoin(Paint.Join.ROUND);
+        }
+
+        @Override
+        public void draw(Canvas canvas) {
+            android.graphics.Rect b = getBounds();
+            if (b.width() <= 0 || b.height() <= 0) return;
+            float size = Math.min(b.width(), b.height());
+            float s = size / 24f;
+            paint.setStrokeWidth(2.2f * s);
+
+            canvas.save();
+            canvas.translate(b.left + (b.width() - size) / 2f,
+                             b.top + (b.height() - size) / 2f);
+            canvas.scale(s, s);
+            path.reset();
+
+            rect.set(5f, 10.5f, 19f, 21f);
+            canvas.drawRoundRect(rect, 2f, 2f, paint);
+            path.moveTo(8.5f, 10.5f);
+            path.lineTo(8.5f, 7.5f);
+            path.cubicTo(8.5f, 5.0f, 10.2f, 3f, 12f, 3f);
+            path.cubicTo(13.8f, 3f, 15.5f, 5.0f, 15.5f, 7.5f);
+            path.lineTo(15.5f, 10.5f);
+            canvas.drawPath(path, paint);
+            canvas.drawCircle(12f, 15.5f, 1.2f, paint);
+
             canvas.restore();
         }
 
