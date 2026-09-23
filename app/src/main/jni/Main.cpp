@@ -1,6 +1,7 @@
 // ================================================================
-// Mini Militia — Main.cpp  v104.0
+// Mini Militia — Main.cpp  v104.1
 // Weapon/Player/Enemy/Item Tabs + Toggle Mods + Selectors
+// Build-fixed: missing offsets + ModDef copyable
 // ================================================================
 
 #include <list>
@@ -53,7 +54,7 @@ static constexpr float RAD2DEG = 57.29577951f;
 static constexpr float DEG2RAD = 0.01745329252f;
 
 // ================================================================
-//  ★ CRASH LOGGER
+//  CRASH LOGGER
 // ================================================================
 static int g_logFd = -1;
 static char g_logPath[200] = {0};
@@ -187,15 +188,14 @@ namespace Off {
     constexpr uintptr_t Weapon_setZoomLevel                 = 0x00f409d4;
     constexpr uintptr_t Weapon_applyMaxZoomScale            = 0x00f40a70;
     constexpr uintptr_t Weapon_getZoomScale                 = 0x00f408f4;
-    constexpr uintptr_t Weapon_changeZoomLevel              = 0x00f409bc;   // Magik Zoom
+    constexpr uintptr_t Weapon_changeZoomLevel              = 0x00f409bc;
     constexpr uintptr_t Weapon_pickupAsDual                 = 0x00f40b4c;
     constexpr uintptr_t Weapon_getMeleeDamage               = 0x00f40774;
     constexpr uintptr_t Weapon_getMeleeLength               = 0x00f4077c;
     constexpr uintptr_t Weapon_getWeightFactor              = 0x00f41144;
 
-    // Weapon fire funcs (for sprayer patches)
     constexpr uintptr_t AK47_triggerPull                    = 0x00ea2e74;
-    constexpr uintptr_t M16_triggerPull                     = 0x00ee4250; // parent fire is 0xee4250, updateItemStep 0xee4298
+    constexpr uintptr_t M16_triggerPull                     = 0x00ee4250;
     constexpr uintptr_t MINIGUN_triggerPull                 = 0x00ee7334;
     constexpr uintptr_t EMP_triggerPull                     = 0x00ead8d0;
     constexpr uintptr_t RG6_triggerPull                     = 0x00f06640;
@@ -212,17 +212,14 @@ namespace Off {
     constexpr uintptr_t PHASR_triggerPull                   = 0xef921c;
     constexpr uintptr_t DEAGLE_triggerPull                  = 0xeacaf0;
 
-    // Wall/Bullet
     constexpr uintptr_t Tracer_checkCollision               = 0x00f33160;
     constexpr uintptr_t Tracer_onSpark                      = 0x00f33510;
 
-    // Any-weapon-as-X
     constexpr uintptr_t ProjectileManager_addGrenade        = 0x00f04d58;
     constexpr uintptr_t ProjectileManager_addRocket         = 0x00f05008;
     constexpr uintptr_t ProjectileManager_addSaw            = 0x00f05750;
     constexpr uintptr_t ProjectileManager_addShell          = 0x00f052d8;
 
-    // Player
     constexpr uintptr_t SoldierLocalController_createWithWeaponPack = 0x00f13910;
     constexpr uintptr_t SoldierLocalController_updateStep   = 0x00f14478;
     constexpr uintptr_t SoldierLocalController_addDamage    = 0x00f18c64;
@@ -242,7 +239,6 @@ namespace Off {
     constexpr uintptr_t MapManager_addStaticBodyShape       = 0x00eeb038;
     constexpr uintptr_t MapManager_getMaxPower              = 0x00eea748;
 
-    // Enemy
     constexpr uintptr_t Enemy_canSeeTarget                  = 0x00eb3940;
     constexpr uintptr_t HumanoidDrone_addDamage             = 0x00edf408;
     constexpr uintptr_t HawkDrone_addDamage                 = 0x00eddc44;
@@ -254,44 +250,35 @@ namespace Off {
     constexpr uintptr_t GasCloud_applyDamage                = 0x00ed5808;
     constexpr uintptr_t PlasmaBall_applyDamage              = 0x00f00b84;
 
-    // Proxy / Saw
     constexpr uintptr_t ProxyMine_updateStep                = 0x00f05db8;
     constexpr uintptr_t ProxyMine_reset                     = 0x00f05c98;
     constexpr uintptr_t SAW_checkMapCollision               = 0x00f0a410;
     constexpr uintptr_t SAW_updateItemStep                  = 0x00f0a2a8;
 
-    // Unlock
     constexpr uintptr_t WeaponsModel_isUnlockable           = 0x01113a88;
     constexpr uintptr_t WeaponsModel_isUpgradable           = 0x01113a60;
     constexpr uintptr_t WeaponsModel_getDualWieldUnlockLevel= 0x01113984;
     constexpr uintptr_t WeaponsModel_getMaxWeaponZoom       = 0x011134f8;
     constexpr uintptr_t UserWallet_maxOwnedLevelForWeapon   = 0x011bcfb8;
-    constexpr uintptr_t UserWallet_quantityOwnedOf          = 0x011bcd14; // "Unlock Everything" user offset
+    constexpr uintptr_t UserWallet_quantityOwnedOf          = 0x011bcd14;
 
-    // Fake info
     constexpr uintptr_t UserProfile_level                   = 0x011bae9c;
 
-    // Survival
     constexpr uintptr_t SurvivalStage_playRound             = 0x00f2d7a4;
     constexpr uintptr_t SurvivalStage_setupSarge            = 0x00f2c098;
     constexpr uintptr_t SurvivalStage_doLesson              = 0x00f2d388;
 
-    // CTF
     constexpr uintptr_t WeaponManager_updateStep            = 0x00f47080;
 
-    // Gas color
     constexpr uintptr_t GasCloud_ctor                       = 0x00ed54d0;
 
-    // Respawn
     constexpr uintptr_t SoldierManager_respawnPlayer        = 0x00f19f78;
 
-    // HUD
     constexpr uintptr_t HUD_onGrenade                       = 0x00ed8844;
-    constexpr uintptr_t HUD_onPunch                         = 0x00ed87e4;
+    constexpr uintptr_t HUD_onPunch                         = 0x00ed87e7;
     constexpr uintptr_t NetworkManager_sendWeaponCreate     = 0x00ef3e80;
     constexpr uintptr_t NetworkManager_sendWeaponChange     = 0x00ef3ec4;
 
-    // Camera
     constexpr uintptr_t CCNode_convertToWorldSpaceAR        = 0x00f88018;
     constexpr uintptr_t CCDirector_sharedDirector           = 0x00f8f5c4;
     constexpr uintptr_t CCDirector_getVisibleSize           = 0x00f90378;
@@ -306,6 +293,11 @@ namespace Off {
     constexpr uintptr_t Stage_update                        = 0x00f21938;
     constexpr uintptr_t NetworkMessageDispatcher_updatePeerDamage = 0x00ef5d60;
     constexpr uintptr_t ProjectileManager_addBullet         = 0x00f04b7c;
+
+    // ★ Missing offsets — build-error fix (verified from cocos2dcpp.cpp dump)
+    constexpr uintptr_t SoldierLocalController_activatePlayer = 0x00f17bb4;
+    constexpr uintptr_t NetworkManager_sendVelocityData        = 0x00ef457c;
+    constexpr uintptr_t EffectsManager_onExplosion             = 0x00eaffc4;
 }
 
 uintptr_t         g_libBase = 0;
@@ -314,23 +306,28 @@ struct MemPatches { MemoryPatch maxlevel, reload; };
 MemPatches gPatches;
 
 // ================================================================
-//  ★ MOD SYSTEM
+//  MOD SYSTEM
 // ================================================================
 struct ModDef {
-    const char*      name;
-    uintptr_t        offset;
-    const char*      patchHex;
-    MemoryPatch      patch;
-    std::atomic<bool> enabled{false};
-    bool             init{false};
+    const char*  name     = nullptr;
+    uintptr_t    offset   = 0;
+    const char*  patchHex = nullptr;
+    MemoryPatch  patch;
+    bool         enabled  = false;
+    bool         init     = false;
 };
 static std::vector<ModDef> g_mods;
 static std::mutex          g_modsMutex;
 
 static int RegisterMod(const char* name, uintptr_t off, const char* hex) {
     std::lock_guard<std::mutex> l(g_modsMutex);
-    ModDef d{}; d.name = name; d.offset = off; d.patchHex = hex;
-    g_mods.push_back(std::move(d));
+    ModDef d{};
+    d.name     = name;
+    d.offset   = off;
+    d.patchHex = hex;
+    d.enabled  = false;
+    d.init     = false;
+    g_mods.push_back(d);
     return (int)g_mods.size() - 1;
 }
 static void ApplyModByIndex(int idx, bool on) {
@@ -344,7 +341,7 @@ static void ApplyModByIndex(int idx, bool on) {
         m.init = true;
     }
     if (on) m.patch.Modify(); else m.patch.Restore();
-    m.enabled.store(on);
+    m.enabled = on;
 }
 
 // ================================================================
@@ -476,7 +473,7 @@ getRange_t             fn_getRange           = nullptr;
 getDamage_t            fn_getDamage          = nullptr;
 setFireAngle_wpn_t     fn_setFireAngleWpn    = nullptr;
 
-// HP table for views
+// HP table
 static constexpr int HP_TABLE_SIZE = 1024;
 struct ViewHPEntry { std::atomic<void*> view{nullptr}; std::atomic<int> hp{-1}; };
 static ViewHPEntry g_viewHPTable[HP_TABLE_SIZE];
@@ -588,8 +585,7 @@ std::atomic<bool> g_wpnUnlockAll      {false};
 std::atomic<bool> g_wpnMaxUpgrade     {false};
 std::atomic<bool> g_wpnDualWieldUnlock{false};
 
-// Weapon selection
-std::atomic<int>  g_selectedWeapon    {0};   // 0..255
+std::atomic<int>  g_selectedWeapon    {0};
 std::atomic<bool> g_applyWeaponSelect {false};
 
 std::atomic<bool> g_lagAntiLagMode    {false};
@@ -1557,10 +1553,9 @@ Java_com_android_support_Menu_Draw(JNIEnv* env, jclass, jobject espView, jobject
 }
 
 // ================================================================
-//  ★ MOD REGISTRY (IDs)
+//  MOD REGISTRY
 // ================================================================
 enum {
-    // Weapon tab (400-499)
     M_WPN_NO_BULLET_SPREAD = 0,
     M_WPN_NO_DUAL_THROW,
     M_WPN_HIDE_WEAPONS,
@@ -1572,19 +1567,16 @@ enum {
     M_WPN_MAGIK_ZOOM,
     M_WPN_IN_SURVIVAL,
 
-    // Sprayers
     M_SPR_AK47, M_SPR_M16, M_SPR_MINIGUN, M_SPR_EMP, M_SPR_RG6, M_SPR_M14,
     M_SPR_MAGNUM, M_SPR_MP5, M_SPR_TAVOR, M_SPR_TEC9, M_SPR_AA12,
     M_SPR_HUNTING, M_SPR_SAWGUN, M_SPR_SMAW, M_SPR_XM8, M_SPR_PHASR, M_SPR_DEAGLE,
 
-    // Bullet / Any weapon
     M_BULLET_THROUGH_WALLS,
     M_ANY_WEAPON_GRENADE,
     M_ANY_WEAPON_ROCKET,
     M_ANY_WEAPON_SAW,
     M_ANY_WEAPON_SHELL,
 
-    // Player (500-599)
     M_PLY_UNLIMITED_FLY,
     M_PLY_ANTI_GRAVITY,
     M_PLY_FLY_WALLS,
@@ -1601,7 +1593,6 @@ enum {
     M_PLY_MAGIC_MELEE,
     M_PLY_HIDE_BOMB_THROW,
 
-    // Enemy / Robot (600-699)
     M_ENM_FAKE_INFO,
     M_ENM_REMOVE_ROBOT,
     M_ENM_ROBOTS_CANT_SEE,
@@ -1616,18 +1607,14 @@ enum {
     M_ENM_ENDLESS_SAW,
     M_ENM_SAW_DAMAGE_REMOVE,
 
-    // Item (700-799)
     M_ITEM_UNLOCK_EVERYTHING,
 
-    // Survival (800-899)
     M_SURV_PLAY_COUNT,
     M_SURV_SARGE_WEAPON,
 
-    // CTF (900-999)
     M_CTF_FLAG_GUN,
     M_CTF_ALWAYS_WIN,
 
-    // Gas/Bomb color (1000+)
     M_GAS_COLOR_GR,
     M_GAS_COLOR_B,
     M_GAS_NO_COLOR,
@@ -1640,19 +1627,19 @@ static void RegisterAllMods() {
     if (done) return;
     done = true;
 
-    // ------------ Weapon --------------
-    RegisterMod("Weapon_NoBulletSpread",      Off::Weapon_getRandomFiringAngle, "00 00 A0 E3 1E FF 2F E1"); // MOV R0,#0; BX LR
+    // Weapon
+    RegisterMod("Weapon_NoBulletSpread",      Off::Weapon_getRandomFiringAngle, "00 00 A0 E3 1E FF 2F E1");
     RegisterMod("Weapon_NoDualThrow",         Off::SoldierLocalController_throwDual, "1E FF 2F E1");
     RegisterMod("Weapon_HideWeapons",         Off::NetworkManager_sendWeaponChange, "1E FF 2F E1");
-    RegisterMod("Weapon_DualWieldAny",        Off::Weapon_isDualWield,   "01 00 A0 E3 1E FF 2F E1"); // MOV R0,#1; BX LR
+    RegisterMod("Weapon_DualWieldAny",        Off::Weapon_isDualWield,   "01 00 A0 E3 1E FF 2F E1");
     RegisterMod("Weapon_DualWieldPrimary",    Off::Weapon_isDualWieldPrimaryOnly, "01 00 A0 E3 1E FF 2F E1");
     RegisterMod("Weapon_DualOnSpawn",         Off::Weapon_pickupAsDual, "01 00 A0 E3 1E FF 2F E1");
-    RegisterMod("Weapon_HighMeleeDamage",     Off::Weapon_getMeleeDamage, "E7 03 00 E3 1E FF 2F E1"); // MOV R0,#999
+    RegisterMod("Weapon_HighMeleeDamage",     Off::Weapon_getMeleeDamage, "E7 03 00 E3 1E FF 2F E1");
     RegisterMod("Weapon_HighMeleeLength",     Off::Weapon_getMeleeLength, "E7 03 00 E3 1E FF 2F E1");
-    RegisterMod("Weapon_MagikZoom",           Off::Weapon_changeZoomLevel, "00 00 A0 E1"); // NOP
+    RegisterMod("Weapon_MagikZoom",           Off::Weapon_changeZoomLevel, "00 00 A0 E1");
     RegisterMod("Weapon_InSurvival",          Off::SurvivalStage_playRound, "00 00 A0 E1");
 
-    // ------------ Sprayers --------------
+    // Sprayers
     RegisterMod("Spray_AK47",   Off::AK47_triggerPull,   "00 00 A0 E1");
     RegisterMod("Spray_M16",    Off::M16_triggerPull,    "00 00 A0 E1");
     RegisterMod("Spray_MiniGun",Off::MINIGUN_triggerPull,"00 00 A0 E1");
@@ -1671,14 +1658,14 @@ static void RegisterAllMods() {
     RegisterMod("Spray_PHASR",  Off::PHASR_triggerPull,  "00 00 A0 E1");
     RegisterMod("Spray_DEAGLE", Off::DEAGLE_triggerPull, "00 00 A0 E1");
 
-    // ------------ Bullet --------------
+    // Bullet / Any weapon
     RegisterMod("Bullet_ThroughWalls",     Off::Tracer_checkCollision, "00 00 A0 E3 1E FF 2F E1");
     RegisterMod("AnyWeapon_AsGrenade",     Off::ProjectileManager_addGrenade, "00 00 A0 E1");
     RegisterMod("AnyWeapon_FromSMAW",      Off::ProjectileManager_addRocket,  "00 00 A0 E1");
     RegisterMod("AnyWeapon_FromSAWGun",    Off::ProjectileManager_addSaw,     "00 00 A0 E1");
     RegisterMod("AnyWeapon_FromRG6",       Off::ProjectileManager_addShell,   "00 00 A0 E1");
 
-    // ------------ Player --------------
+    // Player
     RegisterMod("Player_UnlimitedFlyingPower", Off::MapManager_getMaxPower, "64 00 A0 E3 1E FF 2F E1");
     RegisterMod("Player_AntiGravity",          Off::MapManager_getGravityFactor, "00 00 A0 E3 1E FF 2F E1");
     RegisterMod("Player_FlyThroughWalls",      Off::MapManager_addStaticBodyShape, "1E FF 2F E1");
@@ -1695,7 +1682,7 @@ static void RegisterAllMods() {
     RegisterMod("Player_MagicMelee",           Off::HUD_onPunch,   "00 00 A0 E1");
     RegisterMod("Player_HideBombThrow",        Off::NetworkManager_sendWeaponCreate, "1E FF 2F E1");
 
-    // ------------ Enemy / Robot --------------
+    // Enemy
     RegisterMod("Enemy_FakeInfo",              Off::UserProfile_level, "FF 00 A0 E3 1E FF 2F E1");
     RegisterMod("Enemy_RemoveRobot",           Off::HumanoidDrone_updateStep, "1E FF 2F E1");
     RegisterMod("Enemy_RobotsCantSee",         Off::Enemy_canSeeTarget, "00 00 A0 E3 1E FF 2F E1");
@@ -1710,26 +1697,24 @@ static void RegisterAllMods() {
     RegisterMod("Enemy_EndlessSaw",            Off::SAW_updateItemStep, "00 00 A0 E1");
     RegisterMod("Enemy_SawDamageRemove",       Off::SAW_checkMapCollision, "00 00 A0 E3 1E FF 2F E1");
 
-    // ------------ Item --------------
+    // Item
     RegisterMod("Item_UnlockEverything",       Off::UserWallet_quantityOwnedOf, "01 00 A0 E3 1E FF 2F E1");
 
-    // ------------ Survival --------------
+    // Survival
     RegisterMod("Survival_PlayCount",          Off::SurvivalStage_playRound, "64 00 A0 E3 1E FF 2F E1");
     RegisterMod("Survival_SargeWeapon",        Off::SurvivalStage_setupSarge, "00 00 A0 E1");
 
-    // ------------ CTF --------------
+    // CTF
     RegisterMod("CTF_FlagRewardGun",           Off::WeaponManager_updateStep, "00 00 A0 E1");
     RegisterMod("CTF_AlwaysWin",               Off::WeaponManager_updateStep, "00 00 A0 E1");
 
-    // ------------ Gas color --------------
+    // Gas color
     RegisterMod("Gas_ColorGreenRed",           Off::GasCloud_ctor, "00 00 A0 E1");
     RegisterMod("Gas_ColorBlue",               Off::GasCloud_ctor, "00 00 A0 E1");
     RegisterMod("Gas_NoColor",                 Off::GasCloud_ctor, "00 00 A0 E1");
 }
 
-// Feature numbers → mod index mapping
 static inline int ModIdx(int feat) {
-    // Weapon: 400..499
     if (feat >= 400 && feat <= 499) {
         static const int map[] = {
             M_WPN_NO_BULLET_SPREAD, M_WPN_NO_DUAL_THROW, M_WPN_HIDE_WEAPONS,
@@ -1806,7 +1791,6 @@ jobjectArray GetFeatureList(JNIEnv *env, jobject) {
         OBFUSCATE("120_Toggle_Draw FOV Circle"),
         OBFUSCATE("121_SeekBar_FOV Size (px)_60_350"),
 
-        // =================== WEAPON ===================
         OBFUSCATE("Category_Weapon"),
         OBFUSCATE("200_Toggle_Unlimited Ammo"),
         OBFUSCATE("201_Toggle_Multi Shot"),
@@ -1821,7 +1805,6 @@ jobjectArray GetFeatureList(JNIEnv *env, jobject) {
         OBFUSCATE("210_SeekBar_Damage Multiplier_1_20"),
         OBFUSCATE("211_Toggle_No Recoil / Zero Spread"),
 
-        // =================== WEAPON EXTRAS ===================
         OBFUSCATE("Category_Weapon Extras"),
         OBFUSCATE("221_Toggle_Enable Custom Zoom"),
         OBFUSCATE("224_SeekBar_Custom Zoom Level (1x-11x)_1_11"),
@@ -1831,7 +1814,6 @@ jobjectArray GetFeatureList(JNIEnv *env, jobject) {
         OBFUSCATE("231_Toggle_Max Upgrade Level Bypass"),
         OBFUSCATE("232_Toggle_Dual Wield Unlock (No Level Req)"),
 
-        // =================== WEAPON MODS (patch) ===================
         OBFUSCATE("Category_Weapon Mods"),
         OBFUSCATE("400_Toggle_No Bullet Spread"),
         OBFUSCATE("401_Toggle_No Dual Throw"),
@@ -1849,7 +1831,6 @@ jobjectArray GetFeatureList(JNIEnv *env, jobject) {
         OBFUSCATE("413_Toggle_Any Weapon from SAWGun"),
         OBFUSCATE("414_Toggle_Any Weapon from RG6"),
 
-        // =================== WEAPON SPRAYERS ===================
         OBFUSCATE("Category_Weapon Sprayers"),
         OBFUSCATE("420_Toggle_AK47 Sprayer"),
         OBFUSCATE("421_Toggle_M16 Sprayer"),
@@ -1869,7 +1850,6 @@ jobjectArray GetFeatureList(JNIEnv *env, jobject) {
         OBFUSCATE("435_Toggle_PHASR Sprayer"),
         OBFUSCATE("436_Toggle_DEAGLE Sprayer"),
 
-        // =================== PLAYER ===================
         OBFUSCATE("Category_Player"),
         OBFUSCATE("500_Toggle_Unlimited Flying Power"),
         OBFUSCATE("501_Toggle_Anti Gravity"),
@@ -1887,7 +1867,6 @@ jobjectArray GetFeatureList(JNIEnv *env, jobject) {
         OBFUSCATE("513_Toggle_Magic Melee Punch"),
         OBFUSCATE("514_Toggle_Hide Bomb Throw"),
 
-        // =================== ENEMY ===================
         OBFUSCATE("Category_Enemy / Robot"),
         OBFUSCATE("600_Toggle_Fake Enemy Info"),
         OBFUSCATE("601_Toggle_Remove Robot"),
@@ -1903,27 +1882,22 @@ jobjectArray GetFeatureList(JNIEnv *env, jobject) {
         OBFUSCATE("611_Toggle_Endless Saw"),
         OBFUSCATE("612_Toggle_Saw Damage Remove"),
 
-        // =================== ITEM ===================
         OBFUSCATE("Category_Item"),
         OBFUSCATE("700_Toggle_Unlock Everything"),
 
-        // =================== SURVIVAL ===================
         OBFUSCATE("Category_Survival"),
         OBFUSCATE("800_Toggle_Survival Play Count"),
         OBFUSCATE("801_Toggle_Sarge Weapon"),
 
-        // =================== CTF ===================
         OBFUSCATE("Category_CTF"),
         OBFUSCATE("900_Toggle_Flag Rewarded Gun"),
         OBFUSCATE("901_Toggle_CTF Always Win"),
 
-        // =================== GAS COLOR ===================
         OBFUSCATE("Category_Gas Cloud"),
         OBFUSCATE("1000_Toggle_Gas Color Green/Red"),
         OBFUSCATE("1001_Toggle_Gas Color Blue"),
         OBFUSCATE("1002_Toggle_Gas No Color"),
 
-        // =================== PERFORMANCE ===================
         OBFUSCATE("Category_Performance"),
         OBFUSCATE("300_Toggle_Anti-Lag Mode (30Hz ESP)"),
         OBFUSCATE("301_SeekBar_ESP Update Rate (Hz)_10_60"),
@@ -1942,7 +1916,6 @@ jobjectArray GetFeatureList(JNIEnv *env, jobject) {
 void Changes(JNIEnv*, jclass, jobject, jint featNum, jstring, jint value, jlong, jboolean boolean, jstring) {
     crashLog("CHG", "feat=%d value=%d bool=%d", featNum, value, (int)boolean);
 
-    // ------------ mod-toggle handling (400..1099 with even/odd) ------------
     int modIdx = ModIdx(featNum);
     if (modIdx >= 0) {
         if (!g_libReady.load()) { InstallHooksIfNeeded(); }
@@ -1980,7 +1953,6 @@ void Changes(JNIEnv*, jclass, jobject, jint featNum, jstring, jint value, jlong,
         case 120: g_drawFovCircle = boolean; break;
         case 121: { if (value > 350) value = 350; if (value < 60) value = 60; g_fovPixels = value; } break;
 
-        // ---- standard weapon toggles ----
         case 200: g_wpnUnlimitedAmmo = boolean; if (boolean) InstallHooksIfNeeded(); break;
         case 201: g_wpnMultiShot = boolean; break;
         case 202: { if (value < 1) value = 1; if (value > 30) value = 30; g_wpnBulletsPerFire = value; } break;
@@ -2002,7 +1974,6 @@ void Changes(JNIEnv*, jclass, jobject, jint featNum, jstring, jint value, jlong,
         case 231: g_wpnMaxUpgrade = boolean; if (boolean) InstallHooksIfNeeded(); break;
         case 232: g_wpnDualWieldUnlock = boolean; if (boolean) InstallHooksIfNeeded(); break;
 
-        // Performance
         case 300: g_lagAntiLagMode = boolean; break;
         case 301: { if (value < 10) value = 10; if (value > 60) value = 60; g_lagEspUpdateHz = value; } break;
         case 302: g_lagSkipExtraDraw = boolean; break;
