@@ -231,7 +231,10 @@ private View sidebarDivider = null;
         // Initial size never exceeds the screen
         int initW = Math.min(dp(MENU_WIDTH), Math.max(dp(MIN_MENU_WIDTH_DP), screenW() - dp(10)));
         int initH = Math.min(dp(MENU_HEIGHT), Math.max(dp(MIN_MENU_HEIGHT_DP), screenH() - POS_Y - dp(16)));
-
+        int loginMinW = dp(240);
+int loginMinH = dp(340);
+if (initW < loginMinW && screenW() > loginMinW) initW = loginMinW;
+if (initH < loginMinH && screenH() > loginMinH + POS_Y + dp(20)) initH = loginMinH;
         // ---------------- Frame: animated glow + gradient border ----------------
         menuFrame = new FrameLayout(context);
         menuFrame.setVisibility(View.GONE);
@@ -1995,13 +1998,13 @@ private View sidebarDivider = null;
 private void showLoginScreen() {
     if (isLoggedIn) return;
 
-    // Sidebar hide করি যাতে login full-width দেখায়
+    // Sidebar hide
     if (sidebarScroll != null) sidebarScroll.setVisibility(View.GONE);
     if (sidebarDivider != null) sidebarDivider.setVisibility(View.GONE);
 
     contentLayout.removeAllViews();
 
-    // Focusable বানাই (keyboard এর জন্য)
+    // Window focusable (keyboard support)
     setWindowFocusable(true);
 
     LoginHelper loginHelper = new LoginHelper(getContext, new LoginHelper.Callback() {
@@ -2010,7 +2013,6 @@ private void showLoginScreen() {
             setWindowFocusable(false);
             isLoggedIn = true;
 
-            // Sidebar আবার দেখাই
             if (sidebarScroll != null) sidebarScroll.setVisibility(View.VISIBLE);
             if (sidebarDivider != null) sidebarDivider.setVisibility(View.VISIBLE);
 
@@ -2023,7 +2025,6 @@ private void showLoginScreen() {
     contentLayout.addView(loginView,
             new LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT));
 
-    // Collapsed থাকলে auto expand
     if (isViewCollapsed()) {
         menuFrame.post(new Runnable() {
             @Override
@@ -2042,6 +2043,9 @@ private void showLoginScreen() {
         vmParams.gravity = 51;
         vmParams.x = POS_X;
         vmParams.y = POS_Y;
+        vmParams.flags |= WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE;
+    vmParams.softInputMode = WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE
+                           | WindowManager.LayoutParams.SOFT_INPUT_STATE_HIDDEN;
         mWindowManager = (WindowManager) getContext.getSystemService(getContext.WINDOW_SERVICE);
         mWindowManager.addView(rootFrame, vmParams);
         overlayRequired = true;
@@ -2065,23 +2069,63 @@ private void showLoginScreen() {
 // ================================================================
 // 🔥 Login এর সময় window focusable বানাই যাতে keyboard কাজ করে
 // ================================================================
+// ================================================================
+// 🔥 Window focusable + IME (keyboard) support enable
+// Game overlays এ keyboard কাজ করার জন্য এই method critical
+// ================================================================
 private void setWindowFocusable(boolean focusable) {
     if (vmParams == null || mWindowManager == null || rootFrame == null) return;
     try {
         if (focusable) {
             if (!windowIsFocusable) {
                 savedWindowFlags = vmParams.flags;
+
+                // Focusable
                 vmParams.flags &= ~WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE;
+                vmParams.flags &= ~WindowManager.LayoutParams.FLAG_ALT_FOCUSABLE_IM;
                 vmParams.flags |= WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL;
+
+                // 🔥 Orientation-based softInputMode
+                int orientation = getContext.getResources().getConfiguration().orientation;
+                if (orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE) {
+                    // Landscape → keyboard floats over the screen, menu stays put
+                    vmParams.softInputMode = WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING
+                                           | WindowManager.LayoutParams.SOFT_INPUT_STATE_VISIBLE;
+                } else {
+                    // Portrait → menu pans up so keyboard sits at bottom
+                    vmParams.softInputMode = WindowManager.LayoutParams.SOFT_INPUT_ADJUST_PAN
+                                           | WindowManager.LayoutParams.SOFT_INPUT_STATE_VISIBLE;
+                }
+
                 windowIsFocusable = true;
+                mWindowManager.updateViewLayout(rootFrame, vmParams);
+
+                rootFrame.requestFocus();
+                rootFrame.postDelayed(new Runnable() {
+                    @Override
+                    public void run() {
+                        try {
+                            InputMethodManager imm = (InputMethodManager)
+                                    getContext.getSystemService(Context.INPUT_METHOD_SERVICE);
+                            if (imm != null) imm.restartInput(rootFrame);
+                        } catch (Exception ignored) { }
+                    }
+                }, 100);
             }
         } else {
             if (windowIsFocusable) {
                 vmParams.flags = savedWindowFlags;
+                vmParams.softInputMode = 0;
                 windowIsFocusable = false;
+                mWindowManager.updateViewLayout(rootFrame, vmParams);
+
+                try {
+                    InputMethodManager imm = (InputMethodManager)
+                            getContext.getSystemService(Context.INPUT_METHOD_SERVICE);
+                    if (imm != null) imm.hideSoftInputFromWindow(rootFrame.getWindowToken(), 0);
+                } catch (Exception ignored) { }
             }
         }
-        mWindowManager.updateViewLayout(rootFrame, vmParams);
     } catch (Exception e) {
         Log.e(TAG, "setWindowFocusable: " + e);
     }

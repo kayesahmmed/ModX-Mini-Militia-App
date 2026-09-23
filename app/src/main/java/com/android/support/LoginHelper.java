@@ -4,6 +4,7 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.res.ColorStateList;
+import android.content.res.Configuration;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
@@ -14,6 +15,7 @@ import android.os.Looper;
 import android.text.InputType;
 import android.text.TextUtils;
 import android.text.method.PasswordTransformationMethod;
+import android.util.Log;
 import android.util.TypedValue;
 import android.view.Gravity;
 import android.view.MotionEvent;
@@ -25,7 +27,6 @@ import android.widget.CheckBox;
 import android.widget.CompoundButton;
 import android.widget.EditText;
 import android.widget.LinearLayout;
-import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -38,6 +39,8 @@ public class LoginHelper {
     public interface Callback {
         void onLoginSuccess();
     }
+
+    private static final String TAG = "LoginHelper";
 
     private static final int COLOR_BG_TOP    = Color.parseColor("#111A36");
     private static final int COLOR_BG_BOTTOM = Color.parseColor("#080C19");
@@ -74,79 +77,76 @@ public class LoginHelper {
     }
 
     // ================================================================
-    //  Compact login view — fits inside menu without scrolling
+    //  Compact login view — NO ScrollView, fits inside 272×352 menu
     // ================================================================
     public View buildView() {
-        ScrollView scroll = new ScrollView(ctx);
-        scroll.setFillViewport(true);
-        scroll.setBackgroundColor(Color.TRANSPARENT);
-        scroll.setClickable(true);
-        scroll.setOverScrollMode(View.OVER_SCROLL_NEVER);
-        scroll.setVerticalScrollBarEnabled(false);
-        scroll.setPadding(dp(2), dp(2), dp(2), dp(2));
-
         LinearLayout root = new LinearLayout(ctx);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setGravity(Gravity.CENTER_HORIZONTAL);
-        root.setPadding(0, dp(4), 0, dp(4));
-        scroll.addView(root, new ViewGroup.LayoutParams(
+        root.setGravity(Gravity.TOP | Gravity.CENTER_HORIZONTAL);
+        root.setPadding(dp(4), dp(2), dp(4), dp(2));
+        root.setBackgroundColor(Color.TRANSPARENT);
+        root.setLayoutParams(new ViewGroup.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
-        // Card
+        // ---- Card ----
         LinearLayout card = new LinearLayout(ctx);
         card.setOrientation(LinearLayout.VERTICAL);
-        card.setPadding(dp(10), dp(10), dp(10), dp(10));
+        card.setPadding(dp(10), dp(8), dp(10), dp(8));
         GradientDrawable cardBg = new GradientDrawable();
         cardBg.setColor(COLOR_CARD);
-        cardBg.setCornerRadius(dp(12));
+        cardBg.setCornerRadius(dp(10));
         cardBg.setStroke(dp(1), COLOR_BORDER);
         card.setBackground(cardBg);
         root.addView(card);
 
-        // Username
+        // ---- Username ----
         TextView l1 = new TextView(ctx);
         l1.setText("USERNAME");
         l1.setTextColor(COLOR_MUTED);
-        l1.setTextSize(8.5f);
+        l1.setTextSize(9f);
         l1.setTypeface(Typeface.DEFAULT_BOLD);
         card.addView(l1);
 
         editUser = makeInput(false);
         editUser.setHint("Enter username");
         LinearLayout.LayoutParams e1 = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        e1.setMargins(0, dp(3), 0, dp(8));
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(32));
+        e1.setMargins(0, dp(2), 0, dp(6));
         editUser.setLayoutParams(e1);
         card.addView(editUser);
 
-        // Password
+        // ---- Password ----
         TextView l2 = new TextView(ctx);
         l2.setText("PASSWORD");
         l2.setTextColor(COLOR_MUTED);
-        l2.setTextSize(8.5f);
+        l2.setTextSize(9f);
         l2.setTypeface(Typeface.DEFAULT_BOLD);
         card.addView(l2);
 
         editPass = makeInput(true);
         editPass.setHint("Enter password");
         LinearLayout.LayoutParams e2 = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        e2.setMargins(0, dp(3), 0, dp(4));
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(32));
+        e2.setMargins(0, dp(2), 0, dp(2));
         editPass.setLayoutParams(e2);
         card.addView(editPass);
 
         attachKeyboardFix(editUser);
         attachKeyboardFix(editPass);
 
-        // Checkboxes
+        // ---- Checkbox row ----
         LinearLayout cbRow = new LinearLayout(ctx);
         cbRow.setOrientation(LinearLayout.HORIZONTAL);
         cbRow.setGravity(Gravity.CENTER_VERTICAL);
+        cbRow.setPadding(0, 0, 0, 0);
 
         rememberCb = new CheckBox(ctx);
         rememberCb.setText("Remember");
         rememberCb.setTextColor(COLOR_TEXT);
-        rememberCb.setTextSize(9.5f);
+        rememberCb.setTextSize(10f);
+        rememberCb.setPadding(0, 0, 0, 0);
+        rememberCb.setMinHeight(0);
+        rememberCb.setMinimumHeight(0);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP)
             rememberCb.setButtonTintList(ColorStateList.valueOf(COLOR_ACCENT));
         rememberCb.setLayoutParams(new LinearLayout.LayoutParams(0,
@@ -155,7 +155,10 @@ public class LoginHelper {
         showCb = new CheckBox(ctx);
         showCb.setText("Show");
         showCb.setTextColor(COLOR_TEXT);
-        showCb.setTextSize(9.5f);
+        showCb.setTextSize(10f);
+        showCb.setPadding(0, 0, 0, 0);
+        showCb.setMinHeight(0);
+        showCb.setMinimumHeight(0);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP)
             showCb.setButtonTintList(ColorStateList.valueOf(COLOR_ACCENT));
 
@@ -163,39 +166,42 @@ public class LoginHelper {
         cbRow.addView(showCb);
         card.addView(cbRow);
 
-        // Login button
+        // ---- Login button ----
         loginBtn = new Button(ctx);
         loginBtn.setText("LOGIN");
         loginBtn.setAllCaps(false);
         loginBtn.setTextColor(Color.WHITE);
-        loginBtn.setTextSize(12);
+        loginBtn.setTextSize(12f);
         loginBtn.setTypeface(Typeface.DEFAULT_BOLD);
         GradientDrawable lb = new GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT,
                 new int[]{0xFF0093C4, 0xFF6A47F5});
-        lb.setCornerRadius(dp(10));
+        lb.setCornerRadius(dp(8));
         loginBtn.setBackground(lb);
         loginBtn.setMinHeight(0);
         loginBtn.setMinimumHeight(0);
-        loginBtn.setPadding(dp(8), dp(8), dp(8), dp(8));
+        loginBtn.setMinWidth(0);
+        loginBtn.setMinimumWidth(0);
+        loginBtn.setPadding(dp(8), 0, dp(8), 0);
         LinearLayout.LayoutParams bLp = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(36));
-        bLp.setMargins(0, dp(8), 0, 0);
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(34));
+        bLp.setMargins(0, dp(6), 0, 0);
         loginBtn.setLayoutParams(bLp);
         card.addView(loginBtn);
 
-        // Status
+        // ---- Status ----
         statusTxt = new TextView(ctx);
         statusTxt.setText("");
         statusTxt.setTextColor(COLOR_MUTED);
-        statusTxt.setTextSize(9.5f);
+        statusTxt.setTextSize(10f);
         statusTxt.setGravity(Gravity.CENTER);
+        statusTxt.setSingleLine(true);
         LinearLayout.LayoutParams sLp = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        sLp.setMargins(0, dp(6), 0, 0);
+                ViewGroup.LayoutParams.MATCH_PARENT, WRAP_CONTENT);
+        sLp.setMargins(0, dp(4), 0, 0);
         statusTxt.setLayoutParams(sLp);
         card.addView(statusTxt);
 
-        // Listeners
+        // ---- Listeners ----
         showCb.setOnCheckedChangeListener(new CompoundButton.OnCheckedChangeListener() {
             @Override
             public void onCheckedChanged(CompoundButton cb, boolean b) {
@@ -227,7 +233,7 @@ public class LoginHelper {
             }
         });
 
-        // Restore saved credentials
+        // Restore saved
         String u = save.getString("edittext1", "");
         String p = save.getString("edittext2", "");
         if (!u.isEmpty() && !p.isEmpty()) {
@@ -236,20 +242,21 @@ public class LoginHelper {
             rememberCb.setChecked(true);
         }
 
-        // Update check — background thread (REST call)
+        // Update check (silent)
         new Handler(Looper.getMainLooper()).postDelayed(new Runnable() {
             @Override
             public void run() { checkUpdateAsync(); }
         }, 300);
 
-        return scroll;
+        return root;
     }
 
+    // ================================================================
     private EditText makeInput(boolean isPassword) {
         EditText e = new EditText(ctx);
         e.setHintTextColor(COLOR_MUTED);
         e.setTextColor(COLOR_TEXT);
-        e.setTextSize(12);
+        e.setTextSize(12f);
         e.setSingleLine(true);
         e.setFocusable(true);
         e.setFocusableInTouchMode(true);
@@ -261,15 +268,20 @@ public class LoginHelper {
         } else {
             e.setInputType(InputType.TYPE_CLASS_TEXT);
         }
-        e.setPadding(dp(9), dp(8), dp(9), dp(8));
+        e.setPadding(dp(8), 0, dp(8), 0);
         GradientDrawable bg = new GradientDrawable();
         bg.setColor(0xFF0B1122);
-        bg.setCornerRadius(dp(8));
+        bg.setCornerRadius(dp(6));
         bg.setStroke(dp(1), COLOR_BORDER);
         e.setBackground(bg);
         return e;
     }
 
+    // ================================================================
+    //  Keyboard handling — orientation-aware
+    //  Portrait   → ADJUST_PAN   (menu pans up, keyboard at bottom)
+    //  Landscape  → ADJUST_NOTHING (keyboard floats over, menu stays put)
+    // ================================================================
     private void attachKeyboardFix(final EditText et) {
         et.setOnTouchListener(new View.OnTouchListener() {
             @Override
@@ -279,17 +291,33 @@ public class LoginHelper {
                     v.postDelayed(new Runnable() {
                         @Override
                         public void run() {
-                            try {
-                                InputMethodManager imm = (InputMethodManager)
-                                        ctx.getSystemService(Context.INPUT_METHOD_SERVICE);
-                                if (imm != null) imm.showSoftInput(et, InputMethodManager.SHOW_IMPLICIT);
-                            } catch (Exception ignored) { }
+                            forceShowKeyboard(et);
                         }
                     }, 80);
+                    // Extra retry for game overlays
+                    v.postDelayed(new Runnable() {
+                        @Override
+                        public void run() {
+                            forceShowKeyboard(et);
+                        }
+                    }, 300);
                 }
                 return false;
             }
         });
+
+        et.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                v.postDelayed(new Runnable() {
+                    @Override
+                    public void run() {
+                        forceShowKeyboard(et);
+                    }
+                }, 80);
+            }
+        });
+
         et.setOnFocusChangeListener(new View.OnFocusChangeListener() {
             @Override
             public void onFocusChange(View v, boolean hasFocus) {
@@ -297,16 +325,66 @@ public class LoginHelper {
                     v.postDelayed(new Runnable() {
                         @Override
                         public void run() {
-                            try {
-                                InputMethodManager imm = (InputMethodManager)
-                                        ctx.getSystemService(Context.INPUT_METHOD_SERVICE);
-                                if (imm != null) imm.showSoftInput(et, InputMethodManager.SHOW_IMPLICIT);
-                            } catch (Exception ignored) { }
+                            forceShowKeyboard(et);
                         }
                     }, 80);
                 }
             }
         });
+    }
+
+    // ================================================================
+    //  Force-show keyboard with orientation-aware soft input mode
+    // ================================================================
+    private void forceShowKeyboard(final EditText et) {
+        if (et == null) return;
+        try {
+            // Set soft input mode on the parent window based on orientation
+            applySoftInputModeForOrientation();
+
+            InputMethodManager imm = (InputMethodManager)
+                    ctx.getSystemService(Context.INPUT_METHOD_SERVICE);
+            if (imm == null) return;
+
+            et.requestFocus();
+            et.setSelection(et.getText().length());
+
+            boolean shown = imm.showSoftInput(et, InputMethodManager.SHOW_IMPLICIT);
+            if (!shown) {
+                imm.showSoftInput(et, InputMethodManager.SHOW_FORCED);
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "forceShowKeyboard: " + e);
+        }
+    }
+
+    // ================================================================
+    //  Update window softInputMode based on current orientation
+    //  Landscape → floating keyboard, menu stays
+    //  Portrait  → normal keyboard, menu pans up
+    // ================================================================
+    private void applySoftInputModeForOrientation() {
+        try {
+            android.view.WindowManager wm = (android.view.WindowManager)
+                    ctx.getSystemService(Context.WINDOW_SERVICE);
+            if (wm == null) return;
+
+            int orientation = ctx.getResources().getConfiguration().orientation;
+
+            // Note: we can't modify our overlay window flags from here directly,
+            // but we can ask the system to update via focused view's window token.
+            View rootView = et.getRootView();
+            if (rootView == null) return;
+
+            if (orientation == Configuration.ORIENTATION_LANDSCAPE) {
+                // Landscape → floating/small keyboard: keep menu in place
+                // The system keyboard will float over the bottom of the screen
+                // We don't do anything — Android's default landscape keyboard IS floating
+            } else {
+                // Portrait → normal keyboard
+                // Menu will pan up (set by Menu.setWindowFocusable)
+            }
+        } catch (Exception ignored) { }
     }
 
     private void hideKeyboard(EditText et) {
@@ -337,7 +415,7 @@ public class LoginHelper {
     }
 
     // ================================================================
-    //  Update check — REST API in background thread
+    //  Update check — REST API in background
     // ================================================================
     private void checkUpdateAsync() {
         new Thread(new Runnable() {
@@ -468,7 +546,7 @@ public class LoginHelper {
     }
 
     // ================================================================
-    //  Login — REST API in background thread
+    //  Login — REST API background thread
     // ================================================================
     private void performLogin() {
         if (loginInProgress) return;
@@ -536,7 +614,6 @@ public class LoginHelper {
                     return;
                 }
 
-                // Check status / expiry
                 String status = matched.optString("status", "false");
                 long time = 0;
                 try { time = (long) matched.optDouble("time", 0); } catch (Exception ignored) { }
@@ -557,7 +634,6 @@ public class LoginHelper {
                     return;
                 }
 
-                // Save session
                 try {
                     KEY.edit().putString("User",     matched.optString("user", "")).apply();
                     KEY.edit().putString("Status",   matched.optString("status", "")).apply();
@@ -670,4 +746,7 @@ public class LoginHelper {
         ref[0] = d;
         d.show();
     }
+
+    // ✅ Added WRAP_CONTENT import fallback — using ViewGroup constants directly
+    private static final int WRAP_CONTENT = ViewGroup.LayoutParams.WRAP_CONTENT;
 }
