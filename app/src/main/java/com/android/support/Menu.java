@@ -713,7 +713,6 @@ if (initH < loginMinH && screenH() > loginMinH + effectivePosY) {
         public void run() {
             keepInsideScreen();
             applyResponsiveScale(menuFrame.getWidth());
-
             if (!isLoggedIn) {
                 setWindowFocusable(true);
             }
@@ -2018,13 +2017,11 @@ if (initH < loginMinH && screenH() > loginMinH + effectivePosY) {
 private void showLoginScreen() {
     if (isLoggedIn) return;
 
-    // Sidebar hide
     if (sidebarScroll != null) sidebarScroll.setVisibility(View.GONE);
     if (sidebarDivider != null) sidebarDivider.setVisibility(View.GONE);
 
     contentLayout.removeAllViews();
 
-    // Window focusable (keyboard support)
     setWindowFocusable(true);
 
     LoginHelper loginHelper = new LoginHelper(getContext, new LoginHelper.Callback() {
@@ -2061,21 +2058,18 @@ private void showLoginScreen() {
                 ViewGroup.LayoutParams lp = menuFrame.getLayoutParams();
                 int orientation = getContext.getResources().getConfiguration().orientation;
                 int targetH;
-                int targetW = lp.width;
 
                 if (orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE) {
-                    targetH = screenH() - dp(12);
-                    if (targetW < dp(300)) targetW = dp(300);
+                    targetH = screenH() - dp(15);
                 } else {
                     targetH = dp(352);
-                    if (targetH > screenH() - vmParams.y - dp(6)) {
-                        targetH = screenH() - vmParams.y - dp(6);
+                    if (targetH > screenH() - vmParams.y - dp(10)) {
+                        targetH = screenH() - vmParams.y - dp(10);
                     }
                 }
 
-                if (lp.height != targetH || lp.width != targetW) {
+                if (lp.height != targetH) {
                     lp.height = targetH;
-                    lp.width = targetW;
                     menuFrame.setLayoutParams(lp);
                     if (mWindowManager != null) {
                         mWindowManager.updateViewLayout(rootFrame, vmParams);
@@ -2126,29 +2120,31 @@ private void setWindowFocusable(boolean focusable) {
     if (vmParams == null || mWindowManager == null || rootFrame == null) return;
     try {
         if (focusable) {
-            savedWindowFlags = vmParams.flags;
+            if (!windowIsFocusable) {
+                savedWindowFlags = vmParams.flags;
 
-            vmParams.flags &= ~WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE;
-            vmParams.flags &= ~WindowManager.LayoutParams.FLAG_ALT_FOCUSABLE_IM;
-            vmParams.flags |= WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL;
+                vmParams.flags &= ~WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE;
+                vmParams.flags &= ~WindowManager.LayoutParams.FLAG_ALT_FOCUSABLE_IM;
+                vmParams.flags |= WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL;
 
-            vmParams.softInputMode = WindowManager.LayoutParams.SOFT_INPUT_ADJUST_PAN
-                                   | WindowManager.LayoutParams.SOFT_INPUT_STATE_VISIBLE;
+                vmParams.softInputMode = WindowManager.LayoutParams.SOFT_INPUT_ADJUST_PAN
+                                       | WindowManager.LayoutParams.SOFT_INPUT_STATE_HIDDEN;
 
-            windowIsFocusable = true;
-            mWindowManager.updateViewLayout(rootFrame, vmParams);
+                windowIsFocusable = true;
+                mWindowManager.updateViewLayout(rootFrame, vmParams);
 
-            rootFrame.requestFocus();
-            rootFrame.postDelayed(new Runnable() {
-                @Override
-                public void run() {
-                    try {
-                        InputMethodManager imm = (InputMethodManager)
-                                getContext.getSystemService(Context.INPUT_METHOD_SERVICE);
-                        if (imm != null) imm.restartInput(rootFrame);
-                    } catch (Exception ignored) { }
-                }
-            }, 100);
+                rootFrame.requestFocus();
+                rootFrame.postDelayed(new Runnable() {
+                    @Override
+                    public void run() {
+                        try {
+                            InputMethodManager imm = (InputMethodManager)
+                                    getContext.getSystemService(Context.INPUT_METHOD_SERVICE);
+                            if (imm != null) imm.restartInput(rootFrame);
+                        } catch (Exception ignored) { }
+                    }
+                }, 100);
+            }
         } else {
             if (windowIsFocusable) {
                 vmParams.flags = savedWindowFlags;

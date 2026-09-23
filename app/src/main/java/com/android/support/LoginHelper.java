@@ -9,12 +9,10 @@ import android.content.res.ColorStateList;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.ColorFilter;
-import android.graphics.LinearGradient;
 import android.graphics.Paint;
 import android.graphics.Path;
 import android.graphics.PixelFormat;
 import android.graphics.RectF;
-import android.graphics.Shader;
 import android.graphics.Typeface;
 import android.graphics.drawable.Drawable;
 import android.graphics.drawable.GradientDrawable;
@@ -33,13 +31,10 @@ import android.view.KeyEvent;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
-import android.view.animation.LinearInterpolator;
 import android.view.animation.OvershootInterpolator;
 import android.view.inputmethod.EditorInfo;
 import android.view.inputmethod.InputMethodManager;
 import android.widget.Button;
-import android.widget.CheckBox;
-import android.widget.CompoundButton;
 import android.widget.EditText;
 import android.widget.FrameLayout;
 import android.widget.ImageView;
@@ -70,7 +65,8 @@ public class LoginHelper {
     private static final int COLOR_MUTED      = Color.parseColor("#6F7FA8");
     private static final int COLOR_FIELD_BG   = Color.parseColor("#0D1526");
     private static final int COLOR_FIELD_BORD = Color.parseColor("#1C2742");
-    private static final int COLOR_INPUT_HINT = Color.parseColor("#4A5678");
+    private static final int COLOR_INPUT_HINT = Color.parseColor("#3E4A6B");
+    private static final int COLOR_CHECKED_BG = Color.parseColor("#0A1A2E");
 
     private static final int WRAP_CONTENT = ViewGroup.LayoutParams.WRAP_CONTENT;
     private static final int MATCH_PARENT = ViewGroup.LayoutParams.MATCH_PARENT;
@@ -82,7 +78,7 @@ public class LoginHelper {
 
     private EditText editUser, editPass;
     private LinearLayout userBox, passBox;
-    private CheckBox rememberCb, showCb;
+    private CustomCheck rememberCb, showCb;
     private Button loginBtn;
     private TextView statusTxt;
     private boolean loginInProgress = false;
@@ -112,7 +108,7 @@ public class LoginHelper {
         LinearLayout root = new LinearLayout(ctx);
         root.setOrientation(LinearLayout.VERTICAL);
         root.setGravity(Gravity.TOP | Gravity.CENTER_HORIZONTAL);
-        root.setPadding(dp(4), dp(4), dp(4), dp(4));
+        root.setPadding(dp(4), dp(6), dp(4), dp(4));
 
         LinearLayout card = new LinearLayout(ctx);
         card.setOrientation(LinearLayout.VERTICAL);
@@ -129,35 +125,6 @@ public class LoginHelper {
         }
         root.addView(card);
 
-        LinearLayout titleRow = new LinearLayout(ctx);
-        titleRow.setOrientation(LinearLayout.HORIZONTAL);
-        titleRow.setGravity(Gravity.CENTER_VERTICAL);
-
-        View accentBar = new View(ctx);
-        LinearLayout.LayoutParams barLp = new LinearLayout.LayoutParams(dp(3), dp(16));
-        barLp.setMargins(0, 0, dp(8), 0);
-        accentBar.setLayoutParams(barLp);
-        GradientDrawable barBg = new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,
-                new int[]{COLOR_ACCENT, COLOR_ACCENT_2});
-        barBg.setCornerRadius(dp(2));
-        accentBar.setBackground(barBg);
-        titleRow.addView(accentBar);
-
-        TextView title = new TextView(ctx);
-        title.setText("SECURE SIGN IN");
-        title.setTextColor(COLOR_TEXT);
-        title.setTextSize(10.5f);
-        title.setTypeface(tfBold);
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-            title.setLetterSpacing(0.22f);
-        }
-        titleRow.addView(title);
-
-        LinearLayout.LayoutParams titleRowLp = new LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT);
-        titleRowLp.setMargins(0, 0, 0, dp(10));
-        titleRow.setLayoutParams(titleRowLp);
-        card.addView(titleRow);
-
         TextView userLabel = makeFieldLabel("USERNAME");
         card.addView(userLabel);
 
@@ -171,7 +138,7 @@ public class LoginHelper {
         userBox.addView(userIcon);
 
         editUser = makeInput();
-        editUser.setHint("username");
+        editUser.setHint("Enter username");
         editUser.setImeOptions(EditorInfo.IME_ACTION_NEXT);
         editUser.setInputType(InputType.TYPE_CLASS_TEXT);
         LinearLayout.LayoutParams ueLp = new LinearLayout.LayoutParams(0, MATCH_PARENT, 1f);
@@ -179,7 +146,7 @@ public class LoginHelper {
         userBox.addView(editUser);
 
         LinearLayout.LayoutParams uLp = new LinearLayout.LayoutParams(MATCH_PARENT, dp(34));
-        uLp.setMargins(0, dp(3), 0, dp(8));
+        uLp.setMargins(0, dp(3), 0, dp(10));
         userBox.setLayoutParams(uLp);
         card.addView(userBox);
 
@@ -196,7 +163,7 @@ public class LoginHelper {
         passBox.addView(passIcon);
 
         editPass = makeInput();
-        editPass.setHint("password");
+        editPass.setHint("Enter password");
         editPass.setImeOptions(EditorInfo.IME_ACTION_DONE);
         editPass.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
         editPass.setTransformationMethod(PasswordTransformationMethod.getInstance());
@@ -205,7 +172,7 @@ public class LoginHelper {
         passBox.addView(editPass);
 
         LinearLayout.LayoutParams pLp = new LinearLayout.LayoutParams(MATCH_PARENT, dp(34));
-        pLp.setMargins(0, dp(3), 0, dp(6));
+        pLp.setMargins(0, dp(3), 0, dp(8));
         passBox.setLayoutParams(pLp);
         card.addView(passBox);
 
@@ -244,38 +211,35 @@ public class LoginHelper {
         cbRow.setGravity(Gravity.CENTER_VERTICAL);
         cbRow.setPadding(0, dp(2), 0, dp(2));
 
-        rememberCb = new CheckBox(ctx);
-        rememberCb.setText("Remember");
-        rememberCb.setTextColor(COLOR_MUTED);
-        rememberCb.setTextSize(10f);
-        rememberCb.setTypeface(tfRegular);
-        rememberCb.setPadding(0, 0, 0, 0);
-        rememberCb.setMinHeight(0);
-        rememberCb.setMinimumHeight(0);
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP)
-            rememberCb.setButtonTintList(new ColorStateList(
-                    new int[][]{
-                            new int[]{android.R.attr.state_checked},
-                            new int[]{}
-                    },
-                    new int[]{COLOR_ACCENT, COLOR_MUTED}));
+        rememberCb = new CustomCheck("Remember", false);
         rememberCb.setLayoutParams(new LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f));
 
-        showCb = new CheckBox(ctx);
-        showCb.setText("Show");
-        showCb.setTextColor(COLOR_MUTED);
-        showCb.setTextSize(10f);
-        showCb.setTypeface(tfRegular);
-        showCb.setPadding(0, 0, 0, 0);
-        showCb.setMinHeight(0);
-        showCb.setMinimumHeight(0);
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP)
-            showCb.setButtonTintList(new ColorStateList(
-                    new int[][]{
-                            new int[]{android.R.attr.state_checked},
-                            new int[]{}
-                    },
-                    new int[]{COLOR_ACCENT, COLOR_MUTED}));
+        showCb = new CustomCheck("Show", false);
+        showCb.setListener(new CustomCheck.Listener() {
+            @Override
+            public void onChanged(boolean checked) {
+                int sel = editPass.getSelectionStart();
+                if (checked) editPass.setTransformationMethod(
+                        android.text.method.HideReturnsTransformationMethod.getInstance());
+                else editPass.setTransformationMethod(PasswordTransformationMethod.getInstance());
+                if (sel >= 0 && sel <= editPass.getText().length()) {
+                    editPass.setSelection(sel);
+                }
+            }
+        });
+
+        rememberCb.setListener(new CustomCheck.Listener() {
+            @Override
+            public void onChanged(boolean checked) {
+                if (checked) {
+                    save.edit().putString("edittext1", editUser.getText().toString()).apply();
+                    save.edit().putString("edittext2", editPass.getText().toString()).apply();
+                } else {
+                    save.edit().remove("edittext1").apply();
+                    save.edit().remove("edittext2").apply();
+                }
+            }
+        });
 
         cbRow.addView(rememberCb);
         cbRow.addView(showCb);
@@ -285,7 +249,7 @@ public class LoginHelper {
         loginBtn.setText("SIGN IN");
         loginBtn.setAllCaps(false);
         loginBtn.setTextColor(Color.WHITE);
-        loginBtn.setTextSize(12f);
+        loginBtn.setTextSize(12.5f);
         loginBtn.setTypeface(tfBold);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
             loginBtn.setLetterSpacing(0.12f);
@@ -298,6 +262,7 @@ public class LoginHelper {
             RippleDrawable ripple = new RippleDrawable(
                     ColorStateList.valueOf(0x55FFFFFF), lb, null);
             loginBtn.setBackground(ripple);
+            loginBtn.setElevation(dp(3));
         } else {
             loginBtn.setBackground(lb);
         }
@@ -306,11 +271,8 @@ public class LoginHelper {
         loginBtn.setMinWidth(0);
         loginBtn.setMinimumWidth(0);
         loginBtn.setPadding(dp(8), 0, dp(8), 0);
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-            loginBtn.setElevation(dp(3));
-        }
-        LinearLayout.LayoutParams bLp = new LinearLayout.LayoutParams(MATCH_PARENT, dp(36));
-        bLp.setMargins(0, dp(8), 0, 0);
+        LinearLayout.LayoutParams bLp = new LinearLayout.LayoutParams(MATCH_PARENT, dp(38));
+        bLp.setMargins(0, dp(10), 0, 0);
         loginBtn.setLayoutParams(bLp);
         card.addView(loginBtn);
 
@@ -326,32 +288,6 @@ public class LoginHelper {
         sLp.setMargins(0, dp(6), 0, 0);
         statusTxt.setLayoutParams(sLp);
         card.addView(statusTxt);
-
-        showCb.setOnCheckedChangeListener(new CompoundButton.OnCheckedChangeListener() {
-            @Override
-            public void onCheckedChanged(CompoundButton cb, boolean b) {
-                int sel = editPass.getSelectionStart();
-                if (b) editPass.setTransformationMethod(
-                        android.text.method.HideReturnsTransformationMethod.getInstance());
-                else editPass.setTransformationMethod(PasswordTransformationMethod.getInstance());
-                if (sel >= 0 && sel <= editPass.getText().length()) {
-                    editPass.setSelection(sel);
-                }
-            }
-        });
-
-        rememberCb.setOnCheckedChangeListener(new CompoundButton.OnCheckedChangeListener() {
-            @Override
-            public void onCheckedChanged(CompoundButton cb, boolean b) {
-                if (b) {
-                    save.edit().putString("edittext1", editUser.getText().toString()).apply();
-                    save.edit().putString("edittext2", editPass.getText().toString()).apply();
-                } else {
-                    save.edit().remove("edittext1").apply();
-                    save.edit().remove("edittext2").apply();
-                }
-            }
-        });
 
         loginBtn.setOnClickListener(new View.OnClickListener() {
             @Override
@@ -379,11 +315,6 @@ public class LoginHelper {
             editPass.setText(p);
             rememberCb.setChecked(true);
         }
-
-        new Handler(Looper.getMainLooper()).postDelayed(new Runnable() {
-            @Override
-            public void run() { checkUpdateAsync(); }
-        }, 400);
 
         wrapper.addView(root, new FrameLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT));
         return wrapper;
@@ -546,128 +477,6 @@ public class LoginHelper {
         } catch (Exception e) { return ""; }
     }
 
-    private void checkUpdateAsync() {
-        new Thread(new Runnable() {
-            @Override
-            public void run() {
-                JSONObject json = ModFirebase.fetchJson("update");
-                if (json == null) return;
-                try {
-                    JSONObject up = json.optJSONObject("up");
-                    if (up == null) return;
-                    String version = up.optString("version", "");
-                    String message = up.optString("message", "");
-                    if (TextUtils.isEmpty(version)) return;
-                    final String currentVer = getVersionName();
-                    if (!currentVer.equals(version)) {
-                        final String fV = version;
-                        final String fM = message;
-                        new Handler(Looper.getMainLooper()).post(new Runnable() {
-                            @Override
-                            public void run() { showUpdateDialog(fV, fM); }
-                        });
-                    }
-                } catch (Exception ignored) { }
-            }
-        }).start();
-    }
-
-    private void showUpdateDialog(String version, String msg) {
-        if (!(ctx instanceof android.app.Activity)) return;
-        final android.app.AlertDialog[] ref = new android.app.AlertDialog[1];
-        LinearLayout box = new LinearLayout(ctx);
-        box.setOrientation(LinearLayout.VERTICAL);
-        box.setPadding(dp(18), dp(16), dp(18), dp(14));
-        GradientDrawable bg = new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,
-                new int[]{COLOR_BG_1, COLOR_BG_2});
-        bg.setCornerRadius(dp(16));
-        bg.setStroke(dp(1), COLOR_ACCENT);
-        box.setBackground(bg);
-
-        TextView t = new TextView(ctx);
-        t.setText("Update Available");
-        t.setTextColor(COLOR_ACCENT);
-        t.setTextSize(15);
-        t.setTypeface(tfBold);
-        box.addView(t);
-
-        TextView body = new TextView(ctx);
-        String txt = "Current : " + getVersionName() + "\nLatest  : " + version;
-        if (msg != null && !msg.isEmpty()) txt += "\n\n" + msg;
-        body.setText(txt);
-        body.setTextColor(COLOR_TEXT);
-        body.setTextSize(12);
-        LinearLayout.LayoutParams bLp = new LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT);
-        bLp.setMargins(0, dp(10), 0, 0);
-        box.addView(body, bLp);
-
-        LinearLayout row = new LinearLayout(ctx);
-        row.setOrientation(LinearLayout.HORIZONTAL);
-        row.setGravity(Gravity.RIGHT);
-        LinearLayout.LayoutParams rLp = new LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT);
-        rLp.setMargins(0, dp(14), 0, 0);
-        box.addView(row, rLp);
-
-        Button exitBtn = new Button(ctx);
-        exitBtn.setText("Exit");
-        exitBtn.setAllCaps(false);
-        exitBtn.setTextColor(COLOR_MUTED);
-        exitBtn.setTextSize(12);
-        GradientDrawable ebg = new GradientDrawable();
-        ebg.setColor(0x14FFFFFF);
-        ebg.setCornerRadius(dp(10));
-        exitBtn.setBackground(ebg);
-        exitBtn.setPadding(dp(16), dp(8), dp(16), dp(8));
-
-        Button updateBtn = new Button(ctx);
-        updateBtn.setText("Update");
-        updateBtn.setAllCaps(false);
-        updateBtn.setTextColor(Color.WHITE);
-        updateBtn.setTextSize(12);
-        updateBtn.setTypeface(tfBold);
-        GradientDrawable ubg = new GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT,
-                new int[]{0xFF0093C4, 0xFF6A47F5});
-        ubg.setCornerRadius(dp(10));
-        updateBtn.setBackground(ubg);
-        updateBtn.setPadding(dp(16), dp(8), dp(16), dp(8));
-        LinearLayout.LayoutParams uLp = new LinearLayout.LayoutParams(WRAP_CONTENT, WRAP_CONTENT);
-        uLp.setMargins(dp(8), 0, 0, 0);
-        updateBtn.setLayoutParams(uLp);
-
-        exitBtn.setOnClickListener(new View.OnClickListener() {
-            @Override public void onClick(View v) {
-                if (ref[0] != null) ref[0].dismiss();
-                ((android.app.Activity) ctx).finishAffinity();
-            }
-        });
-        updateBtn.setOnClickListener(new View.OnClickListener() {
-            @Override public void onClick(View v) {
-                try {
-                    Intent i = new Intent(Intent.ACTION_VIEW,
-                            Uri.parse("https://t.me/kayesahmmedpro"));
-                    i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-                    ctx.startActivity(i);
-                } catch (Exception e) { }
-            }
-        });
-
-        row.addView(exitBtn);
-        row.addView(updateBtn);
-
-        android.app.AlertDialog.Builder b = new android.app.AlertDialog.Builder(ctx);
-        b.setView(box);
-        android.app.AlertDialog d = b.create();
-        d.setCanceledOnTouchOutside(false);
-        d.setCancelable(false);
-        if (d.getWindow() != null) {
-            d.getWindow().setBackgroundDrawableResource(android.R.color.transparent);
-            if (Build.VERSION.SDK_INT >= 26) d.getWindow().setType(2038);
-            else d.getWindow().setType(2002);
-        }
-        ref[0] = d;
-        d.show();
-    }
-
     private void performLogin() {
         if (loginInProgress) return;
 
@@ -767,17 +576,159 @@ public class LoginHelper {
                         loginBtn.setText("SIGN IN");
                         setStatus("Welcome back!", COLOR_SUCCESS);
                         Toast.makeText(ctx, "Login Success", Toast.LENGTH_SHORT).show();
-
-                        new Handler().postDelayed(new Runnable() {
-                            @Override
-                            public void run() {
-                                if (callback != null) callback.onLoginSuccess();
-                            }
-                        }, 750);
+                        checkUpdateAfterLogin();
                     }
                 });
             }
         }).start();
+    }
+
+    private void checkUpdateAfterLogin() {
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                JSONObject updateJson = ModFirebase.fetchJson("update");
+                if (updateJson == null) {
+                    proceedToMenu();
+                    return;
+                }
+                try {
+                    JSONObject up = updateJson.optJSONObject("up");
+                    if (up == null) {
+                        proceedToMenu();
+                        return;
+                    }
+                    String latestVersion = up.optString("version", "");
+                    String message = up.optString("message", "");
+                    String currentVersion = getVersionName();
+
+                    if (!TextUtils.isEmpty(latestVersion) && !currentVersion.equals(latestVersion)) {
+                        final String fV = latestVersion;
+                        final String fM = message;
+                        new Handler(Looper.getMainLooper()).post(new Runnable() {
+                            @Override public void run() {
+                                showUpdateDialog(fV, fM);
+                            }
+                        });
+                    } else {
+                        proceedToMenu();
+                    }
+                } catch (Exception e) {
+                    proceedToMenu();
+                }
+            }
+        }).start();
+    }
+
+    private void proceedToMenu() {
+        new Handler(Looper.getMainLooper()).post(new Runnable() {
+            @Override public void run() {
+                if (callback != null) callback.onLoginSuccess();
+            }
+        });
+    }
+
+    private void showUpdateDialog(String version, String msg) {
+        if (!(ctx instanceof android.app.Activity)) {
+            proceedToMenu();
+            return;
+        }
+        final android.app.AlertDialog[] ref = new android.app.AlertDialog[1];
+
+        LinearLayout box = new LinearLayout(ctx);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setPadding(dp(20), dp(18), dp(20), dp(16));
+        GradientDrawable bg = new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,
+                new int[]{COLOR_BG_1, COLOR_BG_2});
+        bg.setCornerRadius(dp(16));
+        bg.setStroke(dp(1.2f), COLOR_ACCENT);
+        box.setBackground(bg);
+
+        TextView t = new TextView(ctx);
+        t.setText("New Update Available");
+        t.setTextColor(COLOR_ACCENT);
+        t.setTextSize(15);
+        t.setTypeface(tfBold);
+        box.addView(t);
+
+        TextView body = new TextView(ctx);
+        String txt = "Version " + version + " is now available.\n" +
+                "You're currently on version " + getVersionName() + ".";
+        if (msg != null && !msg.isEmpty()) txt += "\n\n" + msg;
+        body.setText(txt);
+        body.setTextColor(COLOR_TEXT);
+        body.setTextSize(12);
+        LinearLayout.LayoutParams bLp = new LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT);
+        bLp.setMargins(0, dp(10), 0, 0);
+        box.addView(body, bLp);
+
+        LinearLayout row = new LinearLayout(ctx);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.RIGHT);
+        LinearLayout.LayoutParams rLp = new LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT);
+        rLp.setMargins(0, dp(16), 0, 0);
+        box.addView(row, rLp);
+
+        Button continueBtn = new Button(ctx);
+        continueBtn.setText("Continue");
+        continueBtn.setAllCaps(false);
+        continueBtn.setTextColor(COLOR_MUTED);
+        continueBtn.setTextSize(12);
+        continueBtn.setTypeface(tfMedium);
+        GradientDrawable cbg = new GradientDrawable();
+        cbg.setColor(0x14FFFFFF);
+        cbg.setCornerRadius(dp(10));
+        continueBtn.setBackground(cbg);
+        continueBtn.setPadding(dp(18), dp(10), dp(18), dp(10));
+
+        Button updateBtn = new Button(ctx);
+        updateBtn.setText("Update");
+        updateBtn.setAllCaps(false);
+        updateBtn.setTextColor(Color.WHITE);
+        updateBtn.setTextSize(12);
+        updateBtn.setTypeface(tfBold);
+        GradientDrawable ubg = new GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT,
+                new int[]{0xFF0093C4, 0xFF6A47F5});
+        ubg.setCornerRadius(dp(10));
+        updateBtn.setBackground(ubg);
+        updateBtn.setPadding(dp(18), dp(10), dp(18), dp(10));
+        LinearLayout.LayoutParams uLp = new LinearLayout.LayoutParams(WRAP_CONTENT, WRAP_CONTENT);
+        uLp.setMargins(dp(8), 0, 0, 0);
+        updateBtn.setLayoutParams(uLp);
+
+        continueBtn.setOnClickListener(new View.OnClickListener() {
+            @Override public void onClick(View v) {
+                if (ref[0] != null) ref[0].dismiss();
+                proceedToMenu();
+            }
+        });
+
+        updateBtn.setOnClickListener(new View.OnClickListener() {
+            @Override public void onClick(View v) {
+                try {
+                    Intent i = new Intent(Intent.ACTION_VIEW,
+                            Uri.parse("https://t.me/kayesahmmedpro"));
+                    i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                    ctx.startActivity(i);
+                } catch (Exception e) { }
+            }
+        });
+
+        row.addView(continueBtn);
+        row.addView(updateBtn);
+
+        android.app.AlertDialog.Builder b = new android.app.AlertDialog.Builder(ctx);
+        b.setView(box);
+        android.app.AlertDialog d = b.create();
+        d.setCanceledOnTouchOutside(false);
+        d.setCancelable(false);
+        if (d.getWindow() != null) {
+            d.getWindow().setBackgroundDrawableResource(android.R.color.transparent);
+            if (Build.VERSION.SDK_INT >= 26) d.getWindow().setType(2038);
+            else d.getWindow().setType(2002);
+        }
+        ref[0] = d;
+        d.show();
     }
 
     private void showKeyExpiredDialog() {
@@ -788,11 +739,11 @@ public class LoginHelper {
         final android.app.AlertDialog[] ref = new android.app.AlertDialog[1];
         LinearLayout box = new LinearLayout(ctx);
         box.setOrientation(LinearLayout.VERTICAL);
-        box.setPadding(dp(18), dp(16), dp(18), dp(14));
+        box.setPadding(dp(20), dp(18), dp(20), dp(16));
         GradientDrawable bg = new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,
                 new int[]{COLOR_BG_1, COLOR_BG_2});
         bg.setCornerRadius(dp(16));
-        bg.setStroke(dp(1), COLOR_DANGER);
+        bg.setStroke(dp(1.2f), COLOR_DANGER);
         box.setBackground(bg);
 
         TextView t = new TextView(ctx);
@@ -858,6 +809,76 @@ public class LoginHelper {
         }
         ref[0] = d;
         d.show();
+    }
+
+    private class CustomCheck extends LinearLayout {
+        interface Listener { void onChanged(boolean checked); }
+
+        private final GradientDrawable boxBg;
+        private final View checkmark;
+        private boolean checked;
+        private Listener listener;
+
+        CustomCheck(String label, boolean initial) {
+            super(ctx);
+            this.checked = initial;
+            setOrientation(LinearLayout.HORIZONTAL);
+            setGravity(Gravity.CENTER_VERTICAL);
+            setPadding(0, 0, 0, 0);
+
+            FrameLayout box = new FrameLayout(ctx);
+            LinearLayout.LayoutParams boxLp = new LinearLayout.LayoutParams(dp(16), dp(16));
+            boxLp.setMargins(0, 0, dp(6), 0);
+            box.setLayoutParams(boxLp);
+
+            boxBg = new GradientDrawable();
+            boxBg.setCornerRadius(dp(4));
+            boxBg.setStroke(dp(1.4f), initial ? COLOR_ACCENT : COLOR_FIELD_BORD);
+            boxBg.setColor(initial ? COLOR_CHECKED_BG : Color.TRANSPARENT);
+            box.setBackground(boxBg);
+
+            checkmark = new View(ctx);
+            FrameLayout.LayoutParams cmLp = new FrameLayout.LayoutParams(dp(8), dp(8), Gravity.CENTER);
+            checkmark.setLayoutParams(cmLp);
+            GradientDrawable cmBg = new GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT,
+                    new int[]{COLOR_ACCENT, COLOR_ACCENT_2});
+            cmBg.setCornerRadius(dp(2));
+            checkmark.setBackground(cmBg);
+            checkmark.setVisibility(initial ? View.VISIBLE : View.GONE);
+            box.addView(checkmark);
+
+            TextView labelView = new TextView(ctx);
+            labelView.setText(label);
+            labelView.setTextColor(COLOR_MUTED);
+            labelView.setTextSize(10f);
+            labelView.setTypeface(tfRegular);
+
+            addView(box);
+            addView(labelView);
+
+            setOnClickListener(new OnClickListener() {
+                @Override
+                public void onClick(View v) {
+                    toggle();
+                }
+            });
+        }
+
+        void setListener(Listener l) { this.listener = l; }
+
+        void setChecked(boolean value) {
+            if (this.checked != value) toggle();
+        }
+
+        boolean isChecked() { return checked; }
+
+        private void toggle() {
+            checked = !checked;
+            checkmark.setVisibility(checked ? View.VISIBLE : View.GONE);
+            boxBg.setStroke(dp(1.4f), checked ? COLOR_ACCENT : COLOR_FIELD_BORD);
+            boxBg.setColor(checked ? COLOR_CHECKED_BG : Color.TRANSPARENT);
+            if (listener != null) listener.onChanged(checked);
+        }
     }
 
     private static class FieldIcon extends Drawable {
