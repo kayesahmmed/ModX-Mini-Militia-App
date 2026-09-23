@@ -30,6 +30,7 @@ import android.widget.Button;
 import android.widget.CheckBox;
 import android.widget.CompoundButton;
 import android.widget.EditText;
+import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 import android.widget.Toast;
@@ -46,21 +47,22 @@ public class LoginHelper {
 
     private static final String TAG = "LoginHelper";
 
-    // ================================================================
-    //  PREMIUM COLOR PALETTE
-    // ================================================================
-    private static final int COLOR_BG_TOP      = Color.parseColor("#0E1730");
-    private static final int COLOR_BG_BOTTOM   = Color.parseColor("#060A18");
-    private static final int COLOR_ACCENT      = Color.parseColor("#00E5FF");
-    private static final int COLOR_ACCENT_2    = Color.parseColor("#7C4DFF");
-    private static final int COLOR_SUCCESS     = Color.parseColor("#00F5A0");
-    private static final int COLOR_DANGER      = Color.parseColor("#FF4D6D");
-    private static final int COLOR_WARN        = Color.parseColor("#FFB300");
-    private static final int COLOR_TEXT        = Color.parseColor("#EAF1FF");
-    private static final int COLOR_MUTED       = Color.parseColor("#7E8CB3");
-    private static final int COLOR_FIELD_BG    = Color.parseColor("#0A1120");
-    private static final int COLOR_FIELD_BORDER= Color.parseColor("#1E2A48");
-    private static final int COLOR_FIELD_FOCUS = Color.parseColor("#00E5FF");
+    // ---- Premium dark / violet palette -----------------------------------
+    private static final int COLOR_BG_TOP       = Color.parseColor("#151B33");
+    private static final int COLOR_BG_BOTTOM    = Color.parseColor("#0A0E1C");
+    private static final int COLOR_ACCENT       = Color.parseColor("#7C6BFF");
+    private static final int COLOR_SUCCESS      = Color.parseColor("#2ECC91");
+    private static final int COLOR_DANGER       = Color.parseColor("#FF5470");
+    private static final int COLOR_WARN         = Color.parseColor("#FFB84D");
+    private static final int COLOR_TEXT         = Color.parseColor("#F4F6FF");
+    private static final int COLOR_MUTED        = Color.parseColor("#8792B5");
+    private static final int COLOR_FIELD_BG     = Color.parseColor("#10152B");
+    private static final int COLOR_FIELD_BORDER = Color.parseColor("#232B4E");
+    private static final int COLOR_FIELD_FOCUS  = Color.parseColor("#7C6BFF");
+
+    // Brand gradient used for the badge, the primary button and dialog CTAs
+    private static final int COLOR_BTN_START    = Color.parseColor("#6C5CE7");
+    private static final int COLOR_BTN_END      = Color.parseColor("#8F7CFF");
 
     private static final int WRAP_CONTENT = ViewGroup.LayoutParams.WRAP_CONTENT;
     private static final int MATCH_PARENT = ViewGroup.LayoutParams.MATCH_PARENT;
@@ -72,8 +74,6 @@ public class LoginHelper {
 
     private EditText editUser, editPass;
     private LinearLayout userBox, passBox;
-    private TextView userLabel, passLabel;
-    private GradientDrawable userBg, passBg;
     private CheckBox rememberCb, showCb;
     private Button loginBtn;
     private TextView statusTxt;
@@ -97,86 +97,131 @@ public class LoginHelper {
                 ctx.getResources().getDisplayMetrics());
     }
 
-    // ================================================================
-    //  BUILD PREMIUM LOGIN VIEW
-    // ================================================================
+    /*
+     * Height budget (all values in dp) so the whole view fits inside a
+     * fixed 352dp container with no scrolling, on a standard density:
+     *
+     *   root padding (10+10)................. 20
+     *   header row (badge 34 + margin 12).....  46
+     *   card padding (14+14).................. 28
+     *     username label + margin.............. 16
+     *     username field + margins............. 56
+     *     password label + margin.............. 16
+     *     password field + margins............. 54
+     *     options row + margin.................. 32
+     *     login button + margin................. 48
+     *     status line (reserved)................ 20
+     *                                    total  336  (16dp safety margin)
+     */
     public View buildView() {
         LinearLayout root = new LinearLayout(ctx);
         root.setOrientation(LinearLayout.VERTICAL);
         root.setGravity(Gravity.TOP | Gravity.CENTER_HORIZONTAL);
-        root.setPadding(dp(6), dp(6), dp(6), dp(6));
+        root.setPadding(dp(6), dp(10), dp(6), dp(10));
 
-        // ---- Greeting ----
+        // ---------------- Header: brand badge + title/subtitle ------------
+        LinearLayout header = new LinearLayout(ctx);
+        header.setOrientation(LinearLayout.HORIZONTAL);
+        header.setGravity(Gravity.CENTER_VERTICAL);
+        LinearLayout.LayoutParams headerLp = new LinearLayout.LayoutParams(WRAP_CONTENT, WRAP_CONTENT);
+        headerLp.setMargins(0, 0, 0, dp(12));
+        header.setLayoutParams(headerLp);
+
+        FrameLayout badge = new FrameLayout(ctx);
+        GradientDrawable badgeBg = new GradientDrawable(GradientDrawable.Orientation.TL_BR,
+                new int[]{COLOR_BTN_START, COLOR_BTN_END});
+        badgeBg.setShape(GradientDrawable.OVAL);
+        badge.setBackground(badgeBg);
+        badge.setElevation(dp(3));
+        LinearLayout.LayoutParams badgeLp = new LinearLayout.LayoutParams(dp(34), dp(34));
+        badge.setLayoutParams(badgeLp);
+
+        TextView badgeTxt = new TextView(ctx);
+        badgeTxt.setText("MX");
+        badgeTxt.setTextColor(Color.WHITE);
+        badgeTxt.setTextSize(11.5f);
+        badgeTxt.setTypeface(tfBold);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+            badgeTxt.setLetterSpacing(0.03f);
+        }
+        FrameLayout.LayoutParams badgeTxtLp = new FrameLayout.LayoutParams(WRAP_CONTENT, WRAP_CONTENT);
+        badgeTxtLp.gravity = Gravity.CENTER;
+        badge.addView(badgeTxt, badgeTxtLp);
+        header.addView(badge);
+
+        LinearLayout textStack = new LinearLayout(ctx);
+        textStack.setOrientation(LinearLayout.VERTICAL);
+        LinearLayout.LayoutParams stackLp = new LinearLayout.LayoutParams(WRAP_CONTENT, WRAP_CONTENT);
+        stackLp.setMargins(dp(10), 0, 0, 0);
+        textStack.setLayoutParams(stackLp);
+
         TextView greeting = new TextView(ctx);
         greeting.setText("Welcome back");
         greeting.setTextColor(COLOR_TEXT);
-        greeting.setTextSize(15f);
+        greeting.setTextSize(14f);
         greeting.setTypeface(tfBold);
-        greeting.setGravity(Gravity.CENTER);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-            greeting.setLetterSpacing(0.02f);
+            greeting.setLetterSpacing(0.01f);
         }
-        root.addView(greeting);
+        textStack.addView(greeting);
 
         TextView hint = new TextView(ctx);
         hint.setText("Sign in to unlock ModX Lab");
         hint.setTextColor(COLOR_MUTED);
-        hint.setTextSize(10.5f);
+        hint.setTextSize(10f);
         hint.setTypeface(tfRegular);
-        hint.setGravity(Gravity.CENTER);
         LinearLayout.LayoutParams hintLp = new LinearLayout.LayoutParams(WRAP_CONTENT, WRAP_CONTENT);
-        hintLp.setMargins(0, dp(2), 0, dp(10));
+        hintLp.setMargins(0, dp(1), 0, 0);
         hint.setLayoutParams(hintLp);
-        root.addView(hint);
+        textStack.addView(hint);
 
-        // ---- Card containing form ----
+        header.addView(textStack);
+        root.addView(header);
+
+        // ---------------- Card -------------------------------------------
         LinearLayout card = new LinearLayout(ctx);
         card.setOrientation(LinearLayout.VERTICAL);
-        card.setPadding(dp(12), dp(12), dp(12), dp(12));
+        card.setPadding(dp(14), dp(14), dp(14), dp(14));
         GradientDrawable cardBg = new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,
                 new int[]{COLOR_BG_TOP, COLOR_BG_BOTTOM});
-        cardBg.setCornerRadius(dp(14));
+        cardBg.setCornerRadius(dp(16));
         cardBg.setStroke(dp(1), COLOR_FIELD_BORDER);
         card.setBackground(cardBg);
         card.setElevation(dp(4));
         root.addView(card);
 
-        // ---- Username ----
-        userLabel = makeFieldLabel("USERNAME");
+        TextView userLabel = makeFieldLabel("USERNAME");
         card.addView(userLabel);
 
         userBox = makeFieldContainer();
         editUser = makeInput(false);
         editUser.setHint("your username");
-        editUser.setImeOptions(EditorInfo.IME_ACTION_NEXT);   // 🔥 Next button
+        editUser.setImeOptions(EditorInfo.IME_ACTION_NEXT);
         editUser.setInputType(InputType.TYPE_CLASS_TEXT);
         userBox.addView(editUser, new LinearLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT));
-        LinearLayout.LayoutParams uLp = new LinearLayout.LayoutParams(MATCH_PARENT, dp(38));
+        LinearLayout.LayoutParams uLp = new LinearLayout.LayoutParams(MATCH_PARENT, dp(42));
         uLp.setMargins(0, dp(4), 0, dp(10));
         userBox.setLayoutParams(uLp);
         card.addView(userBox);
 
-        // ---- Password ----
-        passLabel = makeFieldLabel("PASSWORD");
+        TextView passLabel = makeFieldLabel("PASSWORD");
         card.addView(passLabel);
 
         passBox = makeFieldContainer();
         editPass = makeInput(true);
         editPass.setHint("your password");
-        editPass.setImeOptions(EditorInfo.IME_ACTION_DONE);   // 🔥 Done button
+        editPass.setImeOptions(EditorInfo.IME_ACTION_DONE);
         editPass.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
         editPass.setTransformationMethod(PasswordTransformationMethod.getInstance());
         passBox.addView(editPass, new LinearLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT));
-        LinearLayout.LayoutParams pLp = new LinearLayout.LayoutParams(MATCH_PARENT, dp(38));
+        LinearLayout.LayoutParams pLp = new LinearLayout.LayoutParams(MATCH_PARENT, dp(42));
         pLp.setMargins(0, dp(4), 0, dp(8));
         passBox.setLayoutParams(pLp);
         card.addView(passBox);
 
-        // ---- Focus animations ----
-        attachFieldFocus(userBox, editUser, true);
-        attachFieldFocus(passBox, editPass, false);
+        attachFieldFocus(userBox, editUser);
+        attachFieldFocus(passBox, editPass);
 
-        // ---- IME Actions (Next → Password, Done → Login) ----
         editUser.setOnEditorActionListener(new TextView.OnEditorActionListener() {
             @Override
             public boolean onEditorAction(TextView v, int actionId, KeyEvent event) {
@@ -185,6 +230,7 @@ public class LoginHelper {
                  || (event != null && event.getKeyCode() == KeyEvent.KEYCODE_ENTER)) {
                     editPass.requestFocus();
                     editPass.setSelection(editPass.getText().length());
+                    forceShowKeyboard(editPass);
                     return true;
                 }
                 return false;
@@ -204,11 +250,12 @@ public class LoginHelper {
             }
         });
 
-        // ---- Checkbox row ----
         LinearLayout cbRow = new LinearLayout(ctx);
         cbRow.setOrientation(LinearLayout.HORIZONTAL);
         cbRow.setGravity(Gravity.CENTER_VERTICAL);
-        cbRow.setPadding(0, dp(2), 0, dp(2));
+        LinearLayout.LayoutParams cbRowLp = new LinearLayout.LayoutParams(MATCH_PARENT, dp(22));
+        cbRowLp.setMargins(0, 0, 0, dp(10));
+        cbRow.setLayoutParams(cbRowLp);
 
         rememberCb = new CheckBox(ctx);
         rememberCb.setText("Remember me");
@@ -224,7 +271,7 @@ public class LoginHelper {
 
         showCb = new CheckBox(ctx);
         showCb.setText("Show");
-        showCb.setTextColor(COLOR_TEXT);
+        showCb.setTextColor(COLOR_MUTED);
         showCb.setTextSize(10.5f);
         showCb.setTypeface(tfRegular);
         showCb.setPadding(0, 0, 0, 0);
@@ -237,7 +284,6 @@ public class LoginHelper {
         cbRow.addView(showCb);
         card.addView(cbRow);
 
-        // ---- Login button ----
         loginBtn = new Button(ctx);
         loginBtn.setText("SIGN IN");
         loginBtn.setAllCaps(false);
@@ -248,8 +294,8 @@ public class LoginHelper {
             loginBtn.setLetterSpacing(0.08f);
         }
         GradientDrawable lb = new GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT,
-                new int[]{0xFF0088CC, 0xFF6A47F5});
-        lb.setCornerRadius(dp(10));
+                new int[]{COLOR_BTN_START, COLOR_BTN_END});
+        lb.setCornerRadius(dp(11));
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
             RippleDrawable ripple = new RippleDrawable(
                     ColorStateList.valueOf(0x44FFFFFF), lb, null);
@@ -262,13 +308,12 @@ public class LoginHelper {
         loginBtn.setMinWidth(0);
         loginBtn.setMinimumWidth(0);
         loginBtn.setPadding(dp(8), 0, dp(8), 0);
-        loginBtn.setElevation(dp(2));
-        LinearLayout.LayoutParams bLp = new LinearLayout.LayoutParams(MATCH_PARENT, dp(38));
-        bLp.setMargins(0, dp(8), 0, 0);
+        loginBtn.setElevation(dp(3));
+        LinearLayout.LayoutParams bLp = new LinearLayout.LayoutParams(MATCH_PARENT, dp(44));
+        bLp.setMargins(0, dp(2), 0, 0);
         loginBtn.setLayoutParams(bLp);
         card.addView(loginBtn);
 
-        // ---- Status text (with fade animation) ----
         statusTxt = new TextView(ctx);
         statusTxt.setText("");
         statusTxt.setTextColor(COLOR_MUTED);
@@ -282,9 +327,6 @@ public class LoginHelper {
         statusTxt.setLayoutParams(sLp);
         card.addView(statusTxt);
 
-        // ================================================================
-        //  Listeners
-        // ================================================================
         showCb.setOnCheckedChangeListener(new CompoundButton.OnCheckedChangeListener() {
             @Override
             public void onCheckedChanged(CompoundButton cb, boolean b) {
@@ -327,7 +369,6 @@ public class LoginHelper {
             }
         });
 
-        // Restore saved
         String u = save.getString("edittext1", "");
         String p = save.getString("edittext2", "");
         if (!u.isEmpty() && !p.isEmpty()) {
@@ -336,7 +377,6 @@ public class LoginHelper {
             rememberCb.setChecked(true);
         }
 
-        // Silent update check
         new Handler(Looper.getMainLooper()).postDelayed(new Runnable() {
             @Override
             public void run() { checkUpdateAsync(); }
@@ -345,7 +385,6 @@ public class LoginHelper {
         return root;
     }
 
-    // ================================================================
     private TextView makeFieldLabel(String text) {
         TextView tv = new TextView(ctx);
         tv.setText(text);
@@ -367,7 +406,7 @@ public class LoginHelper {
         box.setGravity(Gravity.CENTER_VERTICAL);
         GradientDrawable bg = new GradientDrawable();
         bg.setColor(COLOR_FIELD_BG);
-        bg.setCornerRadius(dp(9));
+        bg.setCornerRadius(dp(10));
         bg.setStroke(dp(1.2f), COLOR_FIELD_BORDER);
         box.setBackground(bg);
         box.setClipToPadding(false);
@@ -387,27 +426,18 @@ public class LoginHelper {
         e.setCursorVisible(true);
         e.setBackground(null);
         e.setIncludeFontPadding(false);
-
-        // 🔥 FIX: cursor position behind text
         e.setGravity(Gravity.CENTER_VERTICAL | Gravity.START);
         e.setPadding(dp(12), 0, dp(12), 0);
-
-        // IME — necessary for smooth Next/Done behaviour
         e.setImeOptions(isPassword
                 ? EditorInfo.IME_ACTION_DONE
                 : EditorInfo.IME_ACTION_NEXT);
         e.setInputType(isPassword
                 ? InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD
                 : InputType.TYPE_CLASS_TEXT);
-
-        attachKeyboardFix(e);
         return e;
     }
 
-    // ================================================================
-    //  Field focus animation — border glow
-    // ================================================================
-    private void attachFieldFocus(final LinearLayout box, final EditText et, final boolean isUser) {
+    private void attachFieldFocus(final LinearLayout box, final EditText et) {
         et.setOnFocusChangeListener(new View.OnFocusChangeListener() {
             @Override
             public void onFocusChange(View v, boolean hasFocus) {
@@ -448,14 +478,18 @@ public class LoginHelper {
                 return false;
             }
         });
+
+        et.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                v.postDelayed(new Runnable() {
+                    @Override
+                    public void run() { forceShowKeyboard(et); }
+                }, 80);
+            }
+        });
     }
 
-    // ================================================================
-    private void attachKeyboardFix(final EditText et) {
-        // Handled above in attachFieldFocus
-    }
-
-    // ================================================================
     private void forceShowKeyboard(final EditText et) {
         if (et == null) return;
         try {
@@ -483,9 +517,6 @@ public class LoginHelper {
         } catch (Exception ignored) { }
     }
 
-    // ================================================================
-    //  Status update with smooth fade animation
-    // ================================================================
     private void setStatus(final String msg, final int color) {
         if (statusTxt == null) return;
         new Handler(Looper.getMainLooper()).post(new Runnable() {
@@ -513,9 +544,6 @@ public class LoginHelper {
         } catch (Exception e) { return ""; }
     }
 
-    // ================================================================
-    //  UPDATE CHECK (REST)
-    // ================================================================
     private void checkUpdateAsync() {
         new Thread(new Runnable() {
             @Override
@@ -555,7 +583,7 @@ public class LoginHelper {
         box.setBackground(bg);
 
         TextView t = new TextView(ctx);
-        t.setText("🚀 Update Available");
+        t.setText("Update Available");
         t.setTextColor(COLOR_ACCENT);
         t.setTextSize(15);
         t.setTypeface(tfBold);
@@ -596,7 +624,7 @@ public class LoginHelper {
         updateBtn.setTextSize(12);
         updateBtn.setTypeface(tfBold);
         GradientDrawable ubg = new GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT,
-                new int[]{0xFF0088CC, 0xFF6A47F5});
+                new int[]{COLOR_BTN_START, COLOR_BTN_END});
         ubg.setCornerRadius(dp(10));
         updateBtn.setBackground(ubg);
         updateBtn.setPadding(dp(16), dp(8), dp(16), dp(8));
@@ -638,9 +666,6 @@ public class LoginHelper {
         d.show();
     }
 
-    // ================================================================
-    //  LOGIN (REST)
-    // ================================================================
     private void performLogin() {
         if (loginInProgress) return;
 
@@ -648,14 +673,14 @@ public class LoginHelper {
         final String inputPass = editPass.getText().toString().trim();
 
         if (TextUtils.isEmpty(inputUser) || TextUtils.isEmpty(inputPass)) {
-            setStatus("⚠  Please fill in all fields", COLOR_WARN);
+            setStatus("Please fill in all fields", COLOR_WARN);
             return;
         }
 
         loginInProgress = true;
         loginBtn.setEnabled(false);
         loginBtn.setText("SIGNING IN...");
-        setStatus("⏳  Verifying credentials…", COLOR_ACCENT);
+        setStatus("Verifying credentials...", COLOR_ACCENT);
 
         save.edit().putString("edittext1", inputUser).apply();
         save.edit().putString("edittext2", inputPass).apply();
@@ -671,7 +696,7 @@ public class LoginHelper {
                         @Override public void run() {
                             loginBtn.setEnabled(true);
                             loginBtn.setText("SIGN IN");
-                            setStatus("⚠  Connection failed", COLOR_DANGER);
+                            setStatus("Connection failed", COLOR_DANGER);
                         }
                     });
                     return;
@@ -699,7 +724,7 @@ public class LoginHelper {
                         @Override public void run() {
                             loginBtn.setEnabled(true);
                             loginBtn.setText("SIGN IN");
-                            setStatus("✕  Invalid username or password", COLOR_DANGER);
+                            setStatus("Invalid username or password", COLOR_DANGER);
                         }
                     });
                     return;
@@ -717,7 +742,7 @@ public class LoginHelper {
                         @Override public void run() {
                             loginBtn.setEnabled(true);
                             loginBtn.setText("SIGN IN");
-                            setStatus("⚠  Key expired or blocked", COLOR_DANGER);
+                            setStatus("Key expired or blocked", COLOR_DANGER);
                             showKeyExpiredDialog();
                         }
                     });
@@ -738,7 +763,7 @@ public class LoginHelper {
                     @Override public void run() {
                         loginBtn.setEnabled(true);
                         loginBtn.setText("SIGN IN");
-                        setStatus("✓  Welcome back!", COLOR_SUCCESS);
+                        setStatus("Welcome back!", COLOR_SUCCESS);
                         Toast.makeText(ctx, "Login Success", Toast.LENGTH_SHORT).show();
 
                         new Handler().postDelayed(new Runnable() {
@@ -753,9 +778,6 @@ public class LoginHelper {
         }).start();
     }
 
-    // ================================================================
-    //  KEY EXPIRED DIALOG
-    // ================================================================
     private void showKeyExpiredDialog() {
         if (keyExpiredDialogShowing) return;
         keyExpiredDialogShowing = true;
@@ -772,7 +794,7 @@ public class LoginHelper {
         box.setBackground(bg);
 
         TextView t = new TextView(ctx);
-        t.setText("🔒 Access Expired");
+        t.setText("Access Expired");
         t.setTextColor(COLOR_DANGER);
         t.setTextSize(15);
         t.setTypeface(tfBold);
@@ -794,7 +816,7 @@ public class LoginHelper {
         contact.setTextSize(13);
         contact.setTypeface(tfBold);
         GradientDrawable cbg = new GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT,
-                new int[]{0xFF00B489, 0xFF00F5A0});
+                new int[]{COLOR_BTN_START, COLOR_BTN_END});
         cbg.setCornerRadius(dp(20));
         contact.setBackground(cbg);
         LinearLayout.LayoutParams cLp = new LinearLayout.LayoutParams(MATCH_PARENT, dp(42));

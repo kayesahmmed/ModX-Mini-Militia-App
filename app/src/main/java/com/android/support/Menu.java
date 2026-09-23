@@ -694,28 +694,32 @@ if (initH < loginMinH && screenH() > loginMinH + effectivePosY) {
     // Expand / collapse with animation
     // ================================================================
     private void expandMenu() {
-        menuFrame.animate().cancel();
-        mCollapsed.setVisibility(View.GONE);
-        menuFrame.setVisibility(View.VISIBLE);
-        menuFrame.setPivotX(0f);
-        menuFrame.setPivotY(0f);
-        menuFrame.setAlpha(0f);
-        menuFrame.setScaleX(0.86f);
-        menuFrame.setScaleY(0.86f);
-        menuFrame.animate()
-            .alpha(1f).scaleX(1f).scaleY(1f)
-            .setDuration(280)
-            .setInterpolator(new DecelerateInterpolator(1.8f))
-            .start();
-        startGlowAnimator();
-        menuFrame.post(new Runnable() {
-                @Override
-                public void run() {
-                    keepInsideScreen();
-                    applyResponsiveScale(menuFrame.getWidth());
-                }
-            });
-    }
+    menuFrame.animate().cancel();
+    mCollapsed.setVisibility(View.GONE);
+    menuFrame.setVisibility(View.VISIBLE);
+    menuFrame.setPivotX(0f);
+    menuFrame.setPivotY(0f);
+    menuFrame.setAlpha(0f);
+    menuFrame.setScaleX(0.86f);
+    menuFrame.setScaleY(0.86f);
+    menuFrame.animate()
+        .alpha(1f).scaleX(1f).scaleY(1f)
+        .setDuration(280)
+        .setInterpolator(new DecelerateInterpolator(1.8f))
+        .start();
+    startGlowAnimator();
+    menuFrame.post(new Runnable() {
+        @Override
+        public void run() {
+            keepInsideScreen();
+            applyResponsiveScale(menuFrame.getWidth());
+
+            if (!isLoggedIn) {
+                setWindowFocusable(true);
+            }
+        }
+    });
+}
 
     private void collapseMenu(float iconAlpha) {
         setWindowFocusable(false);
@@ -2120,32 +2124,29 @@ private void setWindowFocusable(boolean focusable) {
     if (vmParams == null || mWindowManager == null || rootFrame == null) return;
     try {
         if (focusable) {
-            if (!windowIsFocusable) {
-                savedWindowFlags = vmParams.flags;
+            savedWindowFlags = vmParams.flags;
 
-                vmParams.flags &= ~WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE;
-                vmParams.flags &= ~WindowManager.LayoutParams.FLAG_ALT_FOCUSABLE_IM;
-                vmParams.flags |= WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL;
+            vmParams.flags &= ~WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE;
+            vmParams.flags &= ~WindowManager.LayoutParams.FLAG_ALT_FOCUSABLE_IM;
+            vmParams.flags |= WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL;
 
-                // 🔥 ADJUST_PAN for BOTH orientations — no floating keyboard
-                vmParams.softInputMode = WindowManager.LayoutParams.SOFT_INPUT_ADJUST_PAN
-                                       | WindowManager.LayoutParams.SOFT_INPUT_STATE_VISIBLE;
+            vmParams.softInputMode = WindowManager.LayoutParams.SOFT_INPUT_ADJUST_PAN
+                                   | WindowManager.LayoutParams.SOFT_INPUT_STATE_VISIBLE;
 
-                windowIsFocusable = true;
-                mWindowManager.updateViewLayout(rootFrame, vmParams);
+            windowIsFocusable = true;
+            mWindowManager.updateViewLayout(rootFrame, vmParams);
 
-                rootFrame.requestFocus();
-                rootFrame.postDelayed(new Runnable() {
-                    @Override
-                    public void run() {
-                        try {
-                            InputMethodManager imm = (InputMethodManager)
-                                    getContext.getSystemService(Context.INPUT_METHOD_SERVICE);
-                            if (imm != null) imm.restartInput(rootFrame);
-                        } catch (Exception ignored) { }
-                    }
-                }, 100);
-            }
+            rootFrame.requestFocus();
+            rootFrame.postDelayed(new Runnable() {
+                @Override
+                public void run() {
+                    try {
+                        InputMethodManager imm = (InputMethodManager)
+                                getContext.getSystemService(Context.INPUT_METHOD_SERVICE);
+                        if (imm != null) imm.restartInput(rootFrame);
+                    } catch (Exception ignored) { }
+                }
+            }, 100);
         } else {
             if (windowIsFocusable) {
                 vmParams.flags = savedWindowFlags;
