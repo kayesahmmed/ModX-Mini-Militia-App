@@ -93,34 +93,31 @@ public class Menu {
 
     public static final String TAG = "Mod_Menu";
 
-    // ================================================================
-    //  PREMIUM DESIGN TOKENS
-    // ================================================================
-    // Brand accents
-    int COLOR_ACCENT      = Color.parseColor("#00E5FF");   // electric cyan
-    int COLOR_ACCENT_2    = Color.parseColor("#7C4DFF");   // royal violet
-    int COLOR_ACCENT_3    = Color.parseColor("#3D7BFF");   // cobalt (bridge colour)
-    int COLOR_SUCCESS     = Color.parseColor("#00F5A0");   // mint
-    int COLOR_DANGER      = Color.parseColor("#FF4D6D");   // coral red
+    // ---- "Obsidian & Gilt" palette : graphite-navy surfaces, champagne-gold accent ----
+    int COLOR_ACCENT      = Color.parseColor("#D8B36C");   // champagne gold (primary accent)
+    int COLOR_ACCENT_2    = Color.parseColor("#A9772F");   // antique bronze (gradient partner)
+    int COLOR_ACCENT_3    = Color.parseColor("#F1DFAE");   // pale gold sheen (bridge / highlight)
+    int COLOR_SUCCESS     = Color.parseColor("#4FBA82");   // muted emerald
+    int COLOR_DANGER      = Color.parseColor("#C25C56");   // muted brick red
     // Surfaces
-    int COLOR_BG_TOP      = Color.parseColor("#111A36");
-    int COLOR_BG_BOTTOM   = Color.parseColor("#080C19");
-    int COLOR_CARD        = Color.parseColor("#131B35");
-    int COLOR_CARD_HI     = Color.parseColor("#1A2547");
-    int COLOR_CARD_BORDER = Color.parseColor("#26335F");
-    int COLOR_TRACK       = Color.parseColor("#232E52");
-    int COLOR_TEXT_MUTED  = Color.parseColor("#8194BE");
+    int COLOR_BG_TOP      = Color.parseColor("#12141C");
+    int COLOR_BG_BOTTOM   = Color.parseColor("#08090D");
+    int COLOR_CARD        = Color.parseColor("#181B24");
+    int COLOR_CARD_HI     = Color.parseColor("#20242F");
+    int COLOR_CARD_BORDER = Color.parseColor("#2E313C");
+    int COLOR_TRACK       = Color.parseColor("#282B35");
+    int COLOR_TEXT_MUTED  = Color.parseColor("#8D8F99");
     // Gradient buttons
-    int BTN_GRAD_1        = Color.parseColor("#0093C4");
-    int BTN_GRAD_2        = Color.parseColor("#6A47F5");
+    int BTN_GRAD_1        = Color.parseColor("#2E3550");
+    int BTN_GRAD_2        = Color.parseColor("#4C5C8C");
 
     // Legacy names (kept so old references keep working)
-    int TEXT_COLOR            = Color.parseColor("#00E5FF");
-    int TEXT_COLOR_2          = Color.parseColor("#F2F6FF");
-    int BTN_COLOR             = Color.parseColor("#00E5FF");
-    int MENU_BG_COLOR         = Color.parseColor("#0B1122");
-    int MENU_FEATURE_BG_COLOR = Color.parseColor("#131B35");
-    int BORDER_COLOR          = Color.parseColor("#00E5FF");
+    int TEXT_COLOR            = Color.parseColor("#D8B36C");
+    int TEXT_COLOR_2          = Color.parseColor("#ECE8DF");
+    int BTN_COLOR             = Color.parseColor("#D8B36C");
+    int MENU_BG_COLOR         = Color.parseColor("#0C0E14");
+    int MENU_FEATURE_BG_COLOR = Color.parseColor("#181B24");
+    int BORDER_COLOR          = Color.parseColor("#D8B36C");
 
     // Default (design) menu size - includes the outer glow padding
     int MENU_WIDTH  = 272;
@@ -128,23 +125,23 @@ public class Menu {
 
     int POS_X = 5;
     int POS_Y = 100;
-    float MENU_CORNER  = 18f;      // dp
+    float MENU_CORNER  = 20f;      // dp — softer, more premium silhouette
     int   ICON_SIZE    = 50;
     float ICON_ALPHA   = 1f;
-    int ToggleON  = Color.parseColor("#00F5A0");
-    int ToggleOFF = Color.parseColor("#FF4D6D");
-    int BtnON     = Color.parseColor("#00F5A0");
-    int BtnOFF    = Color.parseColor("#FF4D6D");
-    int CategoryBG    = Color.parseColor("#0F1830");
-    int SeekBarColor  = Color.parseColor("#00E5FF");
-    int SeekBarProgressColor = Color.parseColor("#00F5A0");
-    int CheckBoxColor = Color.parseColor("#00E5FF");
-    int RadioColor    = Color.parseColor("#00E5FF");
-    int CollapseColor = Color.parseColor("#111B3A");
-    String NumberTxtColor = "#00F5A0";
+    int ToggleON  = Color.parseColor("#4FBA82");
+    int ToggleOFF = Color.parseColor("#C25C56");
+    int BtnON     = Color.parseColor("#4FBA82");
+    int BtnOFF    = Color.parseColor("#C25C56");
+    int CategoryBG    = Color.parseColor("#151822");
+    int SeekBarColor  = Color.parseColor("#D8B36C");
+    int SeekBarProgressColor = Color.parseColor("#D8B36C");
+    int CheckBoxColor = Color.parseColor("#D8B36C");
+    int RadioColor    = Color.parseColor("#D8B36C");
+    int CollapseColor = Color.parseColor("#171A24");
+    String NumberTxtColor = "#D8B36C";
 
     // ---- Glow / frame ----
-    private static final int   GLOW_DP   = 8;
+    private static final int   GLOW_DP   = 6;     // subtler ambient edge-light, not a neon halo
     private static final int   BORDER_DP = 1;
     private static final float ICON_CORNER_FRACTION = 0.26f;
 
@@ -228,19 +225,10 @@ private int effectivePosY = POS_Y;
         mCollapsed.setVisibility(View.VISIBLE);
         mCollapsed.setAlpha(ICON_ALPHA);
 
-        // Initial size never exceeds the screen
-        // ================================================================
-// 🔥 Orientation-aware initial sizing (fixes landscape height issue)
-// ================================================================
-// ================================================================
-// 🔥 Orientation-aware initial sizing
-// ================================================================
-int orientation = context.getResources().getConfiguration().orientation;
-// ❌ int effectivePosY = POS_Y;   ← এই লাইনটি DELETE করুন
+        int orientation = context.getResources().getConfiguration().orientation;
 
-// ✅ Field এ assign করুন
-effectivePosY = POS_Y;
-if (orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE) {
+        effectivePosY = POS_Y;
+        if (orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE) {
     effectivePosY = 10;
 }
 
@@ -457,7 +445,7 @@ if (initH < loginMinH && screenH() > loginMinH + effectivePosY) {
         hideBtn.setBackground(cardBg(withAlpha(COLOR_DANGER, 0x1C), withAlpha(COLOR_DANGER, 0x77), 10));
         hideBtn.setText("HIDE/KILL (Hold)");
         hideBtn.setAllCaps(false);
-        hideBtn.setTextColor(Color.parseColor("#FF7B93"));
+        hideBtn.setTextColor(Color.parseColor("#E2938C"));
         hideBtn.setTextSize(11f);
         hideBtn.setTypeface(fontMedium);
         hideBtn.setSingleLine(true);
@@ -639,11 +627,11 @@ if (initH < loginMinH && screenH() > loginMinH + effectivePosY) {
                 public boolean onTouch(View view, MotionEvent e) {
                     switch (e.getActionMasked()) {
                         case MotionEvent.ACTION_DOWN:
-                            view.animate().scaleX(0.96f).scaleY(0.96f).alpha(0.88f).setDuration(90).setInterpolator(new DecelerateInterpolator()).start();
+                            view.animate().scaleX(0.975f).scaleY(0.975f).alpha(0.92f).setDuration(100).setInterpolator(new DecelerateInterpolator()).start();
                             break;
                         case MotionEvent.ACTION_UP:
                         case MotionEvent.ACTION_CANCEL:
-                            view.animate().scaleX(1f).scaleY(1f).alpha(1f).setDuration(220).setInterpolator(new OvershootInterpolator(2.2f)).start();
+                            view.animate().scaleX(1f).scaleY(1f).alpha(1f).setDuration(260).setInterpolator(new OvershootInterpolator(1.3f)).start();
                             break;
                     }
                     return false;
@@ -727,7 +715,7 @@ if (initH < loginMinH && screenH() > loginMinH + effectivePosY) {
         mCollapsed.setAlpha(iconAlpha);
         mCollapsed.setScaleX(0.6f);
         mCollapsed.setScaleY(0.6f);
-        mCollapsed.animate().scaleX(1f).scaleY(1f).setDuration(320).setInterpolator(new OvershootInterpolator(2.4f)).start();
+        mCollapsed.animate().scaleX(1f).scaleY(1f).setDuration(320).setInterpolator(new OvershootInterpolator(1.4f)).start();
 
         menuFrame.animate().cancel();
         menuFrame.animate()
@@ -902,7 +890,7 @@ if (initH < loginMinH && screenH() > loginMinH + effectivePosY) {
 
             for (int i = STEPS; i >= 1; i--) {
                 float d = (i - 0.5f) / STEPS;
-                float a = 0.36f * (1f - d) * (1f - d) * intensity;
+                float a = 0.22f * (1f - d) * (1f - d) * intensity;
                 glowPaint.setColor(glowColor);
                 glowPaint.setAlpha(Math.max(0, Math.min(255, (int) (255f * a))));
                 float inflate = (i - 0.5f) * step;
@@ -1004,10 +992,10 @@ if (initH < loginMinH && screenH() > loginMinH + effectivePosY) {
             this.c2 = c2;
             glowPaint.setStyle(Paint.Style.STROKE);
             basePaint.setStyle(Paint.Style.STROKE);
-            basePaint.setStrokeWidth(1.2f * density);
-            basePaint.setColor(withAlpha(c1, 0x50));
+            basePaint.setStrokeWidth(1.1f * density);
+            basePaint.setColor(withAlpha(c1, 0x38));
             ringPaint.setStyle(Paint.Style.STROKE);
-            ringPaint.setStrokeWidth(2.2f * density);
+            ringPaint.setStrokeWidth(1.8f * density);
             ringPaint.setStrokeCap(Paint.Cap.ROUND);
         }
 
@@ -1040,7 +1028,7 @@ if (initH < loginMinH && screenH() > loginMinH + effectivePosY) {
             glowPaint.setStrokeWidth(step + 1f);
             for (int i = steps; i >= 1; i--) {
                 float d = (i - 0.5f) / steps;
-                float a = 0.45f * (1f - d) * (1f - d) * pulse;
+                float a = 0.28f * (1f - d) * (1f - d) * pulse;
                 glowPaint.setColor(c1);
                 glowPaint.setAlpha(Math.max(0, Math.min(255, (int) (255f * a))));
                 float inflate = (i - 0.5f) * step;
@@ -1207,7 +1195,7 @@ if (initH < loginMinH && screenH() > loginMinH + effectivePosY) {
                     canvas.drawCircle(cx, cy, thumbR + k * 1.7f * s, glowPaint);
                 }
             }
-            thumbPaint.setColor((Integer) argb.evaluate(tc, 0xFF9AA9CF, 0xFFFFFFFF));
+            thumbPaint.setColor((Integer) argb.evaluate(tc, 0xFFB7B5AC, 0xFFF6F2E8));
             canvas.drawCircle(cx, cy, thumbR, thumbPaint);
         }
     }
@@ -1353,12 +1341,12 @@ if (initH < loginMinH && screenH() > loginMinH + effectivePosY) {
             final float thumbTop = trackTop + (trackH - thumbH) * progress;
             final float r = w / 2f;
 
-            trackPaint.setColor(0xFF00E5FF);
+            trackPaint.setColor(0xFFD8B36C);
             trackPaint.setAlpha(barAlpha * 26 / 255);
             rect.set(left, trackTop, right, trackTop + trackH);
             canvas.drawRoundRect(rect, r, r, trackPaint);
 
-            thumbPaint.setColor(0xFF00E5FF);
+            thumbPaint.setColor(0xFFD8B36C);
             thumbPaint.setAlpha(barAlpha);
             rect.set(left, thumbTop, right, thumbTop + thumbH);
             canvas.drawRoundRect(rect, r, r, thumbPaint);
@@ -1935,7 +1923,7 @@ if (initH < loginMinH && screenH() > loginMinH + effectivePosY) {
 
         selected.root.setScaleX(0.93f);
         selected.root.setScaleY(0.93f);
-        selected.root.animate().scaleX(1f).scaleY(1f).setDuration(300).setInterpolator(new OvershootInterpolator(2.2f)).start();
+        selected.root.animate().scaleX(1f).scaleY(1f).setDuration(300).setInterpolator(new OvershootInterpolator(1.3f)).start();
     }
 
     private boolean selectTabByName(String name) {
@@ -2008,12 +1996,6 @@ if (initH < loginMinH && screenH() > loginMinH + effectivePosY) {
     }, 500);
 }
 
-// ================================================================
-// 🔥 NEW: Login Overlay — floating menu এর উপরে login UI দেখায়
-// ================================================================
-// ================================================================
-// 🔥 Login screen — sidebar লুকিয়ে content area তে login দেখায়
-// ================================================================
 private void showLoginScreen() {
     if (isLoggedIn) return;
 
@@ -2109,13 +2091,7 @@ private void showLoginScreen() {
     private int dp(int i) { return (int) TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, (float) i, getContext.getResources().getDisplayMetrics()); }
     private float dpf(float v) { return TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, v, getContext.getResources().getDisplayMetrics()); }
     public void setVisibility(int view) { if (rootFrame != null) rootFrame.setVisibility(view); }
-// ================================================================
-// 🔥 Login এর সময় window focusable বানাই যাতে keyboard কাজ করে
-// ================================================================
-// ================================================================
-// 🔥 Window focusable + IME (keyboard) support enable
-// Game overlays এ keyboard কাজ করার জন্য এই method critical
-// ================================================================
+
 private void setWindowFocusable(boolean focusable) {
     if (vmParams == null || mWindowManager == null || rootFrame == null) return;
     try {
@@ -2962,7 +2938,7 @@ private void setWindowFocusable(boolean focusable) {
                 }
             };
             Radioo.setText(lists.get(i));
-            Radioo.setTextColor(Color.parseColor("#C9D4EE"));
+            Radioo.setTextColor(Color.parseColor("#C6C8D0"));
             Radioo.setTypeface(fontRegular);
             Radioo.setTextSize(12f);
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) Radioo.setButtonTintList(ColorStateList.valueOf(RadioColor));
@@ -3107,7 +3083,7 @@ private void setWindowFocusable(boolean focusable) {
     private void TextView(LinearLayout linLayout, String text) {
         TextView textView = new TextView(getContext);
         textView.setText(Html.fromHtml(text));
-        textView.setTextColor(Color.parseColor("#C9D4EE"));
+        textView.setTextColor(Color.parseColor("#C6C8D0"));
         textView.setTypeface(fontRegular);
         textView.setTextSize(12f);
         textView.setPadding(dp(12), dp(5), dp(12), dp(5));
