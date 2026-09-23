@@ -2054,34 +2054,36 @@ private void showLoginScreen() {
         });
     }
 
-// 🔥 Landscape এ menu height force adjust (login form যাতে fit হয়)
-menuFrame.postDelayed(new Runnable() {
-    @Override
-    public void run() {
-        try {
-            ViewGroup.LayoutParams lp = menuFrame.getLayoutParams();
-            int orientation = getContext.getResources().getConfiguration().orientation;
-            int targetH;
+    menuFrame.postDelayed(new Runnable() {
+        @Override
+        public void run() {
+            try {
+                ViewGroup.LayoutParams lp = menuFrame.getLayoutParams();
+                int orientation = getContext.getResources().getConfiguration().orientation;
+                int targetH;
+                int targetW = lp.width;
 
-            if (orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE) {
-                targetH = screenH() - dp(15);   // Landscape: পুরো height
-            } else {
-                targetH = dp(380);               // Portrait: comfortable
-                if (targetH > screenH() - vmParams.y - dp(10)) {
-                    targetH = screenH() - vmParams.y - dp(10);
+                if (orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE) {
+                    targetH = screenH() - dp(12);
+                    if (targetW < dp(300)) targetW = dp(300);
+                } else {
+                    targetH = dp(352);
+                    if (targetH > screenH() - vmParams.y - dp(6)) {
+                        targetH = screenH() - vmParams.y - dp(6);
+                    }
                 }
-            }
 
-            if (lp.height != targetH) {
-                lp.height = targetH;
-                menuFrame.setLayoutParams(lp);
-                if (mWindowManager != null) {
-                    mWindowManager.updateViewLayout(rootFrame, vmParams);
+                if (lp.height != targetH || lp.width != targetW) {
+                    lp.height = targetH;
+                    lp.width = targetW;
+                    menuFrame.setLayoutParams(lp);
+                    if (mWindowManager != null) {
+                        mWindowManager.updateViewLayout(rootFrame, vmParams);
+                    }
                 }
-            }
-        } catch (Exception ignored) { }
-    }
-}, 250);
+            } catch (Exception ignored) { }
+        }
+    }, 250);
 }
     @SuppressLint("WrongConstant")
     public void SetWindowManagerWindowService() {

@@ -6,8 +6,17 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.res.ColorStateList;
+import android.graphics.Canvas;
 import android.graphics.Color;
+import android.graphics.ColorFilter;
+import android.graphics.LinearGradient;
+import android.graphics.Paint;
+import android.graphics.Path;
+import android.graphics.PixelFormat;
+import android.graphics.RectF;
+import android.graphics.Shader;
 import android.graphics.Typeface;
+import android.graphics.drawable.Drawable;
 import android.graphics.drawable.GradientDrawable;
 import android.graphics.drawable.RippleDrawable;
 import android.net.Uri;
@@ -24,6 +33,8 @@ import android.view.KeyEvent;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.animation.LinearInterpolator;
+import android.view.animation.OvershootInterpolator;
 import android.view.inputmethod.EditorInfo;
 import android.view.inputmethod.InputMethodManager;
 import android.widget.Button;
@@ -31,6 +42,7 @@ import android.widget.CheckBox;
 import android.widget.CompoundButton;
 import android.widget.EditText;
 import android.widget.FrameLayout;
+import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 import android.widget.Toast;
@@ -47,22 +59,18 @@ public class LoginHelper {
 
     private static final String TAG = "LoginHelper";
 
-    // ---- Premium dark / violet palette -----------------------------------
-    private static final int COLOR_BG_TOP       = Color.parseColor("#151B33");
-    private static final int COLOR_BG_BOTTOM    = Color.parseColor("#0A0E1C");
-    private static final int COLOR_ACCENT       = Color.parseColor("#7C6BFF");
-    private static final int COLOR_SUCCESS      = Color.parseColor("#2ECC91");
-    private static final int COLOR_DANGER       = Color.parseColor("#FF5470");
-    private static final int COLOR_WARN         = Color.parseColor("#FFB84D");
-    private static final int COLOR_TEXT         = Color.parseColor("#F4F6FF");
-    private static final int COLOR_MUTED        = Color.parseColor("#8792B5");
-    private static final int COLOR_FIELD_BG     = Color.parseColor("#10152B");
-    private static final int COLOR_FIELD_BORDER = Color.parseColor("#232B4E");
-    private static final int COLOR_FIELD_FOCUS  = Color.parseColor("#7C6BFF");
-
-    // Brand gradient used for the badge, the primary button and dialog CTAs
-    private static final int COLOR_BTN_START    = Color.parseColor("#6C5CE7");
-    private static final int COLOR_BTN_END      = Color.parseColor("#8F7CFF");
+    private static final int COLOR_BG_1       = Color.parseColor("#0B1224");
+    private static final int COLOR_BG_2       = Color.parseColor("#050810");
+    private static final int COLOR_ACCENT     = Color.parseColor("#00E5FF");
+    private static final int COLOR_ACCENT_2   = Color.parseColor("#7C4DFF");
+    private static final int COLOR_SUCCESS    = Color.parseColor("#00F5A0");
+    private static final int COLOR_DANGER     = Color.parseColor("#FF4D6D");
+    private static final int COLOR_WARN       = Color.parseColor("#FFB300");
+    private static final int COLOR_TEXT       = Color.parseColor("#ECF2FF");
+    private static final int COLOR_MUTED      = Color.parseColor("#6F7FA8");
+    private static final int COLOR_FIELD_BG   = Color.parseColor("#0D1526");
+    private static final int COLOR_FIELD_BORD = Color.parseColor("#1C2742");
+    private static final int COLOR_INPUT_HINT = Color.parseColor("#4A5678");
 
     private static final int WRAP_CONTENT = ViewGroup.LayoutParams.WRAP_CONTENT;
     private static final int MATCH_PARENT = ViewGroup.LayoutParams.MATCH_PARENT;
@@ -97,110 +105,81 @@ public class LoginHelper {
                 ctx.getResources().getDisplayMetrics());
     }
 
-    /*
-     * Height budget (all values in dp) so the whole view fits inside a
-     * fixed 352dp container with no scrolling, on a standard density:
-     *
-     *   root padding (10+10)................. 20
-     *   header row (badge 34 + margin 12).....  46
-     *   card padding (14+14).................. 28
-     *     username label + margin.............. 16
-     *     username field + margins............. 56
-     *     password label + margin.............. 16
-     *     password field + margins............. 54
-     *     options row + margin.................. 32
-     *     login button + margin................. 48
-     *     status line (reserved)................ 20
-     *                                    total  336  (16dp safety margin)
-     */
     public View buildView() {
+        FrameLayout wrapper = new FrameLayout(ctx);
+        wrapper.setBackgroundColor(Color.TRANSPARENT);
+
         LinearLayout root = new LinearLayout(ctx);
         root.setOrientation(LinearLayout.VERTICAL);
         root.setGravity(Gravity.TOP | Gravity.CENTER_HORIZONTAL);
-        root.setPadding(dp(6), dp(10), dp(6), dp(10));
+        root.setPadding(dp(4), dp(4), dp(4), dp(4));
 
-        // ---------------- Header: brand badge + title/subtitle ------------
-        LinearLayout header = new LinearLayout(ctx);
-        header.setOrientation(LinearLayout.HORIZONTAL);
-        header.setGravity(Gravity.CENTER_VERTICAL);
-        LinearLayout.LayoutParams headerLp = new LinearLayout.LayoutParams(WRAP_CONTENT, WRAP_CONTENT);
-        headerLp.setMargins(0, 0, 0, dp(12));
-        header.setLayoutParams(headerLp);
-
-        FrameLayout badge = new FrameLayout(ctx);
-        GradientDrawable badgeBg = new GradientDrawable(GradientDrawable.Orientation.TL_BR,
-                new int[]{COLOR_BTN_START, COLOR_BTN_END});
-        badgeBg.setShape(GradientDrawable.OVAL);
-        badge.setBackground(badgeBg);
-        badge.setElevation(dp(3));
-        LinearLayout.LayoutParams badgeLp = new LinearLayout.LayoutParams(dp(34), dp(34));
-        badge.setLayoutParams(badgeLp);
-
-        TextView badgeTxt = new TextView(ctx);
-        badgeTxt.setText("MX");
-        badgeTxt.setTextColor(Color.WHITE);
-        badgeTxt.setTextSize(11.5f);
-        badgeTxt.setTypeface(tfBold);
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-            badgeTxt.setLetterSpacing(0.03f);
-        }
-        FrameLayout.LayoutParams badgeTxtLp = new FrameLayout.LayoutParams(WRAP_CONTENT, WRAP_CONTENT);
-        badgeTxtLp.gravity = Gravity.CENTER;
-        badge.addView(badgeTxt, badgeTxtLp);
-        header.addView(badge);
-
-        LinearLayout textStack = new LinearLayout(ctx);
-        textStack.setOrientation(LinearLayout.VERTICAL);
-        LinearLayout.LayoutParams stackLp = new LinearLayout.LayoutParams(WRAP_CONTENT, WRAP_CONTENT);
-        stackLp.setMargins(dp(10), 0, 0, 0);
-        textStack.setLayoutParams(stackLp);
-
-        TextView greeting = new TextView(ctx);
-        greeting.setText("Welcome back");
-        greeting.setTextColor(COLOR_TEXT);
-        greeting.setTextSize(14f);
-        greeting.setTypeface(tfBold);
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-            greeting.setLetterSpacing(0.01f);
-        }
-        textStack.addView(greeting);
-
-        TextView hint = new TextView(ctx);
-        hint.setText("Sign in to unlock ModX Lab");
-        hint.setTextColor(COLOR_MUTED);
-        hint.setTextSize(10f);
-        hint.setTypeface(tfRegular);
-        LinearLayout.LayoutParams hintLp = new LinearLayout.LayoutParams(WRAP_CONTENT, WRAP_CONTENT);
-        hintLp.setMargins(0, dp(1), 0, 0);
-        hint.setLayoutParams(hintLp);
-        textStack.addView(hint);
-
-        header.addView(textStack);
-        root.addView(header);
-
-        // ---------------- Card -------------------------------------------
         LinearLayout card = new LinearLayout(ctx);
         card.setOrientation(LinearLayout.VERTICAL);
-        card.setPadding(dp(14), dp(14), dp(14), dp(14));
+        card.setPadding(dp(12), dp(12), dp(12), dp(12));
+
         GradientDrawable cardBg = new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,
-                new int[]{COLOR_BG_TOP, COLOR_BG_BOTTOM});
-        cardBg.setCornerRadius(dp(16));
-        cardBg.setStroke(dp(1), COLOR_FIELD_BORDER);
+                new int[]{COLOR_BG_1, COLOR_BG_2});
+        cardBg.setCornerRadius(dp(14));
+        cardBg.setStroke(dp(1), 0x33FFFFFF);
         card.setBackground(cardBg);
-        card.setElevation(dp(4));
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+            card.setElevation(dp(6));
+        }
         root.addView(card);
+
+        LinearLayout titleRow = new LinearLayout(ctx);
+        titleRow.setOrientation(LinearLayout.HORIZONTAL);
+        titleRow.setGravity(Gravity.CENTER_VERTICAL);
+
+        View accentBar = new View(ctx);
+        LinearLayout.LayoutParams barLp = new LinearLayout.LayoutParams(dp(3), dp(16));
+        barLp.setMargins(0, 0, dp(8), 0);
+        accentBar.setLayoutParams(barLp);
+        GradientDrawable barBg = new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,
+                new int[]{COLOR_ACCENT, COLOR_ACCENT_2});
+        barBg.setCornerRadius(dp(2));
+        accentBar.setBackground(barBg);
+        titleRow.addView(accentBar);
+
+        TextView title = new TextView(ctx);
+        title.setText("SECURE SIGN IN");
+        title.setTextColor(COLOR_TEXT);
+        title.setTextSize(10.5f);
+        title.setTypeface(tfBold);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+            title.setLetterSpacing(0.22f);
+        }
+        titleRow.addView(title);
+
+        LinearLayout.LayoutParams titleRowLp = new LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT);
+        titleRowLp.setMargins(0, 0, 0, dp(10));
+        titleRow.setLayoutParams(titleRowLp);
+        card.addView(titleRow);
 
         TextView userLabel = makeFieldLabel("USERNAME");
         card.addView(userLabel);
 
         userBox = makeFieldContainer();
-        editUser = makeInput(false);
-        editUser.setHint("your username");
+        ImageView userIcon = new ImageView(ctx);
+        userIcon.setImageDrawable(new FieldIcon(FieldIcon.USER, COLOR_MUTED));
+        userIcon.setScaleType(ImageView.ScaleType.FIT_CENTER);
+        LinearLayout.LayoutParams uiLp = new LinearLayout.LayoutParams(dp(16), dp(16));
+        uiLp.setMargins(dp(10), 0, 0, 0);
+        userIcon.setLayoutParams(uiLp);
+        userBox.addView(userIcon);
+
+        editUser = makeInput();
+        editUser.setHint("username");
         editUser.setImeOptions(EditorInfo.IME_ACTION_NEXT);
         editUser.setInputType(InputType.TYPE_CLASS_TEXT);
-        userBox.addView(editUser, new LinearLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT));
-        LinearLayout.LayoutParams uLp = new LinearLayout.LayoutParams(MATCH_PARENT, dp(42));
-        uLp.setMargins(0, dp(4), 0, dp(10));
+        LinearLayout.LayoutParams ueLp = new LinearLayout.LayoutParams(0, MATCH_PARENT, 1f);
+        editUser.setLayoutParams(ueLp);
+        userBox.addView(editUser);
+
+        LinearLayout.LayoutParams uLp = new LinearLayout.LayoutParams(MATCH_PARENT, dp(34));
+        uLp.setMargins(0, dp(3), 0, dp(8));
         userBox.setLayoutParams(uLp);
         card.addView(userBox);
 
@@ -208,25 +187,35 @@ public class LoginHelper {
         card.addView(passLabel);
 
         passBox = makeFieldContainer();
-        editPass = makeInput(true);
-        editPass.setHint("your password");
+        ImageView passIcon = new ImageView(ctx);
+        passIcon.setImageDrawable(new FieldIcon(FieldIcon.LOCK, COLOR_MUTED));
+        passIcon.setScaleType(ImageView.ScaleType.FIT_CENTER);
+        LinearLayout.LayoutParams piLp = new LinearLayout.LayoutParams(dp(16), dp(16));
+        piLp.setMargins(dp(10), 0, 0, 0);
+        passIcon.setLayoutParams(piLp);
+        passBox.addView(passIcon);
+
+        editPass = makeInput();
+        editPass.setHint("password");
         editPass.setImeOptions(EditorInfo.IME_ACTION_DONE);
         editPass.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
         editPass.setTransformationMethod(PasswordTransformationMethod.getInstance());
-        passBox.addView(editPass, new LinearLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT));
-        LinearLayout.LayoutParams pLp = new LinearLayout.LayoutParams(MATCH_PARENT, dp(42));
-        pLp.setMargins(0, dp(4), 0, dp(8));
+        LinearLayout.LayoutParams peLp = new LinearLayout.LayoutParams(0, MATCH_PARENT, 1f);
+        editPass.setLayoutParams(peLp);
+        passBox.addView(editPass);
+
+        LinearLayout.LayoutParams pLp = new LinearLayout.LayoutParams(MATCH_PARENT, dp(34));
+        pLp.setMargins(0, dp(3), 0, dp(6));
         passBox.setLayoutParams(pLp);
         card.addView(passBox);
 
-        attachFieldFocus(userBox, editUser);
-        attachFieldFocus(passBox, editPass);
+        attachFieldFocus(userBox, editUser, (ImageView) userBox.getChildAt(0));
+        attachFieldFocus(passBox, editPass, (ImageView) passBox.getChildAt(0));
 
         editUser.setOnEditorActionListener(new TextView.OnEditorActionListener() {
             @Override
             public boolean onEditorAction(TextView v, int actionId, KeyEvent event) {
                 if (actionId == EditorInfo.IME_ACTION_NEXT
-                 || actionId == EditorInfo.IME_ACTION_DONE
                  || (event != null && event.getKeyCode() == KeyEvent.KEYCODE_ENTER)) {
                     editPass.requestFocus();
                     editPass.setSelection(editPass.getText().length());
@@ -253,32 +242,40 @@ public class LoginHelper {
         LinearLayout cbRow = new LinearLayout(ctx);
         cbRow.setOrientation(LinearLayout.HORIZONTAL);
         cbRow.setGravity(Gravity.CENTER_VERTICAL);
-        LinearLayout.LayoutParams cbRowLp = new LinearLayout.LayoutParams(MATCH_PARENT, dp(22));
-        cbRowLp.setMargins(0, 0, 0, dp(10));
-        cbRow.setLayoutParams(cbRowLp);
+        cbRow.setPadding(0, dp(2), 0, dp(2));
 
         rememberCb = new CheckBox(ctx);
-        rememberCb.setText("Remember me");
-        rememberCb.setTextColor(COLOR_TEXT);
-        rememberCb.setTextSize(10.5f);
+        rememberCb.setText("Remember");
+        rememberCb.setTextColor(COLOR_MUTED);
+        rememberCb.setTextSize(10f);
         rememberCb.setTypeface(tfRegular);
         rememberCb.setPadding(0, 0, 0, 0);
         rememberCb.setMinHeight(0);
         rememberCb.setMinimumHeight(0);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP)
-            rememberCb.setButtonTintList(ColorStateList.valueOf(COLOR_ACCENT));
+            rememberCb.setButtonTintList(new ColorStateList(
+                    new int[][]{
+                            new int[]{android.R.attr.state_checked},
+                            new int[]{}
+                    },
+                    new int[]{COLOR_ACCENT, COLOR_MUTED}));
         rememberCb.setLayoutParams(new LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f));
 
         showCb = new CheckBox(ctx);
         showCb.setText("Show");
         showCb.setTextColor(COLOR_MUTED);
-        showCb.setTextSize(10.5f);
+        showCb.setTextSize(10f);
         showCb.setTypeface(tfRegular);
         showCb.setPadding(0, 0, 0, 0);
         showCb.setMinHeight(0);
         showCb.setMinimumHeight(0);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP)
-            showCb.setButtonTintList(ColorStateList.valueOf(COLOR_ACCENT));
+            showCb.setButtonTintList(new ColorStateList(
+                    new int[][]{
+                            new int[]{android.R.attr.state_checked},
+                            new int[]{}
+                    },
+                    new int[]{COLOR_ACCENT, COLOR_MUTED}));
 
         cbRow.addView(rememberCb);
         cbRow.addView(showCb);
@@ -288,17 +285,18 @@ public class LoginHelper {
         loginBtn.setText("SIGN IN");
         loginBtn.setAllCaps(false);
         loginBtn.setTextColor(Color.WHITE);
-        loginBtn.setTextSize(12.5f);
+        loginBtn.setTextSize(12f);
         loginBtn.setTypeface(tfBold);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-            loginBtn.setLetterSpacing(0.08f);
+            loginBtn.setLetterSpacing(0.12f);
         }
+
         GradientDrawable lb = new GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT,
-                new int[]{COLOR_BTN_START, COLOR_BTN_END});
-        lb.setCornerRadius(dp(11));
+                new int[]{0xFF0093C4, 0xFF6A47F5});
+        lb.setCornerRadius(dp(10));
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
             RippleDrawable ripple = new RippleDrawable(
-                    ColorStateList.valueOf(0x44FFFFFF), lb, null);
+                    ColorStateList.valueOf(0x55FFFFFF), lb, null);
             loginBtn.setBackground(ripple);
         } else {
             loginBtn.setBackground(lb);
@@ -308,16 +306,18 @@ public class LoginHelper {
         loginBtn.setMinWidth(0);
         loginBtn.setMinimumWidth(0);
         loginBtn.setPadding(dp(8), 0, dp(8), 0);
-        loginBtn.setElevation(dp(3));
-        LinearLayout.LayoutParams bLp = new LinearLayout.LayoutParams(MATCH_PARENT, dp(44));
-        bLp.setMargins(0, dp(2), 0, 0);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+            loginBtn.setElevation(dp(3));
+        }
+        LinearLayout.LayoutParams bLp = new LinearLayout.LayoutParams(MATCH_PARENT, dp(36));
+        bLp.setMargins(0, dp(8), 0, 0);
         loginBtn.setLayoutParams(bLp);
         card.addView(loginBtn);
 
         statusTxt = new TextView(ctx);
         statusTxt.setText("");
         statusTxt.setTextColor(COLOR_MUTED);
-        statusTxt.setTextSize(10.5f);
+        statusTxt.setTextSize(10f);
         statusTxt.setTypeface(tfMedium);
         statusTxt.setGravity(Gravity.CENTER);
         statusTxt.setSingleLine(true);
@@ -356,11 +356,14 @@ public class LoginHelper {
         loginBtn.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
-                v.animate().scaleX(0.97f).scaleY(0.97f).setDuration(80)
+                v.animate().scaleX(0.96f).scaleY(0.96f).setDuration(80)
                         .withEndAction(new Runnable() {
                             @Override
                             public void run() {
-                                loginBtn.animate().scaleX(1f).scaleY(1f).setDuration(180).start();
+                                loginBtn.animate().scaleX(1f).scaleY(1f)
+                                        .setDuration(220)
+                                        .setInterpolator(new OvershootInterpolator(2.4f))
+                                        .start();
                             }
                         }).start();
                 hideKeyboard(editUser);
@@ -382,17 +385,18 @@ public class LoginHelper {
             public void run() { checkUpdateAsync(); }
         }, 400);
 
-        return root;
+        wrapper.addView(root, new FrameLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT));
+        return wrapper;
     }
 
     private TextView makeFieldLabel(String text) {
         TextView tv = new TextView(ctx);
         tv.setText(text);
         tv.setTextColor(COLOR_MUTED);
-        tv.setTextSize(8.5f);
+        tv.setTextSize(8f);
         tv.setTypeface(tfBold);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-            tv.setLetterSpacing(0.15f);
+            tv.setLetterSpacing(0.18f);
         }
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(WRAP_CONTENT, WRAP_CONTENT);
         lp.setMargins(dp(2), 0, 0, 0);
@@ -407,17 +411,17 @@ public class LoginHelper {
         GradientDrawable bg = new GradientDrawable();
         bg.setColor(COLOR_FIELD_BG);
         bg.setCornerRadius(dp(10));
-        bg.setStroke(dp(1.2f), COLOR_FIELD_BORDER);
+        bg.setStroke(dp(1), COLOR_FIELD_BORD);
         box.setBackground(bg);
         box.setClipToPadding(false);
         return box;
     }
 
-    private EditText makeInput(boolean isPassword) {
+    private EditText makeInput() {
         EditText e = new EditText(ctx);
-        e.setHintTextColor(COLOR_MUTED);
+        e.setHintTextColor(COLOR_INPUT_HINT);
         e.setTextColor(COLOR_TEXT);
-        e.setTextSize(12.5f);
+        e.setTextSize(12f);
         e.setTypeface(tfMedium);
         e.setSingleLine(true);
         e.setFocusable(true);
@@ -427,34 +431,32 @@ public class LoginHelper {
         e.setBackground(null);
         e.setIncludeFontPadding(false);
         e.setGravity(Gravity.CENTER_VERTICAL | Gravity.START);
-        e.setPadding(dp(12), 0, dp(12), 0);
-        e.setImeOptions(isPassword
-                ? EditorInfo.IME_ACTION_DONE
-                : EditorInfo.IME_ACTION_NEXT);
-        e.setInputType(isPassword
-                ? InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD
-                : InputType.TYPE_CLASS_TEXT);
+        e.setPadding(dp(8), 0, dp(10), 0);
         return e;
     }
 
-    private void attachFieldFocus(final LinearLayout box, final EditText et) {
+    private void attachFieldFocus(final LinearLayout box, final EditText et, final ImageView icon) {
         et.setOnFocusChangeListener(new View.OnFocusChangeListener() {
             @Override
             public void onFocusChange(View v, boolean hasFocus) {
                 final GradientDrawable bg = (GradientDrawable) box.getBackground();
-                int fromColor = hasFocus ? COLOR_FIELD_BORDER : COLOR_FIELD_FOCUS;
-                int toColor   = hasFocus ? COLOR_FIELD_FOCUS  : COLOR_FIELD_BORDER;
+                int fromColor = hasFocus ? COLOR_FIELD_BORD : COLOR_ACCENT;
+                int toColor   = hasFocus ? COLOR_ACCENT      : COLOR_FIELD_BORD;
 
-                ValueAnimator va = ValueAnimator.ofObject(new ArgbEvaluator(),
-                        fromColor, toColor);
-                va.setDuration(220);
+                ValueAnimator va = ValueAnimator.ofObject(new ArgbEvaluator(), fromColor, toColor);
+                va.setDuration(240);
                 va.addUpdateListener(new ValueAnimator.AnimatorUpdateListener() {
                     @Override
                     public void onAnimationUpdate(ValueAnimator a) {
-                        bg.setStroke(dp(1.2f), (Integer) a.getAnimatedValue());
+                        bg.setStroke(dp(hasFocus ? 1.4f : 1f), (Integer) a.getAnimatedValue());
                     }
                 });
                 va.start();
+
+                FieldIcon fi = (FieldIcon) icon.getDrawable();
+                if (fi != null) {
+                    fi.animateColor(hasFocus ? COLOR_ACCENT : COLOR_MUTED, 240);
+                }
 
                 if (hasFocus) {
                     v.postDelayed(new Runnable() {
@@ -577,7 +579,7 @@ public class LoginHelper {
         box.setOrientation(LinearLayout.VERTICAL);
         box.setPadding(dp(18), dp(16), dp(18), dp(14));
         GradientDrawable bg = new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,
-                new int[]{COLOR_BG_TOP, COLOR_BG_BOTTOM});
+                new int[]{COLOR_BG_1, COLOR_BG_2});
         bg.setCornerRadius(dp(16));
         bg.setStroke(dp(1), COLOR_ACCENT);
         box.setBackground(bg);
@@ -624,7 +626,7 @@ public class LoginHelper {
         updateBtn.setTextSize(12);
         updateBtn.setTypeface(tfBold);
         GradientDrawable ubg = new GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT,
-                new int[]{COLOR_BTN_START, COLOR_BTN_END});
+                new int[]{0xFF0093C4, 0xFF6A47F5});
         ubg.setCornerRadius(dp(10));
         updateBtn.setBackground(ubg);
         updateBtn.setPadding(dp(16), dp(8), dp(16), dp(8));
@@ -788,7 +790,7 @@ public class LoginHelper {
         box.setOrientation(LinearLayout.VERTICAL);
         box.setPadding(dp(18), dp(16), dp(18), dp(14));
         GradientDrawable bg = new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,
-                new int[]{COLOR_BG_TOP, COLOR_BG_BOTTOM});
+                new int[]{COLOR_BG_1, COLOR_BG_2});
         bg.setCornerRadius(dp(16));
         bg.setStroke(dp(1), COLOR_DANGER);
         box.setBackground(bg);
@@ -816,7 +818,7 @@ public class LoginHelper {
         contact.setTextSize(13);
         contact.setTypeface(tfBold);
         GradientDrawable cbg = new GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT,
-                new int[]{COLOR_BTN_START, COLOR_BTN_END});
+                new int[]{0xFF00B489, 0xFF00F5A0});
         cbg.setCornerRadius(dp(20));
         contact.setBackground(cbg);
         LinearLayout.LayoutParams cLp = new LinearLayout.LayoutParams(MATCH_PARENT, dp(42));
@@ -856,5 +858,77 @@ public class LoginHelper {
         }
         ref[0] = d;
         d.show();
+    }
+
+    private static class FieldIcon extends Drawable {
+        static final int USER = 0;
+        static final int LOCK = 1;
+
+        private final int type;
+        private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final Path path = new Path();
+        private final RectF rect = new RectF();
+        private int currentColor;
+
+        FieldIcon(int type, int color) {
+            this.type = type;
+            this.currentColor = color;
+            paint.setColor(color);
+            paint.setStyle(Paint.Style.STROKE);
+            paint.setStrokeCap(Paint.Cap.ROUND);
+            paint.setStrokeJoin(Paint.Join.ROUND);
+        }
+
+        void animateColor(int toColor, int durationMs) {
+            ValueAnimator va = ValueAnimator.ofObject(new ArgbEvaluator(), currentColor, toColor);
+            va.setDuration(durationMs);
+            va.addUpdateListener(new ValueAnimator.AnimatorUpdateListener() {
+                @Override
+                public void onAnimationUpdate(ValueAnimator a) {
+                    currentColor = (Integer) a.getAnimatedValue();
+                    paint.setColor(currentColor);
+                    invalidateSelf();
+                }
+            });
+            va.start();
+        }
+
+        @Override
+        public void draw(Canvas canvas) {
+            android.graphics.Rect b = getBounds();
+            if (b.width() <= 0 || b.height() <= 0) return;
+            float size = Math.min(b.width(), b.height());
+            float s = size / 24f;
+            paint.setStrokeWidth(1.8f * s);
+
+            canvas.save();
+            canvas.translate(b.left + (b.width() - size) / 2f,
+                             b.top + (b.height() - size) / 2f);
+            canvas.scale(s, s);
+            path.reset();
+
+            if (type == USER) {
+                canvas.drawCircle(12f, 8f, 3.8f, paint);
+                path.moveTo(4.5f, 21f);
+                path.cubicTo(4.5f, 15.5f, 8f, 13.8f, 12f, 13.8f);
+                path.cubicTo(16f, 13.8f, 19.5f, 15.5f, 19.5f, 21f);
+                canvas.drawPath(path, paint);
+            } else {
+                rect.set(5f, 10.5f, 19f, 21f);
+                canvas.drawRoundRect(rect, 2f, 2f, paint);
+                path.moveTo(8.5f, 10.5f);
+                path.lineTo(8.5f, 7.5f);
+                path.cubicTo(8.5f, 5.0f, 10.2f, 3f, 12f, 3f);
+                path.cubicTo(13.8f, 3f, 15.5f, 5.0f, 15.5f, 7.5f);
+                path.lineTo(15.5f, 10.5f);
+                canvas.drawPath(path, paint);
+                canvas.drawCircle(12f, 15.5f, 1.2f, paint);
+            }
+            canvas.restore();
+        }
+
+        @Override public void setAlpha(int alpha) { paint.setAlpha(alpha); }
+        @Override public void setColorFilter(ColorFilter cf) { paint.setColorFilter(cf); }
+        @Override public int getOpacity() { return PixelFormat.TRANSLUCENT; }
     }
 }
