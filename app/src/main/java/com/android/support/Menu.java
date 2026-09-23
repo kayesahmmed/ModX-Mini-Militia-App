@@ -199,7 +199,7 @@ public class Menu {
 private boolean windowIsFocusable = false;
 private boolean isLoggedIn = false;
 private View sidebarDivider = null;
-
+private int effectivePosY = POS_Y;
     ESPView espview;
     WindowManager espWindowManager;
     WindowManager.LayoutParams espParams;
@@ -229,12 +229,28 @@ private View sidebarDivider = null;
         mCollapsed.setAlpha(ICON_ALPHA);
 
         // Initial size never exceeds the screen
-        int initW = Math.min(dp(MENU_WIDTH), Math.max(dp(MIN_MENU_WIDTH_DP), screenW() - dp(10)));
-        int initH = Math.min(dp(MENU_HEIGHT), Math.max(dp(MIN_MENU_HEIGHT_DP), screenH() - POS_Y - dp(16)));
-        int loginMinW = dp(240);
+        // ================================================================
+// 🔥 Orientation-aware initial sizing (fixes landscape height issue)
+// ================================================================
+// ================================================================
+// 🔥 Orientation-aware initial sizing
+// ================================================================
+int orientation = context.getResources().getConfiguration().orientation;
+// ❌ int effectivePosY = POS_Y;   ← এই লাইনটি DELETE করুন
+
+// ✅ Field এ assign করুন
+effectivePosY = POS_Y;
+if (orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE) {
+    effectivePosY = 10;
+}
+
+int initW = Math.min(dp(MENU_WIDTH), Math.max(dp(MIN_MENU_WIDTH_DP), screenW() - dp(10)));
+int initH = Math.min(dp(MENU_HEIGHT), Math.max(dp(MIN_MENU_HEIGHT_DP), screenH() - effectivePosY - dp(8)));
+
 int loginMinH = dp(340);
-if (initW < loginMinW && screenW() > loginMinW) initW = loginMinW;
-if (initH < loginMinH && screenH() > loginMinH + POS_Y + dp(20)) initH = loginMinH;
+if (initH < loginMinH && screenH() > loginMinH + effectivePosY) {
+    initH = loginMinH;
+}
         // ---------------- Frame: animated glow + gradient border ----------------
         menuFrame = new FrameLayout(context);
         menuFrame.setVisibility(View.GONE);
@@ -2033,16 +2049,43 @@ private void showLoginScreen() {
             }
         });
     }
-}
-// ← এখানে method close — এর পরে সরাসরি SetWindowManagerWindowService() শুরু হবে
 
+// 🔥 Landscape এ menu height force adjust (login form যাতে fit হয়)
+menuFrame.postDelayed(new Runnable() {
+    @Override
+    public void run() {
+        try {
+            ViewGroup.LayoutParams lp = menuFrame.getLayoutParams();
+            int orientation = getContext.getResources().getConfiguration().orientation;
+            int targetH;
+
+            if (orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE) {
+                targetH = screenH() - dp(15);   // Landscape: পুরো height
+            } else {
+                targetH = dp(380);               // Portrait: comfortable
+                if (targetH > screenH() - vmParams.y - dp(10)) {
+                    targetH = screenH() - vmParams.y - dp(10);
+                }
+            }
+
+            if (lp.height != targetH) {
+                lp.height = targetH;
+                menuFrame.setLayoutParams(lp);
+                if (mWindowManager != null) {
+                    mWindowManager.updateViewLayout(rootFrame, vmParams);
+                }
+            }
+        } catch (Exception ignored) { }
+    }
+}, 250);
+}
     @SuppressLint("WrongConstant")
     public void SetWindowManagerWindowService() {
         int iparams = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O ? 2038 : 2002;
         vmParams = new WindowManager.LayoutParams(WRAP_CONTENT, WRAP_CONTENT, iparams, 8 | FLAG_TRANSLUCENT_STATUS, -3);
         vmParams.gravity = 51;
         vmParams.x = POS_X;
-        vmParams.y = POS_Y;
+        vmParams.y = effectivePosY;
         vmParams.flags |= WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE;
     vmParams.softInputMode = WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE
                            | WindowManager.LayoutParams.SOFT_INPUT_STATE_HIDDEN;
@@ -2056,7 +2099,7 @@ private void showLoginScreen() {
         vmParams = new WindowManager.LayoutParams(WRAP_CONTENT, WRAP_CONTENT, POS_X, POS_Y, WindowManager.LayoutParams.TYPE_APPLICATION, WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE | WindowManager.LayoutParams.FLAG_LAYOUT_IN_OVERSCAN | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN | WindowManager.LayoutParams.FLAG_SPLIT_TOUCH, PixelFormat.TRANSPARENT);
         vmParams.gravity = 51;
         vmParams.x = POS_X;
-        vmParams.y = POS_Y;
+        vmParams.y = effectivePosY;
         mWindowManager = ((Activity) getContext).getWindowManager();
         mWindowManager.addView(rootFrame, vmParams);
     }
@@ -2080,22 +2123,13 @@ private void setWindowFocusable(boolean focusable) {
             if (!windowIsFocusable) {
                 savedWindowFlags = vmParams.flags;
 
-                // Focusable
                 vmParams.flags &= ~WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE;
                 vmParams.flags &= ~WindowManager.LayoutParams.FLAG_ALT_FOCUSABLE_IM;
                 vmParams.flags |= WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL;
 
-                // 🔥 Orientation-based softInputMode
-                int orientation = getContext.getResources().getConfiguration().orientation;
-                if (orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE) {
-                    // Landscape → keyboard floats over the screen, menu stays put
-                    vmParams.softInputMode = WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING
-                                           | WindowManager.LayoutParams.SOFT_INPUT_STATE_VISIBLE;
-                } else {
-                    // Portrait → menu pans up so keyboard sits at bottom
-                    vmParams.softInputMode = WindowManager.LayoutParams.SOFT_INPUT_ADJUST_PAN
-                                           | WindowManager.LayoutParams.SOFT_INPUT_STATE_VISIBLE;
-                }
+                // 🔥 ADJUST_PAN for BOTH orientations — no floating keyboard
+                vmParams.softInputMode = WindowManager.LayoutParams.SOFT_INPUT_ADJUST_PAN
+                                       | WindowManager.LayoutParams.SOFT_INPUT_STATE_VISIBLE;
 
                 windowIsFocusable = true;
                 mWindowManager.updateViewLayout(rootFrame, vmParams);
