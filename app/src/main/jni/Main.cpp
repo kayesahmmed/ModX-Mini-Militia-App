@@ -125,6 +125,10 @@ static void install_crash_handler() {
 
 __attribute__((constructor)) void early_init() { install_crash_handler(); }
 
+extern "C" JNIEXPORT void JNICALL
+Java_com_android_support_Main_setNativeCrashDir(JNIEnv* env, jclass, jstring dir) {
+    (void)env; (void)dir;
+}
 // ================================================================
 //  ESP color
 // ================================================================
