@@ -52,6 +52,10 @@ public class LoginHelper {
         void onLoginSuccess();
     }
 
+    public interface CheckListener {
+        void onChanged(boolean checked);
+    }
+
     private static final String TAG = "LoginHelper";
 
     private static final int COLOR_BG_1       = Color.parseColor("#0B1224");
@@ -215,7 +219,7 @@ public class LoginHelper {
         rememberCb.setLayoutParams(new LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f));
 
         showCb = new CustomCheck("Show", false);
-        showCb.setListener(new CustomCheck.Listener() {
+        showCb.setListener(new CheckListener() {
             @Override
             public void onChanged(boolean checked) {
                 int sel = editPass.getSelectionStart();
@@ -228,7 +232,7 @@ public class LoginHelper {
             }
         });
 
-        rememberCb.setListener(new CustomCheck.Listener() {
+        rememberCb.setListener(new CheckListener() {
             @Override
             public void onChanged(boolean checked) {
                 if (checked) {
@@ -812,12 +816,10 @@ public class LoginHelper {
     }
 
     private class CustomCheck extends LinearLayout {
-        interface Listener { void onChanged(boolean checked); }
-
         private final GradientDrawable boxBg;
         private final View checkmark;
         private boolean checked;
-        private Listener listener;
+        private CheckListener listener;
 
         CustomCheck(String label, boolean initial) {
             super(ctx);
@@ -864,7 +866,7 @@ public class LoginHelper {
             });
         }
 
-        void setListener(Listener l) { this.listener = l; }
+        void setListener(CheckListener l) { this.listener = l; }
 
         void setChecked(boolean value) {
             if (this.checked != value) toggle();
@@ -952,4 +954,4 @@ public class LoginHelper {
         @Override public void setColorFilter(ColorFilter cf) { paint.setColorFilter(cf); }
         @Override public int getOpacity() { return PixelFormat.TRANSLUCENT; }
     }
-}
+            }
