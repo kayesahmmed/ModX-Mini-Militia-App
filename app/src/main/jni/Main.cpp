@@ -1,12 +1,12 @@
 // ================================================================
-// Mini Militia — Main.cpp  v105.0  (DUAL-WIELD / FLY / GAS / BOMB FIX)
+// Mini Militia — Main.cpp  v105.1  (BUILD-FIX + DUAL-WIELD/FLY/GAS/BOMB)
+// v105.1: Added missing MapManager_addStaticBody / addStaticBodyPoly
 // Fixes:
 //   • Unlimited flying power       → hook getMaxPower + force setPower
 //   • Anti-gravity                 → hook getGravityFactor (returns 0)
 //   • Any gun dual wield (unified) → hook addPrimaryWeapon → switchPrimaryToDual
 //   • Any gun as bomb              → hook addBullet → redirect to addShell
 //   • Any bomb as gas              → hook addExplosionAt → addGasCloudAt
-//   • Per-thread signal guard, no hook conflicts
 // ================================================================
 
 #include <list>
@@ -171,8 +171,10 @@ namespace Off {
     constexpr uintptr_t EffectsManager_onExplosion    = 0x00eaffc4;
 
     // ---- MapManager ----
-    constexpr uintptr_t MapManager_getMaxPower      = 0x00eea748;
-    constexpr uintptr_t MapManager_getGravityFactor = 0x00eea740;
+    constexpr uintptr_t MapManager_getMaxPower       = 0x00eea748;
+    constexpr uintptr_t MapManager_getGravityFactor  = 0x00eea740;
+    constexpr uintptr_t MapManager_addStaticBody     = 0x00eeb038;   // MapManager::addStaticBodyShape
+    constexpr uintptr_t MapManager_addStaticBodyPoly = 0x00eeac7c;   // MapManager::addStaticBodyPoly
 
     // ---- Enemy / drone ----
     constexpr uintptr_t Enemy_canSeeTarget        = 0x00eb3940;
@@ -1107,9 +1109,6 @@ void addBullet_Hook(void* self, cpVect pos, float rot, cpVect vel,
 
     // ---- ANY GUN AS BOMB ----
     // If enabled, spawn a shell (explosive) instead of a bullet.
-    // addShell signature: (cpVect pos, float rot, cpVect vel, Weapon* w, bool flag, std::string str)
-    // Since `strPtr` here is a void* pointing to the same underlying string object
-    // the shell version expects, we can forward it as-is on ARM ABI.
     if (g_anyGunAsBomb.load() && fn_addShell && PlausiblePtr(self)) {
         if (GUARD_ENTER()) {
             GUARD_SET();
