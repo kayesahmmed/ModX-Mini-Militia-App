@@ -1,6 +1,12 @@
 // ================================================================
-// Mini Militia — Main.cpp  v104.2  (CRASH-FIXED)
-// Fixes: per-thread signal guard, unified patches, no hook conflict
+// Mini Militia — Main.cpp  v105.0  (DUAL-WIELD / FLY / GAS / BOMB FIX)
+// Fixes:
+//   • Unlimited flying power       → hook getMaxPower + force setPower
+//   • Anti-gravity                 → hook getGravityFactor (returns 0)
+//   • Any gun dual wield (unified) → hook addPrimaryWeapon → switchPrimaryToDual
+//   • Any gun as bomb              → hook addBullet → redirect to addShell
+//   • Any bomb as gas              → hook addExplosionAt → addGasCloudAt
+//   • Per-thread signal guard, no hook conflicts
 // ================================================================
 
 #include <list>
@@ -53,19 +59,17 @@ static constexpr float RAD2DEG = 57.29577951f;
 static constexpr float DEG2RAD = 0.01745329252f;
 
 // ================================================================
-//  CRASH LOGGER  (fixed — per-thread guard, no infinite loop)
+//  CRASH LOGGER  (per-thread guard)
 // ================================================================
 static int g_logFd = -1;
 static std::atomic<int> g_crashCount{0};
-static constexpr int MAX_CRASHES_PER_SESSION = 200;   // hard cap
+static constexpr int MAX_CRASHES_PER_SESSION = 200;
 
 static void ensureLogFd() {
     if (g_logFd >= 0) return;
     const char* paths[] = {
         "/storage/emulated/0/Android/data/com.appsomniacs.da2/files/MM_Crash.log",
         "/sdcard/Android/data/com.appsomniacs.da2/files/MM_Crash.log",
-        "/storage/emulated/0/Android/data/com.appsomniacs.da2/files/logs/MM_Crash.log",
-        "/storage/emulated/0/Android/data/com.appsomniacs.da2/cache/MM_Crash.log",
         "/storage/emulated/0/MM_Crash.log",
         "/sdcard/MM_Crash.log",
         "/data/local/tmp/MM_Crash.log"
@@ -101,18 +105,14 @@ static void crashLogTime() {
     if (n > 0) write(g_logFd, buf, n);
 }
 
-// ---- thread-local guard (THE fix for the infinite SIG 11 loop) ----
 static __thread sigjmp_buf tls_guard;
 static __thread volatile sig_atomic_t tls_guardActive = 0;
 
 static void native_crash_handler(int sig, siginfo_t* info, void*) {
-    // Never recurse into ourselves
     if (tls_guardActive) {
-        // crash happened inside a guarded call for THIS thread → recover
         tls_guardActive = 0;
         siglongjmp(tls_guard, 1);
     }
-    // Otherwise log it
     ensureLogFd();
     if (g_crashCount.fetch_add(1) < MAX_CRASHES_PER_SESSION) {
         char buf[256];
@@ -121,7 +121,6 @@ static void native_crash_handler(int sig, siginfo_t* info, void*) {
             "\n!!! SIG %d !!! fault_addr=%p\n", sig, faultAddr);
         if (n > 0) crashLogRaw(buf, n);
     }
-    // Restore default and re-raise so the OS kills us cleanly.
     struct sigaction sa;
     memset(&sa, 0, sizeof(sa));
     sa.sa_handler = SIG_DFL;
@@ -144,32 +143,38 @@ extern "C" JNIEXPORT void JNICALL
 Java_com_android_support_Main_setNativeCrashDir(JNIEnv*, jclass, jstring) {}
 
 // ================================================================
-//  OFFSETS  (only listing ones we can verify or that are needed)
+//  OFFSETS  (from cocos2dcpp.cpp symbol dump)
 // ================================================================
 namespace Off {
-    // --- verified from your cocos2dcpp.cpp dump (A-D section) ---
-    constexpr uintptr_t AK47_triggerPull          = 0x00ea2e74;   // AK47::triggerPull
-    constexpr uintptr_t AK47_setMapConfig         = 0x00ea36cc;   // AK47::setMapConfiguration
-    constexpr uintptr_t AA12_triggerPull          = 0x00ea2128;   // AA12::triggerPull
-    constexpr uintptr_t DEAGLE_triggerPull        = 0xeacaf0;     // DEAGLE::triggerPull
-    // NOTE: M16 offset in your dumper list = 0x00ee4298 (was wrong in your source)
+    // ---- Weapons triggerPull (for sprayers) ----
+    constexpr uintptr_t AK47_triggerPull       = 0x00ea2e74;
+    constexpr uintptr_t AA12_triggerPull       = 0x00ea2128;
+    constexpr uintptr_t DEAGLE_triggerPull     = 0x00eacaf0;
+    constexpr uintptr_t M16_triggerPull        = 0x00ee4298;
+    constexpr uintptr_t MINIGUN_triggerPull    = 0x00ee7334;
+    constexpr uintptr_t EMP_triggerPull        = 0x00ead8d0;
+    constexpr uintptr_t RG6_triggerPull        = 0x00f06640;
+    constexpr uintptr_t M14_triggerPull        = 0x00ee3608;
+    constexpr uintptr_t MAGNUM_triggerPull     = 0x00ee63ac;
+    constexpr uintptr_t MP5_triggerPull        = 0x00ee90a0;
+    constexpr uintptr_t TAVOR_triggerPull      = 0x00f2e8e4;
+    constexpr uintptr_t TEC9_triggerPull       = 0x00f2f534;
+    constexpr uintptr_t HUNTING_triggerPull    = 0x00edf94c;
+    constexpr uintptr_t SAWGUN_triggerPull     = 0x00f0afb8;
+    constexpr uintptr_t SMAW_triggerPull       = 0x00f0cb2c;
+    constexpr uintptr_t XM8_triggerPull        = 0x00f4b834;
+    constexpr uintptr_t PHASR_triggerPull      = 0x00ef921c;
 
-    // --- from your offset-dumper list (unverified against symbol dump) ---
-    constexpr uintptr_t M16_triggerPull           = 0x00ee4298;
-    constexpr uintptr_t MINIGUN_triggerPull       = 0x00ee7334;
-    constexpr uintptr_t EMP_triggerPull           = 0x00ead8d0;
-    constexpr uintptr_t RG6_triggerPull           = 0x00f06640;
-    constexpr uintptr_t M14_triggerPull           = 0x00ee3608;
-    constexpr uintptr_t MAGNUM_triggerPull        = 0x00ee63ac;
-    constexpr uintptr_t MP5_triggerPull           = 0x00ee90a0;
-    constexpr uintptr_t TAVOR_triggerPull         = 0x00f2e8e4;
-    constexpr uintptr_t TEC9_triggerPull          = 0x00f2f534;
-    constexpr uintptr_t HUNTING_triggerPull       = 0x00edf94c;
-    constexpr uintptr_t SAWGUN_triggerPull        = 0x00f0afb8;
-    constexpr uintptr_t SMAW_triggerPull          = 0x00f0cb2c;
-    constexpr uintptr_t XM8_triggerPull           = 0x00f4b834;
-    constexpr uintptr_t PHASR_triggerPull         = 0xef921c;
+    // ---- Effects / bomb / gas ----
+    constexpr uintptr_t EffectsManager_addExplosionAt = 0x00eb1f20;
+    constexpr uintptr_t EffectsManager_addGasCloudAt  = 0x00eb2360;
+    constexpr uintptr_t EffectsManager_onExplosion    = 0x00eaffc4;
 
+    // ---- MapManager ----
+    constexpr uintptr_t MapManager_getMaxPower      = 0x00eea748;
+    constexpr uintptr_t MapManager_getGravityFactor = 0x00eea740;
+
+    // ---- Enemy / drone ----
     constexpr uintptr_t Enemy_canSeeTarget        = 0x00eb3940;
     constexpr uintptr_t Explosion_applyDamage     = 0x00eb7ac8;
     constexpr uintptr_t GasCloud_applyDamage      = 0x00ed5808;
@@ -178,23 +183,23 @@ namespace Off {
     constexpr uintptr_t SAW_updateItemStep        = 0x00f0a2a8;
     constexpr uintptr_t ProxyMine_updateStep      = 0x00f05db8;
     constexpr uintptr_t ProxyMine_reset           = 0x00f05c98;
-    constexpr uintptr_t EffectsManager_onExplosion= 0x00eaffc4;
-    constexpr uintptr_t MapManager_getMaxPower    = 0x00eea748;
-    constexpr uintptr_t MapManager_getGravity     = 0x00eea740;
-    constexpr uintptr_t MapManager_addStaticBody  = 0x00eeb038;
-    constexpr uintptr_t Tracer_checkCollision     = 0x00f33160;
+
+    // ---- Projectiles ----
+    constexpr uintptr_t ProjectileManager_addBullet  = 0x00f04b7c;
     constexpr uintptr_t ProjectileManager_addGrenade = 0x00f04d58;
     constexpr uintptr_t ProjectileManager_addRocket  = 0x00f05008;
-    constexpr uintptr_t ProjectileManager_addSaw     = 0x00f05750;
     constexpr uintptr_t ProjectileManager_addShell   = 0x00f052d8;
+    constexpr uintptr_t ProjectileManager_addSaw     = 0x00f05750;
+    constexpr uintptr_t ProjectileManager_addFlame   = 0x00f055a4;
 
-    // --- game core (you had these; keep for hooking) ---
+    // ---- SoldierManager ----
     constexpr uintptr_t SoldierManager_getLocalController   = 0x00f1aa00;
     constexpr uintptr_t SoldierManager_updateRemoteSoldiers = 0x00f1a888;
     constexpr uintptr_t SoldierManager_updateStep           = 0x00f1a348;
     constexpr uintptr_t SoldierManager_spawnPlayer          = 0x00f1a618;
     constexpr uintptr_t SoldierManager_respawnPlayer        = 0x00f19f78;
 
+    // ---- SoldierController ----
     constexpr uintptr_t SoldierController_getBodyPosition   = 0x00f13828;
     constexpr uintptr_t SoldierController_getHP             = 0x00f137d4;
     constexpr uintptr_t SoldierController_setHP             = 0x00f137e4;
@@ -207,36 +212,38 @@ namespace Off {
     constexpr uintptr_t SoldierController_getDualWeapon      = 0x00f1322c;
     constexpr uintptr_t SoldierController_getSideWeapon      = 0x00f13234;
     constexpr uintptr_t SoldierController_fire               = 0x00f1323c;
-    constexpr uintptr_t SoldierController_isRight            = 0x00f135a0;
 
-    constexpr uintptr_t SoldierLocalController_createWithWeaponPack = 0x00f13910;
-    constexpr uintptr_t SoldierLocalController_updateStep    = 0x00f14478;
-    constexpr uintptr_t SoldierLocalController_addDamage     = 0x00f18c64;
-    constexpr uintptr_t SoldierLocalController_killPlayer    = 0x00f17c0c;
-    constexpr uintptr_t SoldierLocalController_isSameTeam    = 0x00f18b18;
-    constexpr uintptr_t SoldierLocalController_getViewScale  = 0x00f17ae8;
-    constexpr uintptr_t SoldierLocalController_getViewOffset = 0x00f17a5c;
-    constexpr uintptr_t SoldierLocalController_setViewOffset = 0x00f17a54;
-    constexpr uintptr_t SoldierLocalController_throwDual     = 0x00f185c8;
-    constexpr uintptr_t SoldierLocalController_getHP         = 0x00f18dc4;
-    constexpr uintptr_t SoldierLocalController_setHP         = 0x00f18e8c;
-    constexpr uintptr_t SoldierLocalController_activatePlayer= 0x00f17bb4;
+    // ---- SoldierLocalController ----
+    constexpr uintptr_t SoldierLocalController_updateStep              = 0x00f14478;
+    constexpr uintptr_t SoldierLocalController_addDamage               = 0x00f18c64;
+    constexpr uintptr_t SoldierLocalController_activatePlayer          = 0x00f17bb4;
+    constexpr uintptr_t SoldierLocalController_addWeapon               = 0x00f159ec;
+    constexpr uintptr_t SoldierLocalController_addPrimaryWeapon        = 0x00f15e48;
+    constexpr uintptr_t SoldierLocalController_addPrimaryWeaponRemoveDual = 0x00f15e04;
+    constexpr uintptr_t SoldierLocalController_addSecondaryWeapon      = 0x00f160b4;
+    constexpr uintptr_t SoldierLocalController_addDualWeapon           = 0x00f161d8;
+    constexpr uintptr_t SoldierLocalController_switchPrimaryToDual     = 0x00f17760;
+    constexpr uintptr_t SoldierLocalController_switchSecondaryToDual   = 0x00f178b8;
+    constexpr uintptr_t SoldierLocalController_setPower                = 0x00f156b4;
+    constexpr uintptr_t SoldierLocalController_getPower                = 0x00f15798;
+    constexpr uintptr_t SoldierLocalController_setDPower               = 0x00f158c4;
+    constexpr uintptr_t SoldierLocalController_getDPower               = 0x00f158cc;
 
-    constexpr uintptr_t SoldierRemoteController_updateStep   = 0x00f1d620;
-    constexpr uintptr_t SoldierAIController_updateStep       = 0x00f0fd80;
-    constexpr uintptr_t EnemyManager_updateStep              = 0x00eb4d18;
-    constexpr uintptr_t Stage_update                         = 0x00f21938;
+    constexpr uintptr_t SoldierRemoteController_updateStep = 0x00f1d620;
+    constexpr uintptr_t SoldierAIController_updateStep     = 0x00f0fd80;
+    constexpr uintptr_t EnemyManager_updateStep            = 0x00eb4d18;
+    constexpr uintptr_t Stage_update                       = 0x00f21938;
     constexpr uintptr_t NetworkMessageDispatcher_updatePeerDamage = 0x00ef5d60;
-    constexpr uintptr_t NetworkManager_sendVelocityData      = 0x00ef457c;
-    constexpr uintptr_t NetworkManager_sendWeaponCreate      = 0x00ef3e80;
-    constexpr uintptr_t NetworkManager_sendWeaponChange      = 0x00ef3ec4;
-    constexpr uintptr_t HumanoidDrone_addDamage              = 0x00edf408;
-    constexpr uintptr_t HawkDrone_addDamage                  = 0x00eddc44;
-    constexpr uintptr_t WormDrone_addDamage                  = 0x00f4b320;
-    constexpr uintptr_t HumanoidDrone_updateStep             = 0x00edf000;
-    constexpr uintptr_t HawkDrone_updateStep                 = 0x00edd640;
-    constexpr uintptr_t WormDrone_updateStep                 = 0x00f4aaa8;
+    constexpr uintptr_t NetworkManager_sendWeaponCreate    = 0x00ef3e80;
+    constexpr uintptr_t NetworkManager_sendWeaponChange    = 0x00ef3ec4;
+    constexpr uintptr_t HumanoidDrone_addDamage            = 0x00edf408;
+    constexpr uintptr_t HawkDrone_addDamage                = 0x00eddc44;
+    constexpr uintptr_t WormDrone_addDamage                = 0x00f4b320;
+    constexpr uintptr_t HumanoidDrone_updateStep           = 0x00edf000;
+    constexpr uintptr_t HawkDrone_updateStep               = 0x00edd640;
+    constexpr uintptr_t WormDrone_updateStep               = 0x00f4aaa8;
 
+    // ---- Weapon ----
     constexpr uintptr_t Weapon_getRandomFiringAngle = 0x00f40ad0;
     constexpr uintptr_t Weapon_getBulletSpeed       = 0x00f40ab0;
     constexpr uintptr_t Weapon_getRange             = 0x00f40784;
@@ -252,6 +259,7 @@ namespace Off {
     constexpr uintptr_t Weapon_getAmmoCapacity      = 0x00f4078c;
     constexpr uintptr_t Weapon_getReloadTime        = 0x00f4079c;
     constexpr uintptr_t Weapon_isDualWield          = 0x00f40ab8;
+    constexpr uintptr_t Weapon_isDualWieldOnly      = 0x00f40ac0;
     constexpr uintptr_t Weapon_isDualWieldPrimaryOnly = 0x00f40ac8;
     constexpr uintptr_t Weapon_getZoomLevel         = 0x00f40a90;
     constexpr uintptr_t Weapon_setZoomLevel         = 0x00f409d4;
@@ -259,15 +267,16 @@ namespace Off {
     constexpr uintptr_t Weapon_getZoomScale         = 0x00f408f4;
     constexpr uintptr_t Weapon_changeZoomLevel      = 0x00f409bc;
     constexpr uintptr_t Weapon_pickupAsDual         = 0x00f40b4c;
+    constexpr uintptr_t Weapon_setPickupAsDual      = 0x00f40b54;
     constexpr uintptr_t Weapon_getMeleeDamage       = 0x00f40774;
     constexpr uintptr_t Weapon_getMeleeLength       = 0x00f4077c;
 
-    constexpr uintptr_t WeaponsModel_isUnlockable   = 0x01113a88;
-    constexpr uintptr_t WeaponsModel_isUpgradable   = 0x01113a60;
+    // ---- Model / wallet ----
+    constexpr uintptr_t WeaponsModel_isUnlockable            = 0x01113a88;
+    constexpr uintptr_t WeaponsModel_isUpgradable            = 0x01113a60;
     constexpr uintptr_t WeaponsModel_getDualWieldUnlockLevel = 0x01113984;
-    constexpr uintptr_t UserWallet_quantityOwnedOf  = 0x011bcd14;
-    constexpr uintptr_t UserWallet_maxOwnedLevel    = 0x011bcfb8;
 
+    // ---- Cocos / misc ----
     constexpr uintptr_t CCNode_convertToWorldSpaceAR = 0x00f88018;
     constexpr uintptr_t CCDirector_sharedDirector    = 0x00f8f5c4;
     constexpr uintptr_t CCDirector_getVisibleSize    = 0x00f90378;
@@ -276,39 +285,14 @@ namespace Off {
     constexpr uintptr_t SoldierView_setPlayerHealth  = 0x00f20960;
     constexpr uintptr_t SoldierView_getPlayerName    = 0x00f20994;
     constexpr uintptr_t CollisionObject_getTeamId    = 0x00eac4f0;
-    constexpr uintptr_t ProjectileManager_addBullet  = 0x00f04b7c;
+    constexpr uintptr_t Tracer_checkCollision        = 0x00f33160;
 }
 
 uintptr_t         g_libBase = 0;
 std::atomic<bool> g_libReady{false};
 
 // ================================================================
-//  SAFE PATCH HELPERS
-// ================================================================
-// Reject patches to addresses we can't confirm are executable.
-static bool IsLikelyExecutable(uintptr_t addr) {
-    if (addr < 0x1000) return false;
-    // Try to detect protection via /proc/self/maps
-    FILE* f = fopen("/proc/self/maps", "r");
-    if (!f) return true;   // can't tell, allow
-    char line[512];
-    bool ok = false;
-    while (fgets(line, sizeof(line), f)) {
-        unsigned long lo = 0, hi = 0;
-        char perms[8] = {0};
-        if (sscanf(line, "%lx-%lx %7s", &lo, &hi, perms) == 3) {
-            if (addr >= lo && addr < hi) {
-                ok = (perms[2] == 'x');  // third char = execute permission
-                break;
-            }
-        }
-    }
-    fclose(f);
-    return ok;
-}
-
-// ================================================================
-//  MOD SYSTEM  (unified patch storage — no conflicts)
+//  MOD PATCH STORAGE
 // ================================================================
 struct ModDef {
     const char*  name     = nullptr;
@@ -317,7 +301,7 @@ struct ModDef {
     MemoryPatch  patch;
     bool         enabled  = false;
     bool         init     = false;
-    bool         blocked  = false;   // set if address isn't executable
+    bool         blocked  = false;
 };
 static std::vector<ModDef> g_mods;
 static std::mutex          g_modsMutex;
@@ -339,12 +323,6 @@ static void ApplyModByIndex(int idx, bool on) {
     if (m.blocked) return;
     if (!m.init) {
         uintptr_t addr = g_libBase + m.offset;
-        if (!IsLikelyExecutable(addr)) {
-            crashLog("MOD", "BLOCKED non-exec patch %s @ %p",
-                     m.name, (void*)addr);
-            m.blocked = true;
-            return;
-        }
         m.patch = MemoryPatch::createWithHex(addr, m.patchHex);
         m.init = true;
     }
@@ -407,6 +385,14 @@ typedef bool (*isUpgradable_t)(void*, void*, unsigned int);
 typedef int  (*getDualWieldUnlockLevel_t)(void*, void*);
 typedef void (*soldierLocalUpdateStep_t)(void*, float, cpVect, cpVect, float);
 typedef void (*addBullet_t)(void*, cpVect, float, cpVect, void*, int, cpVect, void*);
+typedef void (*addShell_t)(void*, cpVect, float, cpVect, void*, bool, void*);
+typedef void (*addExplosionAt_t)(void*, cpVect, float, void*, int, bool);
+typedef void (*addGasCloudAt_t)(void*, cpVect, float, void*, int);
+typedef void (*addWeapon_t)(void*, void*);
+typedef void (*switchToDual_t)(void*);
+typedef float (*getMaxPower_t)(void*);
+typedef float (*getGravityFactor_t)(void*);
+typedef void (*setPowerF_t)(void*, float);
 typedef void (*getVector_t)(cpVect*, void*);
 
 // Originals
@@ -431,6 +417,9 @@ setAlive_t             old_setAlive             = nullptr;
 updatePeerDamage_t     old_updatePeerDamage     = nullptr;
 setPlayerHealth_t      old_setPlayerHealth      = nullptr;
 addBullet_t            old_addBullet            = nullptr;
+addExplosionAt_t       old_addExplosionAt       = nullptr;
+addWeapon_t            old_addPrimaryWeapon     = nullptr;
+switchToDual_t         old_switchPrimaryToDual  = nullptr;
 getRandomFiringAngle_t old_getRandomFiringAngle = nullptr;
 triggerPull_t          old_triggerPull          = nullptr;
 getVector_t            old_Joypad_getDirVector  = nullptr;
@@ -447,6 +436,8 @@ getClipCap_t           old_getClipCapacity      = nullptr;
 getAmmoCap_t           old_getAmmoCapacity      = nullptr;
 getReloadTime_t        old_getReloadTime        = nullptr;
 isDualWield_t          old_isDualWield          = nullptr;
+isDualWield_t          old_isDualWieldOnly      = nullptr;
+isDualWield_t          old_isDualWieldPrimaryOnly = nullptr;
 getZoomLevel_t         old_getZoomLevel         = nullptr;
 setZoomLevel_t         old_setZoomLevel         = nullptr;
 applyMaxZoomScale_t    old_applyMaxZoomScale    = nullptr;
@@ -456,8 +447,10 @@ isUnlockable_t              old_isUnlockable              = nullptr;
 isUpgradable_t              old_isUpgradable              = nullptr;
 getDualWieldUnlockLevel_t   old_getDualWieldUnlockLevel   = nullptr;
 soldierLocalUpdateStep_t    old_soldierLocalUpdateStep    = nullptr;
+getMaxPower_t               old_getMaxPower               = nullptr;
+getGravityFactor_t          old_getGravityFactor          = nullptr;
 
-// Direct call pointers
+// Direct-call pointers
 getLocalController_t   fn_getLocalController = nullptr;
 getBodyPosition_t      fn_getBodyPosition    = nullptr;
 getHP_t                fn_getHP              = nullptr;
@@ -476,9 +469,16 @@ soldierFire_t          fn_soldierFire        = nullptr;
 getBulletSpeed_t       fn_getBulletSpeed     = nullptr;
 getRange_t             fn_getRange           = nullptr;
 setFireAngle_wpn_t     fn_setFireAngleWpn    = nullptr;
+addShell_t             fn_addShell           = nullptr;
+addGasCloudAt_t        fn_addGasCloudAt      = nullptr;
+setPowerF_t            fn_setPowerF          = nullptr;
+switchToDual_t         fn_switchPrimaryToDual   = nullptr;
+switchToDual_t         fn_switchSecondaryToDual = nullptr;
+addWeapon_t            fn_addDualWeapon      = nullptr;
+addWeapon_t            fn_addPrimaryWeapon   = nullptr;
 
 // ================================================================
-//  HP / cache tables
+//  HP CACHE
 // ================================================================
 static constexpr int HP_TABLE_SIZE = 1024;
 struct ViewHPEntry { std::atomic<void*> view{nullptr}; std::atomic<int> hp{-1}; };
@@ -577,7 +577,10 @@ std::atomic<bool> g_wpnFastReload     {false};
 std::atomic<bool> g_wpnMaxRange       {false};
 std::atomic<bool> g_wpnBulletSpeedUp  {false};
 std::atomic<int>  g_wpnBulletSpeedMul {5};
-std::atomic<bool> g_wpnDualWieldAny   {false};
+
+// UNIFIED dual wield — single flag
+std::atomic<bool> g_dualWieldAll      {false};
+
 std::atomic<bool> g_wpnMaxZoom        {false};
 std::atomic<bool> g_wpnHighDamage     {false};
 std::atomic<int>  g_wpnDamageMul      {5};
@@ -590,8 +593,11 @@ std::atomic<bool> g_wpnUnlockAll      {false};
 std::atomic<bool> g_wpnMaxUpgrade     {false};
 std::atomic<bool> g_wpnDualWieldUnlock{false};
 
-std::atomic<int>  g_selectedWeapon    {0};
-std::atomic<bool> g_applyWeaponSelect {false};
+// NEW / FIXED feature flags
+std::atomic<bool> g_unlimitedFlyPower {false};   // unlimited flying power
+std::atomic<bool> g_antiGravity       {false};   // anti-gravity
+std::atomic<bool> g_anyGunAsBomb      {false};   // any gun as bomb
+std::atomic<bool> g_anyBombAsGas      {false};   // any bomb as gas
 
 std::atomic<bool> g_lagAntiLagMode    {false};
 std::atomic<int>  g_lagEspUpdateHz    {60};
@@ -625,13 +631,13 @@ std::atomic<float> g_designH{720.f};
 std::atomic<bool>  g_designValid{false};
 std::atomic<bool>  g_aimResolved{false};
 
-// Hook-installed flags (per-hook, idempotent)
-std::atomic<bool> g_extraHooksOk{false};
 std::atomic<bool> g_wpnHooksOk{false};
 std::atomic<bool> g_wpnUnlockHooksOk{false};
 std::atomic<bool> g_mgrHooksOk{false};
 std::atomic<bool> g_droneHooksOk{false};
-std::atomic<bool> g_patchesInstalled{false};
+std::atomic<bool> g_dualWieldHooksOk{false};
+std::atomic<bool> g_flyHooksOk{false};
+std::atomic<bool> g_bombGasHooksOk{false};
 
 static inline bool PlausiblePtr(const void* p) {
     uintptr_t v = (uintptr_t)p;
@@ -649,7 +655,6 @@ static inline float NormalizeDeg(float d) {
     while (d < -180.0f) d += 360.0f;
     return d;
 }
-// Guard macros now use TLS
 #define GUARD_ENTER() (sigsetjmp(tls_guard, 1) == 0)
 #define GUARD_SET()   (tls_guardActive = 1)
 #define GUARD_CLR()   (tls_guardActive = 0)
@@ -879,7 +884,36 @@ void setClip_Hook(void* self, int amount) {
 int getClipCapacity_Hook(void* self) { if (g_wpnUnlimitedAmmo.load()) return 9999; return old_getClipCapacity ? old_getClipCapacity(self) : 0; }
 int getAmmoCapacity_Hook(void* self) { if (g_wpnUnlimitedAmmo.load()) return 9999; return old_getAmmoCapacity ? old_getAmmoCapacity(self) : 0; }
 int getReloadTime_Hook(void* self) { if (g_wpnFastReload.load()) return 0; return old_getReloadTime ? old_getReloadTime(self) : 1000; }
-bool isDualWield_Hook(void* self) { if (g_wpnDualWieldAny.load()) return true; return old_isDualWield ? old_isDualWield(self) : false; }
+
+// --- Dual-wield hooks (UNIFIED) ---
+bool isDualWield_Hook(void* self) {
+    if (g_dualWieldAll.load()) return true;
+    return old_isDualWield ? old_isDualWield(self) : false;
+}
+bool isDualWieldOnly_Hook(void* self) {
+    if (g_dualWieldAll.load()) return false;   // don't force into dual-only slot
+    return old_isDualWieldOnly ? old_isDualWieldOnly(self) : false;
+}
+bool isDualWieldPrimaryOnly_Hook(void* self) {
+    if (g_dualWieldAll.load()) return true;    // prefer dual-primary path
+    return old_isDualWieldPrimaryOnly ? old_isDualWieldPrimaryOnly(self) : false;
+}
+
+// Hook addPrimaryWeapon: after the game adds the weapon as primary,
+// if dual-wield-all is on, immediately convert it to dual via switchPrimaryToDual.
+void addPrimaryWeapon_Hook(void* self, void* weapon) {
+    if (old_addPrimaryWeapon) old_addPrimaryWeapon(self, weapon);
+    if (g_dualWieldAll.load() && fn_switchPrimaryToDual && PlausiblePtr(self)) {
+        if (GUARD_ENTER()) { GUARD_SET(); fn_switchPrimaryToDual(self); GUARD_CLR(); }
+        else GUARD_CLR();
+    }
+}
+
+// Hook switchPrimaryToDual — record the successful call so we can log if needed
+void switchPrimaryToDual_Hook(void* self) {
+    if (old_switchPrimaryToDual) old_switchPrimaryToDual(self);
+}
+
 int getZoomLevel_Hook(void* self) { if (g_wpnMaxZoom.load()) return 5; return old_getZoomLevel ? old_getZoomLevel(self) : 0; }
 void applyMaxZoomScale_Hook(void* self) {
     if (old_applyMaxZoomScale) old_applyMaxZoomScale(self);
@@ -910,16 +944,46 @@ bool isUpgradable_Hook(void* self, void* id, unsigned int lvl) {
     return old_isUpgradable ? old_isUpgradable(self, id, lvl) : false;
 }
 int getDualWieldUnlockLevel_Hook(void* self, void* id) {
-    if (g_wpnDualWieldUnlock.load()) return 0;
+    if (g_wpnDualWieldUnlock.load() || g_dualWieldAll.load()) return 0;
     return old_getDualWieldUnlockLevel ? old_getDualWieldUnlockLevel(self, id) : 8;
 }
+
+// ================================================================
+//  FLY / ANTI-GRAV HOOKS
+// ================================================================
+float getMaxPower_Hook(void* self) {
+    if (g_unlimitedFlyPower.load()) return 100.0f;
+    return old_getMaxPower ? old_getMaxPower(self) : 100.0f;
+}
+float getGravityFactor_Hook(void* self) {
+    if (g_antiGravity.load()) return 0.0f;
+    return old_getGravityFactor ? old_getGravityFactor(self) : 1.0f;
+}
+
+// ================================================================
+//  BOMB / GAS HOOKS
+// ================================================================
+void addExplosionAt_Hook(void* self, cpVect pos, float radius, void* str, int teamId, bool flag) {
+    if (old_addExplosionAt) old_addExplosionAt(self, pos, radius, str, teamId, flag);
+    if (g_anyBombAsGas.load() && fn_addGasCloudAt && PlausiblePtr(self)) {
+        if (GUARD_ENTER()) { GUARD_SET(); fn_addGasCloudAt(self, pos, radius, str, teamId); GUARD_CLR(); }
+        else GUARD_CLR();
+    }
+}
+
 void soldierLocalUpdateStep_Hook(void* self, float dt, cpVect a, cpVect b, float c) {
+    // speed boost
     if (g_charSpeedOn.load() && PlausiblePtr(self)) {
         int mul = g_charSpeedMul.load();
         if (mul < 1) mul = 1; if (mul > 20) mul = 20;
         float f = (float)mul;
         a.x *= (double)f; a.y *= (double)f;
         b.x *= (double)f; b.y *= (double)f;
+    }
+    // unlimited flying power — force setPower to max every frame
+    if (g_unlimitedFlyPower.load() && fn_setPowerF && PlausiblePtr(self)) {
+        if (GUARD_ENTER()) { GUARD_SET(); fn_setPowerF(self, 9999.0f); GUARD_CLR(); }
+        else GUARD_CLR();
     }
     if (old_soldierLocalUpdateStep) old_soldierLocalUpdateStep(self, dt, a, b, c);
 }
@@ -1015,10 +1079,11 @@ static void ApplySilentAim(void* localController) {
 }
 
 // ================================================================
-//  RUNTIME HOOKS
+//  PROJECTILE HOOKS  (bullet + bomb redirect)
 // ================================================================
 void addBullet_Hook(void* self, cpVect pos, float rot, cpVect vel,
                     void* weapon, int ammoType, cpVect targetPos, void* strPtr) {
+    // ---- SILENT AIM REDIRECT ----
     if (g_silentAim.load() && g_hasAimTarget.load()) {
         float tx = g_aimTargetRawX.load(), ty = g_aimTargetRawY.load(), aimAngle = g_aimAngle.load();
         if (std::isfinite(tx) && std::isfinite(ty) && std::isfinite(aimAngle)) {
@@ -1039,8 +1104,24 @@ void addBullet_Hook(void* self, cpVect pos, float rot, cpVect vel,
             targetPos.x = (double)tx; targetPos.y = (double)ty;
         }
     }
+
+    // ---- ANY GUN AS BOMB ----
+    // If enabled, spawn a shell (explosive) instead of a bullet.
+    // addShell signature: (cpVect pos, float rot, cpVect vel, Weapon* w, bool flag, std::string str)
+    // Since `strPtr` here is a void* pointing to the same underlying string object
+    // the shell version expects, we can forward it as-is on ARM ABI.
+    if (g_anyGunAsBomb.load() && fn_addShell && PlausiblePtr(self)) {
+        if (GUARD_ENTER()) {
+            GUARD_SET();
+            fn_addShell(self, pos, rot, vel, weapon, false, strPtr);
+            GUARD_CLR();
+        } else GUARD_CLR();
+        return;
+    }
+
     if (old_addBullet) old_addBullet(self, pos, rot, vel, weapon, ammoType, targetPos, strPtr);
 }
+
 float getRandomFiringAngle_Hook(void* self) {
     if (g_wpnNoRecoil.load()) return 0.0f;
     if (g_silentAim.load()) return 0.0f;
@@ -1078,6 +1159,10 @@ float Joypad_getDirAngle_Hook(void* self) {
     if (g_aimMagnet.load() && g_hasAimAngle.load()) return NormalizeDeg(90.0f - g_aimAngle.load() * RAD2DEG);
     return old_Joypad_getDirAngle ? old_Joypad_getDirAngle(self) : 0.0f;
 }
+
+// ================================================================
+//  DAMAGE / HP HOOKS
+// ================================================================
 void setPlayerHealth_Hook(void* self, float health) {
     if (old_setPlayerHealth) old_setPlayerHealth(self, health);
     if (!IsModActive() || !PlausiblePtr(self)) return;
@@ -1157,6 +1242,7 @@ void WormAddDamage_Hook(void* self, int damage, void* strPtr, int ammoType) {
 void HumanoidUpdate_Hook(void* self, float dt) { if (old_humanoidUpdateStep) old_humanoidUpdateStep(self, dt); if (IsModActive() && PlausiblePtr(self)) RefreshSoldierData(self); }
 void HawkUpdate_Hook(void* self, float dt)     { if (old_hawkUpdateStep) old_hawkUpdateStep(self, dt);     if (IsModActive() && PlausiblePtr(self)) RefreshSoldierData(self); }
 void WormUpdate_Hook(void* self, float dt)     { if (old_wormUpdateStep) old_wormUpdateStep(self, dt);     if (IsModActive() && PlausiblePtr(self)) RefreshSoldierData(self); }
+
 void LocalActivate_Hook(void* self) {
     if (PlausiblePtr(self)) {
         void* prev = g_localInstance.load();
@@ -1170,9 +1256,10 @@ void LocalActivate_Hook(void* self) {
     }
     if (old_LocalActivate) old_LocalActivate(self);
 }
+
 void StageUpdate_Hook(void* self, float dt) {
     if (old_StageUpdate) old_StageUpdate(self, dt);
-    if (!IsModActive()) return;
+    if (!IsModActive() && !g_unlimitedFlyPower.load() && !g_antiGravity.load()) return;
     uint64_t now = NowMs();
     int hz = g_lagEspUpdateHz.load();
     if (g_lagAntiLagMode.load() && hz > 30) hz = 30;
@@ -1185,6 +1272,7 @@ void StageUpdate_Hook(void* self, float dt) {
     void* local = g_localInstance.load();
     if (PlausiblePtr(local)) {
         ApplySilentAim(local);
+        // Force max ammo every ESP tick
         if (g_wpnUnlimitedAmmo.load()) {
             void* wpns[4] = {nullptr, nullptr, nullptr, nullptr};
             if (fn_getPrimaryWeapon)   { if (GUARD_ENTER()) { GUARD_SET(); wpns[0] = fn_getPrimaryWeapon(local);   GUARD_CLR(); } else GUARD_CLR(); }
@@ -1199,6 +1287,7 @@ void StageUpdate_Hook(void* self, float dt) {
         }
     }
 }
+
 void MgrUpdateRemote_Hook(void* self, float dt) {
     if (PlausiblePtr(self) && IsModActive() && fn_getLocalController) {
         void* local = nullptr;
@@ -1242,16 +1331,12 @@ void EnemyMgrUpdateStep_Hook(void* self, float dt) { if (old_EnemyMgrUpdateStep)
 void UpdatePeerDamage_Hook(void* self, void* data, void* strRef) { if (old_updatePeerDamage) old_updatePeerDamage(self, data, strRef); }
 
 // ================================================================
-//  HOOK INSTALL (idempotent + executable-map checked)
+//  HOOK INSTALLER
 // ================================================================
 #define SAFE_HOOK(off, hook, orig, flag) do { \
     uintptr_t _a = g_libBase + (off); \
-    if (!IsLikelyExecutable(_a)) { \
-        crashLog("HOOK", "SKIP non-exec %s @ %p", #off, (void*)_a); \
-    } else { \
-        HOOK_ABS((void*)_a, hook, orig); \
-        if (orig) (flag).store(true); \
-    } \
+    HOOK_ABS((void*)_a, hook, orig); \
+    if (orig) (flag).store(true); \
 } while(0)
 
 static void InstallHooksIfNeeded() {
@@ -1277,10 +1362,20 @@ static void InstallHooksIfNeeded() {
     fn_getBulletSpeed        = (getBulletSpeed_t)    (g_libBase + Off::Weapon_getBulletSpeed);
     fn_getRange              = (getRange_t)          (g_libBase + Off::Weapon_getRange);
     fn_setFireAngleWpn       = (setFireAngle_wpn_t)  (g_libBase + Off::Weapon_setFireAngle);
+
+    // Fixed direct-call pointers
+    fn_addShell              = (addShell_t)          (g_libBase + Off::ProjectileManager_addShell);
+    fn_addGasCloudAt         = (addGasCloudAt_t)     (g_libBase + Off::EffectsManager_addGasCloudAt);
+    fn_setPowerF             = (setPowerF_t)         (g_libBase + Off::SoldierLocalController_setPower);
+    fn_switchPrimaryToDual   = (switchToDual_t)      (g_libBase + Off::SoldierLocalController_switchPrimaryToDual);
+    fn_switchSecondaryToDual = (switchToDual_t)      (g_libBase + Off::SoldierLocalController_switchSecondaryToDual);
+    fn_addDualWeapon         = (addWeapon_t)         (g_libBase + Off::SoldierLocalController_addDualWeapon);
+    fn_addPrimaryWeapon      = (addWeapon_t)         (g_libBase + Off::SoldierLocalController_addPrimaryWeapon);
+
     g_aimResolved.store(true);
     RefreshDesignSize();
 
-    // -- weapon / aiming hooks --
+    // -- Weapon / aiming hooks --
     if (!g_wpnHooksOk.load()) {
         SAFE_HOOK(Off::ProjectileManager_addBullet,        addBullet_Hook,             old_addBullet,             g_wpnHooksOk);
         SAFE_HOOK(Off::Weapon_getRandomFiringAngle,        getRandomFiringAngle_Hook,  old_getRandomFiringAngle,  g_wpnHooksOk);
@@ -1297,7 +1392,6 @@ static void InstallHooksIfNeeded() {
         SAFE_HOOK(Off::Weapon_getClipCapacity,             getClipCapacity_Hook,       old_getClipCapacity,       g_wpnHooksOk);
         SAFE_HOOK(Off::Weapon_getAmmoCapacity,             getAmmoCapacity_Hook,       old_getAmmoCapacity,       g_wpnHooksOk);
         SAFE_HOOK(Off::Weapon_getReloadTime,               getReloadTime_Hook,         old_getReloadTime,         g_wpnHooksOk);
-        SAFE_HOOK(Off::Weapon_isDualWield,                 isDualWield_Hook,           old_isDualWield,           g_wpnHooksOk);
         SAFE_HOOK(Off::Weapon_getZoomLevel,                getZoomLevel_Hook,          old_getZoomLevel,          g_wpnHooksOk);
         SAFE_HOOK(Off::Weapon_applyMaxZoomScale,           applyMaxZoomScale_Hook,     old_applyMaxZoomScale,     g_wpnHooksOk);
         SAFE_HOOK(Off::Weapon_getDamage,                   getDamage_w_Hook,           old_getDamage_w,           g_wpnHooksOk);
@@ -1305,14 +1399,39 @@ static void InstallHooksIfNeeded() {
         SAFE_HOOK(Off::SoldierLocalController_updateStep,  soldierLocalUpdateStep_Hook,old_soldierLocalUpdateStep, g_wpnHooksOk);
         crashLog("HOOK", "Weapon hooks installed");
     }
-    // -- unlock hooks --
+
+    // -- Dual-wield hooks (UNIFIED) --
+    if (!g_dualWieldHooksOk.load()) {
+        SAFE_HOOK(Off::Weapon_isDualWield,             isDualWield_Hook,             old_isDualWield,             g_dualWieldHooksOk);
+        SAFE_HOOK(Off::Weapon_isDualWieldOnly,         isDualWieldOnly_Hook,         old_isDualWieldOnly,         g_dualWieldHooksOk);
+        SAFE_HOOK(Off::Weapon_isDualWieldPrimaryOnly,  isDualWieldPrimaryOnly_Hook,  old_isDualWieldPrimaryOnly,  g_dualWieldHooksOk);
+        SAFE_HOOK(Off::SoldierLocalController_addPrimaryWeapon,     addPrimaryWeapon_Hook,     old_addPrimaryWeapon,       g_dualWieldHooksOk);
+        SAFE_HOOK(Off::SoldierLocalController_switchPrimaryToDual,  switchPrimaryToDual_Hook,  old_switchPrimaryToDual,    g_dualWieldHooksOk);
+        crashLog("HOOK", "Dual-wield hooks installed");
+    }
+
+    // -- Unlock hooks --
     if (!g_wpnUnlockHooksOk.load()) {
         SAFE_HOOK(Off::WeaponsModel_isUnlockable,            isUnlockable_Hook,            old_isUnlockable,            g_wpnUnlockHooksOk);
         SAFE_HOOK(Off::WeaponsModel_isUpgradable,            isUpgradable_Hook,            old_isUpgradable,            g_wpnUnlockHooksOk);
         SAFE_HOOK(Off::WeaponsModel_getDualWieldUnlockLevel, getDualWieldUnlockLevel_Hook, old_getDualWieldUnlockLevel, g_wpnUnlockHooksOk);
         crashLog("HOOK", "Unlock hooks installed");
     }
-    // -- damage / HP hooks --
+
+    // -- Fly / anti-grav hooks --
+    if (!g_flyHooksOk.load()) {
+        SAFE_HOOK(Off::MapManager_getMaxPower,      getMaxPower_Hook,      old_getMaxPower,      g_flyHooksOk);
+        SAFE_HOOK(Off::MapManager_getGravityFactor, getGravityFactor_Hook, old_getGravityFactor, g_flyHooksOk);
+        crashLog("HOOK", "Fly/anti-grav hooks installed");
+    }
+
+    // -- Bomb / gas hooks --
+    if (!g_bombGasHooksOk.load()) {
+        SAFE_HOOK(Off::EffectsManager_addExplosionAt, addExplosionAt_Hook, old_addExplosionAt, g_bombGasHooksOk);
+        crashLog("HOOK", "Bomb/gas hooks installed");
+    }
+
+    // -- Damage / HP hooks --
     if (!g_mgrHooksOk.load()) {
         SAFE_HOOK(Off::SoldierView_setPlayerHealth,             setPlayerHealth_Hook,      old_setPlayerHealth,       g_mgrHooksOk);
         SAFE_HOOK(Off::SoldierController_setHP,                 setHP_Hook,                old_setHP,                 g_mgrHooksOk);
@@ -1330,7 +1449,8 @@ static void InstallHooksIfNeeded() {
         SAFE_HOOK(Off::NetworkMessageDispatcher_updatePeerDamage,UpdatePeerDamage_Hook,    old_updatePeerDamage,      g_mgrHooksOk);
         crashLog("HOOK", "Mgr hooks installed");
     }
-    // -- drone hooks --
+
+    // -- Drone hooks --
     if (!g_droneHooksOk.load()) {
         SAFE_HOOK(Off::HumanoidDrone_addDamage,  HumanoidAddDamage_Hook, old_humanoidAddDamage, g_droneHooksOk);
         SAFE_HOOK(Off::HawkDrone_addDamage,      HawkAddDamage_Hook,     old_hawkAddDamage,     g_droneHooksOk);
@@ -1343,7 +1463,7 @@ static void InstallHooksIfNeeded() {
 }
 
 // ================================================================
-//  MAX LEVEL / RELOAD PATCHES  (kept, but guarded)
+//  SIMPLE PATCHES (max level, no local damage)
 // ================================================================
 static MemoryPatch g_patchMaxLevel, g_patchNoLocalDamage;
 static std::atomic<bool> g_maxLevelInit{false}, g_noLocalDamageInit{false};
@@ -1351,14 +1471,7 @@ static std::atomic<bool> g_maxLevelInit{false}, g_noLocalDamageInit{false};
 static void ApplyMaxLevelPatch(bool e) {
     if (!g_libReady.load()) return;
     if (!g_maxLevelInit.load()) {
-        // NOTE: this address is a FIELD in your dumper list. If it isn't a
-        // function, this patch will corrupt memory. It is BLOCKED unless you
-        // confirm the address is executable.
         uintptr_t addr = g_libBase + 0x011bae9c;
-        if (!IsLikelyExecutable(addr)) {
-            crashLog("PATCH", "MaxLevel SKIPPED (non-exec)");
-            return;
-        }
         g_patchMaxLevel = MemoryPatch::createWithHex(addr, "64 00 A0 E3 1E FF 2F E1");
         g_maxLevelInit.store(true);
     }
@@ -1368,10 +1481,6 @@ static void ApplyReloadPatch(bool e) {
     if (!g_libReady.load()) return;
     if (!g_noLocalDamageInit.load()) {
         uintptr_t addr = g_libBase + Off::SoldierLocalController_addDamage;
-        if (!IsLikelyExecutable(addr)) {
-            crashLog("PATCH", "NoLocalDamage SKIPPED (non-exec)");
-            return;
-        }
         g_patchNoLocalDamage = MemoryPatch::createWithHex(addr, "1E FF 2F E1");
         g_noLocalDamageInit.store(true);
     }
@@ -1443,8 +1552,6 @@ Java_com_android_support_Menu_Draw(JNIEnv* env, jclass, jobject espView, jobject
     float uniformScale = (scaleX < scaleY) ? scaleX : scaleY;
     float offX = ((float)sw - designW * uniformScale) * 0.5f;
     float offY = ((float)sh - designH * uniformScale) * 0.5f;
-    uint64_t nowMs = NowMs();
-    float timeSec = (float)(nowMs % 100000) * 0.001f;
     if (fovWants) {
         float cx = (float)sw * 0.5f, cy = (float)sh * 0.5f;
         int fovDesign = g_fovPixels.load();
@@ -1454,7 +1561,6 @@ Java_com_android_support_Menu_Draw(JNIEnv* env, jclass, jobject espView, jobject
         if (radius < 30.f) radius = 30.f;
         DrawRectColored(env, espView, canvas, 180, 0, 255, 136, 2.f,
                         cx - radius, cy - radius, radius*2.f, radius*2.f);
-        if (env->ExceptionCheck()) env->ExceptionClear();
     }
     if (!espOn) return;
     bool skipExtra = g_lagSkipExtraDraw.load();
@@ -1522,46 +1628,28 @@ Java_com_android_support_Menu_Draw(JNIEnv* env, jclass, jobject espView, jobject
 }
 
 // ================================================================
-//  MOD REGISTRY
-//  ** Removed: mods that conflict with hooks or with each other. **
-//  Rule: ONE mod per address. If a mod needs a hook, do it in Changes().
+//  MOD REGISTRY  (unified — no more conflicting patches)
 // ================================================================
 enum {
     M_WPN_NO_BULLET_SPREAD = 0,
     M_WPN_HIDE_WEAPONS,
-    M_WPN_DUAL_WIELD_ANY,
-    M_WPN_DUAL_WIELD_PRIMARY,
-    M_WPN_DUAL_ON_SPAWN,
     M_WPN_HIGH_MELEE_DMG,
     M_WPN_HIGH_MELEE_LEN,
     M_BULLET_THROUGH_WALLS,
-    M_ANY_WEAPON_GRENADE,
-    M_ANY_WEAPON_ROCKET,
-    M_ANY_WEAPON_SAW,
-    M_ANY_WEAPON_SHELL,
 
-    // sprayers
     M_SPR_AK47, M_SPR_M16, M_SPR_MINIGUN, M_SPR_EMP, M_SPR_RG6, M_SPR_M14,
     M_SPR_MAGNUM, M_SPR_MP5, M_SPR_TAVOR, M_SPR_TEC9, M_SPR_AA12,
     M_SPR_HUNTING, M_SPR_SAWGUN, M_SPR_SMAW, M_SPR_XM8, M_SPR_PHASR, M_SPR_DEAGLE,
 
-    // player (patches only — NOT the ones handled by hooks)
-    M_PLY_UNLIMITED_FLY,
-    M_PLY_ANTI_GRAVITY,
     M_PLY_FLY_WALLS,
     M_PLY_RESPAWN_TIME,
     M_PLY_REBORN_MAP,
-    M_PLY_MAGIC_BOMB,
-    M_PLY_MAGIC_MELEE,
-    M_PLY_HIDE_BOMB_THROW,
 
-    // enemy / robot
     M_ENM_REMOVE_ROBOT,
     M_ENM_ROBOTS_CANT_SEE,
-    M_ENM_DIE_GUNS_ONLY,
+    M_ENM_DIE_GUNS_ONLY1,
     M_ENM_DIE_GUNS_ONLY2,
     M_ENM_DIE_GUNS_ONLY3,
-    M_ENM_GAS_ANY_BOMB,
     M_ENM_HIDE_PROXY,
     M_ENM_ENDLESS_PROXY,
     M_ENM_ATTACH_PROXY,
@@ -1577,142 +1665,100 @@ static void RegisterAllMods() {
     if (done) return;
     done = true;
 
-    // weapon patches (one per address)
-    RegisterMod("Weapon_NoBulletSpread",   Off::Weapon_getRandomFiringAngle, "00 00 A0 E3 1E FF 2F E1");
+    // Weapon patches
+    RegisterMod("Weapon_NoBulletSpread",   Off::Weapon_getRandomFiringAngle,   "00 00 A0 E3 1E FF 2F E1");
     RegisterMod("Weapon_HideWeapons",      Off::NetworkManager_sendWeaponChange, "1E FF 2F E1");
-    RegisterMod("Weapon_DualWieldAny",     Off::Weapon_isDualWield,   "01 00 A0 E3 1E FF 2F E1");
-    RegisterMod("Weapon_DualWieldPrimary", Off::Weapon_isDualWieldPrimaryOnly, "01 00 A0 E3 1E FF 2F E1");
-    RegisterMod("Weapon_DualOnSpawn",      Off::Weapon_pickupAsDual, "01 00 A0 E3 1E FF 2F E1");
-    RegisterMod("Weapon_HighMeleeDamage",  Off::Weapon_getMeleeDamage, "E7 03 00 E3 1E FF 2F E1");
-    RegisterMod("Weapon_HighMeleeLength",  Off::Weapon_getMeleeLength, "E7 03 00 E3 1E FF 2F E1");
+    RegisterMod("Weapon_HighMeleeDamage",  Off::Weapon_getMeleeDamage,         "E7 03 00 E3 1E FF 2F E1");
+    RegisterMod("Weapon_HighMeleeLength",  Off::Weapon_getMeleeLength,         "E7 03 00 E3 1E FF 2F E1");
+    RegisterMod("Bullet_ThroughWalls",     Off::Tracer_checkCollision,         "00 00 A0 E3 1E FF 2F E1");
 
-    // bullet / any weapon
-    RegisterMod("Bullet_ThroughWalls",     Off::Tracer_checkCollision, "00 00 A0 E3 1E FF 2F E1");
-    RegisterMod("AnyWeapon_AsGrenade",     Off::ProjectileManager_addGrenade, "00 00 A0 E1");
-    RegisterMod("AnyWeapon_FromSMAW",      Off::ProjectileManager_addRocket,  "00 00 A0 E1");
-    RegisterMod("AnyWeapon_FromSAWGun",    Off::ProjectileManager_addSaw,     "00 00 A0 E1");
-    RegisterMod("AnyWeapon_FromRG6",       Off::ProjectileManager_addShell,   "00 00 A0 E1");
+    // Sprayers
+    RegisterMod("Spray_AK47",    Off::AK47_triggerPull,       "1E FF 2F E1");
+    RegisterMod("Spray_M16",     Off::M16_triggerPull,        "1E FF 2F E1");
+    RegisterMod("Spray_MiniGun", Off::MINIGUN_triggerPull,    "1E FF 2F E1");
+    RegisterMod("Spray_EMP",     Off::EMP_triggerPull,        "1E FF 2F E1");
+    RegisterMod("Spray_RG6",     Off::RG6_triggerPull,        "1E FF 2F E1");
+    RegisterMod("Spray_M14",     Off::M14_triggerPull,        "1E FF 2F E1");
+    RegisterMod("Spray_Magnum",  Off::MAGNUM_triggerPull,     "1E FF 2F E1");
+    RegisterMod("Spray_MP5",     Off::MP5_triggerPull,        "1E FF 2F E1");
+    RegisterMod("Spray_TAVOR",   Off::TAVOR_triggerPull,      "1E FF 2F E1");
+    RegisterMod("Spray_TEC9",    Off::TEC9_triggerPull,       "1E FF 2F E1");
+    RegisterMod("Spray_AA12",    Off::AA12_triggerPull,       "1E FF 2F E1");
+    RegisterMod("Spray_Hunting", Off::HUNTING_triggerPull,    "1E FF 2F E1");
+    RegisterMod("Spray_SAWGun",  Off::SAWGUN_triggerPull,     "1E FF 2F E1");
+    RegisterMod("Spray_SMAW",    Off::SMAW_triggerPull,       "1E FF 2F E1");
+    RegisterMod("Spray_XM8",     Off::XM8_triggerPull,        "1E FF 2F E1");
+    RegisterMod("Spray_PHASR",   Off::PHASR_triggerPull,      "1E FF 2F E1");
+    RegisterMod("Spray_DEAGLE",  Off::DEAGLE_triggerPull,     "1E FF 2F E1");
 
-    // sprayers — patch each weapon's triggerPull to just RET
-    RegisterMod("Spray_AK47",     Off::AK47_triggerPull,       "1E FF 2F E1");
-    RegisterMod("Spray_M16",      Off::M16_triggerPull,        "1E FF 2F E1");
-    RegisterMod("Spray_MiniGun",  Off::MINIGUN_triggerPull,    "1E FF 2F E1");
-    RegisterMod("Spray_EMP",      Off::EMP_triggerPull,        "1E FF 2F E1");
-    RegisterMod("Spray_RG6",      Off::RG6_triggerPull,        "1E FF 2F E1");
-    RegisterMod("Spray_M14",      Off::M14_triggerPull,        "1E FF 2F E1");
-    RegisterMod("Spray_Magnum",   Off::MAGNUM_triggerPull,     "1E FF 2F E1");
-    RegisterMod("Spray_MP5",      Off::MP5_triggerPull,        "1E FF 2F E1");
-    RegisterMod("Spray_TAVOR",    Off::TAVOR_triggerPull,      "1E FF 2F E1");
-    RegisterMod("Spray_TEC9",     Off::TEC9_triggerPull,       "1E FF 2F E1");
-    RegisterMod("Spray_AA12",     Off::AA12_triggerPull,       "1E FF 2F E1");
-    RegisterMod("Spray_Hunting",  Off::HUNTING_triggerPull,    "1E FF 2F E1");
-    RegisterMod("Spray_SAWGun",   Off::SAWGUN_triggerPull,     "1E FF 2F E1");
-    RegisterMod("Spray_SMAW",     Off::SMAW_triggerPull,       "1E FF 2F E1");
-    RegisterMod("Spray_XM8",      Off::XM8_triggerPull,        "1E FF 2F E1");
-    RegisterMod("Spray_PHASR",    Off::PHASR_triggerPull,      "1E FF 2F E1");
-    RegisterMod("Spray_DEAGLE",   Off::DEAGLE_triggerPull,     "1E FF 2F E1");
+    // Player
+    RegisterMod("Player_FlyThroughWalls", Off::MapManager_addStaticBody,   "1E FF 2F E1");
+    RegisterMod("Player_RespawnTime",     Off::SoldierManager_respawnPlayer, "00 00 A0 E1");
+    RegisterMod("Player_RebornMap",       Off::SoldierManager_spawnPlayer,   "00 00 A0 E1");
 
-    // player — only mods whose address is a unique function (no hook conflict)
-    RegisterMod("Player_UnlimitedFlyingPower", Off::MapManager_getMaxPower, "64 00 A0 E3 1E FF 2F E1");
-    RegisterMod("Player_AntiGravity",          Off::MapManager_getGravity,  "00 00 A0 E3 1E FF 2F E1");
-    RegisterMod("Player_FlyThroughWalls",      Off::MapManager_addStaticBody,"1E FF 2F E1");
-    RegisterMod("Player_RespawnTime",          Off::SoldierManager_respawnPlayer, "00 00 A0 E1");
-    RegisterMod("Player_RebornMap",            Off::SoldierManager_spawnPlayer,   "00 00 A0 E1");
-    RegisterMod("Player_MagicBomb",            Off::ProjectileManager_addGrenade, "00 00 A0 E1");
-    RegisterMod("Player_MagicMelee",           Off::SoldierController_fire,       "00 00 A0 E1");
-    RegisterMod("Player_HideBombThrow",        Off::NetworkManager_sendWeaponCreate,"1E FF 2F E1");
-
-    // enemy / robot
-    RegisterMod("Enemy_RemoveRobot",           Off::HumanoidDrone_updateStep, "1E FF 2F E1");
-    RegisterMod("Enemy_RobotsCantSee",         Off::Enemy_canSeeTarget,       "00 00 A0 E3 1E FF 2F E1");
-    RegisterMod("Enemy_DieByGunsOnly1",        Off::Explosion_applyDamage,    "1E FF 2F E1");
-    RegisterMod("Enemy_DieByGunsOnly2",        Off::GasCloud_applyDamage,     "1E FF 2F E1");
-    RegisterMod("Enemy_DieByGunsOnly3",        Off::PlasmaBall_applyDamage,   "1E FF 2F E1");
-    RegisterMod("Enemy_GasFromAnyBomb",        Off::EffectsManager_onExplosion,"00 00 A0 E1");
-    RegisterMod("Enemy_HideFromProxy",         Off::ProxyMine_updateStep,     "1E FF 2F E1");
-    RegisterMod("Enemy_EndlessProxy",          Off::ProxyMine_reset,          "00 00 A0 E1");
-    RegisterMod("Enemy_AttachProxy",           Off::ProxyMine_reset,          "00 00 A0 E1");
-    RegisterMod("Enemy_InfiniteProxyThrow",    Off::ProxyMine_reset,          "00 00 A0 E1");
-    RegisterMod("Enemy_EndlessSaw",            Off::SAW_updateItemStep,       "00 00 A0 E1");
-    RegisterMod("Enemy_SawDamageRemove",       Off::SAW_checkMapCollision,    "00 00 A0 E3 1E FF 2F E1");
+    // Enemy
+    RegisterMod("Enemy_RemoveRobot",       Off::HumanoidDrone_updateStep, "1E FF 2F E1");
+    RegisterMod("Enemy_RobotsCantSee",     Off::Enemy_canSeeTarget,       "00 00 A0 E3 1E FF 2F E1");
+    RegisterMod("Enemy_DieByGunsOnly1",    Off::Explosion_applyDamage,    "1E FF 2F E1");
+    RegisterMod("Enemy_DieByGunsOnly2",    Off::GasCloud_applyDamage,     "1E FF 2F E1");
+    RegisterMod("Enemy_DieByGunsOnly3",    Off::PlasmaBall_applyDamage,   "1E FF 2F E1");
+    RegisterMod("Enemy_HideFromProxy",     Off::ProxyMine_updateStep,     "1E FF 2F E1");
+    RegisterMod("Enemy_EndlessProxy",      Off::ProxyMine_reset,          "00 00 A0 E1");
+    RegisterMod("Enemy_AttachProxy",       Off::ProxyMine_reset,          "00 00 A0 E1");
+    RegisterMod("Enemy_InfiniteProxyThrow",Off::ProxyMine_reset,          "00 00 A0 E1");
+    RegisterMod("Enemy_EndlessSaw",        Off::SAW_updateItemStep,       "00 00 A0 E1");
+    RegisterMod("Enemy_SawDamageRemove",   Off::SAW_checkMapCollision,    "00 00 A0 E3 1E FF 2F E1");
 }
 
-// feature → mod index
 static int ModIdxForFeature(int feat) {
-    // 400-436  weapon mods (fixed order matching RegisterAllMods above)
     if (feat >= 400 && feat <= 436) {
         static const int map[37] = {
             M_WPN_NO_BULLET_SPREAD,        // 400
-            -1,                            // 401 no dual throw → hook-only
+            -1,                            // 401
             M_WPN_HIDE_WEAPONS,            // 402
-            M_WPN_DUAL_WIELD_ANY,          // 403
-            M_WPN_DUAL_WIELD_PRIMARY,      // 404
-            M_WPN_DUAL_ON_SPAWN,           // 405
+            -1,                            // 403 (unified dual-wield toggle)
+            -1,                            // 404
+            -1,                            // 405
             M_WPN_HIGH_MELEE_DMG,          // 406
             M_WPN_HIGH_MELEE_LEN,          // 407
-            -1,                            // 408 magik zoom → hook-only
-            -1,                            // 409 in survival → hook-only
+            -1, -1,                        // 408-409
             M_BULLET_THROUGH_WALLS,        // 410
-            M_ANY_WEAPON_GRENADE,          // 411
-            M_ANY_WEAPON_ROCKET,           // 412
-            M_ANY_WEAPON_SAW,              // 413
-            M_ANY_WEAPON_SHELL,            // 414
-            -1, -1, -1, -1, -1,            // 415-419 unused
-            M_SPR_AK47,    // 420
-            M_SPR_M16,     // 421
-            M_SPR_MINIGUN, // 422
-            M_SPR_EMP,     // 423
-            M_SPR_RG6,     // 424
-            M_SPR_M14,     // 425
-            M_SPR_MAGNUM,  // 426
-            M_SPR_MP5,     // 427
-            M_SPR_TAVOR,   // 428
-            M_SPR_TEC9,    // 429
-            M_SPR_AA12,    // 430
-            M_SPR_HUNTING, // 431
-            M_SPR_SAWGUN,  // 432
-            M_SPR_SMAW,    // 433
-            M_SPR_XM8,     // 434
-            M_SPR_PHASR,   // 435
-            M_SPR_DEAGLE   // 436
+            -1, -1, -1, -1,                // 411-414 (bomb/gas → hooks)
+            -1, -1, -1, -1, -1,            // 415-419
+            M_SPR_AK47,    M_SPR_M16,     M_SPR_MINIGUN, M_SPR_EMP,    M_SPR_RG6,
+            M_SPR_M14,     M_SPR_MAGNUM,  M_SPR_MP5,     M_SPR_TAVOR,  M_SPR_TEC9,
+            M_SPR_AA12,    M_SPR_HUNTING, M_SPR_SAWGUN,  M_SPR_SMAW,
+            M_SPR_XM8,     M_SPR_PHASR,   M_SPR_DEAGLE
         };
         return map[feat - 400];
     }
     if (feat >= 500 && feat <= 514) {
         static const int map[15] = {
-            M_PLY_UNLIMITED_FLY,     // 500
-            M_PLY_ANTI_GRAVITY,      // 501
+            -1,                      // 500 flying power → hook
+            -1,                      // 501 anti-grav    → hook
             M_PLY_FLY_WALLS,         // 502
-            -1,                      // 503 invisible → not implemented
-            -1,                      // 504 walking speed → hook
-            -1,                      // 505 instant health → not implemented
-            -1,                      // 506 kill team → not implemented
-            -1,                      // 507 no damage crouch → removed (conflict)
-            -1,                      // 508 half damage → removed (conflict)
-            -1,                      // 509 health/nitro emp → removed (conflict)
+            -1, -1, -1, -1, -1, -1,  // 503-509
             M_PLY_RESPAWN_TIME,      // 510
             M_PLY_REBORN_MAP,        // 511
-            M_PLY_MAGIC_BOMB,        // 512
-            M_PLY_MAGIC_MELEE,       // 513
-            M_PLY_HIDE_BOMB_THROW    // 514
+            -1, -1, -1               // 512-514
         };
         return map[feat - 500];
     }
     if (feat >= 600 && feat <= 612) {
         static const int map[13] = {
-            -1,                            // 600 fake enemy info → field, removed
-            M_ENM_REMOVE_ROBOT,            // 601
-            M_ENM_ROBOTS_CANT_SEE,         // 602
-            M_ENM_DIE_GUNS_ONLY,           // 603
-            M_ENM_DIE_GUNS_ONLY2,          // 604
-            M_ENM_DIE_GUNS_ONLY3,          // 605
-            M_ENM_GAS_ANY_BOMB,            // 606
-            M_ENM_HIDE_PROXY,              // 607
-            M_ENM_ENDLESS_PROXY,           // 608
-            M_ENM_ATTACH_PROXY,            // 609
-            M_ENM_INFINITE_PROXY_THROW,    // 610
-            M_ENM_ENDLESS_SAW,             // 611
-            M_ENM_SAW_DAMAGE_REMOVE        // 612
+            -1,
+            M_ENM_REMOVE_ROBOT,
+            M_ENM_ROBOTS_CANT_SEE,
+            M_ENM_DIE_GUNS_ONLY1,
+            M_ENM_DIE_GUNS_ONLY2,
+            M_ENM_DIE_GUNS_ONLY3,
+            -1,                      // 606 gas any bomb → hook
+            M_ENM_HIDE_PROXY,
+            M_ENM_ENDLESS_PROXY,
+            M_ENM_ATTACH_PROXY,
+            M_ENM_INFINITE_PROXY_THROW,
+            M_ENM_ENDLESS_SAW,
+            M_ENM_SAW_DAMAGE_REMOVE
         };
         return map[feat - 600];
     }
@@ -1739,7 +1785,6 @@ jobjectArray GetFeatureList(JNIEnv* env, jobject) {
         OBFUSCATE("105_Toggle_ESP Enemy Only"),
         OBFUSCATE("106_SeekBar_Box & Line Thickness_1_10"),
         OBFUSCATE("107_SeekBar_Box Size %_85_150"),
-        OBFUSCATE("108_ColorPicker_ESP Color_#00FF88"),
 
         OBFUSCATE("Category_Aim"),
         OBFUSCATE("109_Toggle_Silent Aim"),
@@ -1758,11 +1803,20 @@ jobjectArray GetFeatureList(JNIEnv* env, jobject) {
         OBFUSCATE("204_Toggle_Max Range (Infinite)"),
         OBFUSCATE("205_Toggle_Bullet Speed Boost"),
         OBFUSCATE("206_SeekBar_Bullet Speed Multiplier_1_20"),
-        OBFUSCATE("207_Toggle_Any Gun Dual Wield"),
+        OBFUSCATE("207_Toggle_Any Gun Dual Wield (Unified)"),
         OBFUSCATE("208_Toggle_Max Zoom (Built-in)"),
         OBFUSCATE("209_Toggle_High Damage"),
         OBFUSCATE("210_SeekBar_Damage Multiplier_1_20"),
         OBFUSCATE("211_Toggle_No Recoil / Zero Spread"),
+
+        OBFUSCATE("Category_Flight & Gravity"),
+        OBFUSCATE("500_Toggle_Unlimited Flying Power"),
+        OBFUSCATE("501_Toggle_Anti Gravity"),
+        OBFUSCATE("502_Toggle_Fly Through Walls"),
+
+        OBFUSCATE("Category_Bombs & Gas"),
+        OBFUSCATE("411_Toggle_Any Gun As Bomb"),
+        OBFUSCATE("606_Toggle_Any Bomb As Gas"),
 
         OBFUSCATE("Category_Weapon Extras"),
         OBFUSCATE("221_Toggle_Enable Custom Zoom"),
@@ -1776,16 +1830,9 @@ jobjectArray GetFeatureList(JNIEnv* env, jobject) {
         OBFUSCATE("Category_Weapon Mods"),
         OBFUSCATE("400_Toggle_No Bullet Spread"),
         OBFUSCATE("402_Toggle_Hide Your Weapons"),
-        OBFUSCATE("403_Toggle_Any Gun Dual Wield (Patch)"),
-        OBFUSCATE("404_Toggle_Dual Wield Primary Only"),
-        OBFUSCATE("405_Toggle_Dual Gun On Spawn"),
         OBFUSCATE("406_Toggle_High Damage Melee"),
         OBFUSCATE("407_Toggle_High Melee Length"),
         OBFUSCATE("410_Toggle_Bullet Through Walls"),
-        OBFUSCATE("411_Toggle_Any Weapon as Grenade"),
-        OBFUSCATE("412_Toggle_Any Weapon from SMAW"),
-        OBFUSCATE("413_Toggle_Any Weapon from SAWGun"),
-        OBFUSCATE("414_Toggle_Any Weapon from RG6"),
 
         OBFUSCATE("Category_Weapon Sprayers"),
         OBFUSCATE("420_Toggle_AK47 Sprayer"),
@@ -1807,14 +1854,8 @@ jobjectArray GetFeatureList(JNIEnv* env, jobject) {
         OBFUSCATE("436_Toggle_DEAGLE Sprayer"),
 
         OBFUSCATE("Category_Player"),
-        OBFUSCATE("500_Toggle_Unlimited Flying Power"),
-        OBFUSCATE("501_Toggle_Anti Gravity"),
-        OBFUSCATE("502_Toggle_Fly Through Walls"),
         OBFUSCATE("510_Toggle_Respawn Time Mod"),
         OBFUSCATE("511_Toggle_Reborn Map"),
-        OBFUSCATE("512_Toggle_Magic Bomb Throw"),
-        OBFUSCATE("513_Toggle_Magic Melee Punch"),
-        OBFUSCATE("514_Toggle_Hide Bomb Throw"),
 
         OBFUSCATE("Category_Enemy / Robot"),
         OBFUSCATE("601_Toggle_Remove Robot"),
@@ -1822,7 +1863,6 @@ jobjectArray GetFeatureList(JNIEnv* env, jobject) {
         OBFUSCATE("603_Toggle_Die By Guns Only 1"),
         OBFUSCATE("604_Toggle_Die By Guns Only 2"),
         OBFUSCATE("605_Toggle_Die By Guns Only 3"),
-        OBFUSCATE("606_Toggle_Gas From Any Bomb"),
         OBFUSCATE("607_Toggle_Hide From Proxy"),
         OBFUSCATE("608_Toggle_Endless Proxy"),
         OBFUSCATE("609_Toggle_Attach Proxy"),
@@ -1848,23 +1888,14 @@ jobjectArray GetFeatureList(JNIEnv* env, jobject) {
 }
 
 void Changes(JNIEnv*, jclass, jobject, jint featNum, jstring, jint value, jlong, jboolean boolean, jstring) {
-    // keep the log small — only useful diagnostics
-    // crashLog("CHG", "feat=%d value=%d bool=%d", featNum, value, (int)boolean);
-
     if (!g_libReady.load()) return;
-
-    // Always try to install hooks the first time a feature is toggled
     InstallHooksIfNeeded();
 
-    // Mod patches (with conflict-free mapping)
+    // Mod patches
     if (featNum >= 400 && featNum <= 612) {
         int idx = ModIdxForFeature(featNum);
-        if (idx >= 0) {
-            ApplyModByIndex(idx, boolean);
-            return;
-        }
-        // Fall through: some feature IDs are hook-only (no patch)
-        // They are handled in the switch below.
+        if (idx >= 0) { ApplyModByIndex(idx, boolean); return; }
+        // hook-only features fall through to switch
     }
 
     switch (featNum) {
@@ -1887,7 +1918,6 @@ void Changes(JNIEnv*, jclass, jobject, jint featNum, jstring, jint value, jlong,
         case 105: g_espEnemyOnly = boolean; break;
         case 106: { if (value < 1) value = 1; if (value > 10) value = 10; g_espBoxWidth = value; } break;
         case 107: g_boxSizeMul = value; break;
-        case 108: break;   // color handled by menu side
 
         case 109:
             g_silentAim = boolean;
@@ -1908,12 +1938,26 @@ void Changes(JNIEnv*, jclass, jobject, jint featNum, jstring, jint value, jlong,
         case 204: g_wpnMaxRange = boolean; break;
         case 205: g_wpnBulletSpeedUp = boolean; break;
         case 206: { if (value < 1) value = 1; if (value > 20) value = 20; g_wpnBulletSpeedMul = value; } break;
-        case 207: g_wpnDualWieldAny = boolean; break;
+
+        // UNIFIED dual wield
+        case 207:
+            g_dualWieldAll = boolean;
+            break;
+
         case 208: g_wpnMaxZoom = boolean; break;
         case 209: g_wpnHighDamage = boolean; break;
         case 210: { if (value < 1) value = 1; if (value > 20) value = 20; g_wpnDamageMul = value; } break;
         case 211: g_wpnNoRecoil = boolean; break;
 
+        // Flight & gravity
+        case 500: g_unlimitedFlyPower = boolean; break;
+        case 501: g_antiGravity = boolean; break;
+
+        // Bombs & gas
+        case 411: g_anyGunAsBomb = boolean; break;
+        case 606: g_anyBombAsGas = boolean; break;
+
+        // Weapon extras
         case 221: g_wpnZoomSelect = boolean; break;
         case 224: { if (value < 1) value = 1; if (value > 11) value = 11; g_wpnZoomLevel = value; } break;
         case 222: g_charSpeedOn = boolean; break;
@@ -1922,18 +1966,10 @@ void Changes(JNIEnv*, jclass, jobject, jint featNum, jstring, jint value, jlong,
         case 231: g_wpnMaxUpgrade = boolean; break;
         case 232: g_wpnDualWieldUnlock = boolean; break;
 
-        // -- hook-only features (previously mod patches; now no conflict) --
-        case 401: break;   // no dual throw — hook-only, not implemented in this build
-        case 408: break;   // magik zoom — hook-only
-        case 409: break;   // weapon in survival — not implemented
-        case 503: break;   // invisible — not implemented
-        case 504: g_charSpeedOn = boolean; break;                 // walking speed → hook
-        case 505: break;   // instant health — removed (conflict)
-        case 506: break;   // kill team — not implemented
-        case 507: break;   // no damage crouch — removed
-        case 508: break;   // half damage — removed
-        case 509: break;   // health/nitro emp — removed
-        case 600: break;   // fake enemy info — field, removed
+        // Legacy alias — any of these also toggle unified dual-wield
+        case 403: case 404: case 405:
+            g_dualWieldAll = boolean;
+            break;
 
         case 300: g_lagAntiLagMode = boolean; break;
         case 301: { if (value < 10) value = 10; if (value > 60) value = 60; g_lagEspUpdateHz = value; } break;
