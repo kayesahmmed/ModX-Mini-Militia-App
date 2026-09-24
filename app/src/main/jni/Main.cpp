@@ -1,14 +1,15 @@
 // ================================================================
-// Mini Militia — Main.cpp  v107.1
+// Mini Militia — Main.cpp  v108.0
 // - ESP design: v103.0 exact (premium box, ring, FOV circle)
-// - Fixes:
-//     • Antigravity (getGravityFactor=0 + setThrust hook + power force)
-//     • Bullet through walls (thread-local hint — enemy damage preserved)
-//     • Fly through walls (isCollisionTile / mapCollision / isBoundryTile)
-//     • Respawn time mod + Reborn map (hook-based, no broken NOP)
-//     • Any gun dual wield (removed isDualWield hook; periodic convert)
-//     • Aim tab unchanged (auto fire only works with silent aim)
-//     • v107.1 — Fixed build error: removed undeclared 'old_triggerPull'
+// - v108 fixes:
+//     • Draw FOV Circle: standalone (no silent aim requirement)
+//     • Silent Aim: independent, uses FOV gate when circle is ON
+//     • Auto Fire: independent of silent aim
+//     • Aim Magnet: independent of silent aim
+//     • Any Gun Dual Wield: fixed via addPrimaryWeapon/addSecondaryWeapon hook
+//       + periodic forced convert (250ms)
+//     • Anti-Gravity: runs AFTER original updateStep + setThrustFactor(100)
+//     • Updated offsets from cocos2dcpp.cpp dump
 // ================================================================
 
 #include <list>
@@ -136,7 +137,7 @@ static void install_crash_handler() {
 }
 
 // ================================================================
-//  ESP Color (from v103.0)
+//  ESP Color
 // ================================================================
 std::atomic<unsigned int> g_espColorArgb{ 0xFF00FF88u };
 static int SKY_R = 0x00, SKY_G = 0xFF, SKY_B = 0x88;
@@ -165,7 +166,7 @@ extern "C" JNIEXPORT void JNICALL
 Java_com_android_support_Main_setNativeCrashDir(JNIEnv*, jclass, jstring) {}
 
 // ================================================================
-//  OFFSETS
+//  OFFSETS (verified against cocos2dcpp.cpp dump)
 // ================================================================
 namespace Off {
     // Weapons
@@ -263,6 +264,7 @@ namespace Off {
     constexpr uintptr_t SoldierController_fire               = 0x00f1323c;
     constexpr uintptr_t SoldierController_setThrust          = 0x00f13044;
     constexpr uintptr_t SoldierController_getThrust          = 0x00f1304c;
+    constexpr uintptr_t SoldierController_setThrustFactor    = 0x00f13850; // from dump
 
     // SoldierLocalController
     constexpr uintptr_t SoldierLocalController_updateStep              = 0x00f14478;
@@ -408,6 +410,9 @@ typedef bool  (*mapCollision_t)(void*, cpVect);
 typedef bool  (*isBoundryTile_t)(void*, cpVect);
 typedef void  (*setThrust_t)(void*, bool);
 typedef int   (*getRespawnTime_t)(void*);
+// v108 new
+typedef void  (*addWeapon_t)(void*, void*);
+typedef void  (*setThrustFactor_t)(void*, float);
 
 // Originals
 MgrUpdateRemote_t      old_MgrUpdateRemote      = nullptr;
@@ -466,6 +471,10 @@ mapCollision_t              old_mapCollision              = nullptr;
 isBoundryTile_t             old_isBoundryTile             = nullptr;
 setThrust_t                 old_setThrust                 = nullptr;
 getRespawnTime_t            old_getRespawnTime            = nullptr;
+// v108 new originals
+addWeapon_t                 old_addPrimaryWeapon          = nullptr;
+addWeapon_t                 old_addSecondaryWeapon        = nullptr;
+setThrustFactor_t           old_setThrustFactor           = nullptr;
 
 // Direct-call pointers
 getLocalController_t   fn_getLocalController = nullptr;
@@ -492,6 +501,7 @@ setPowerF_t            fn_setPowerF          = nullptr;
 switchToDual_t         fn_switchPrimaryToDual   = nullptr;
 switchToDual_t         fn_switchSecondaryToDual = nullptr;
 setThrust_t            fn_setThrust          = nullptr;
+setThrustFactor_t      fn_setThrustFactor    = nullptr;
 
 // ================================================================
 //  HP TABLE + CACHE
@@ -656,10 +666,8 @@ std::atomic<bool> g_flyHooksOk{false};
 std::atomic<bool> g_bombGasHooksOk{false};
 std::atomic<bool> g_wallHooksOk{false};
 
-// For bullet-through-walls: thread-local flag set during addBullet
 static __thread volatile sig_atomic_t tls_bulletRaycast = 0;
 
-// For dual-wield: track last converted primary per player
 static std::unordered_map<void*, uint64_t> g_dualConvertMs;
 static std::mutex                           g_dualConvertMtx;
 
@@ -672,7 +680,8 @@ static inline uint64_t NowMs() {
     return duration_cast<milliseconds>(steady_clock::now().time_since_epoch()).count();
 }
 static inline bool IsModActive() {
-    return g_espEnabled.load() || g_silentAim.load() || g_drawFovCircle.load();
+    return g_espEnabled.load() || g_silentAim.load() || g_autoFire.load()
+        || g_aimMagnet.load() || g_drawFovCircle.load();
 }
 static inline float NormalizeDeg(float d) {
     while (d > 180.0f) d -= 360.0f;
@@ -897,7 +906,7 @@ bool isBoundryTile_Hook(void* self, cpVect pos) {
     return old_isBoundryTile ? old_isBoundryTile(self, pos) : false;
 }
 float getMaxPower_Hook(void* self) {
-    if (g_unlimitedFlyPower.load()) return 100.0f;
+    if (g_unlimitedFlyPower.load() || g_antiGravity.load()) return 100.0f;
     return old_getMaxPower ? old_getMaxPower(self) : 100.0f;
 }
 float getGravityFactor_Hook(void* self) {
@@ -907,6 +916,10 @@ float getGravityFactor_Hook(void* self) {
 void setThrust_Hook(void* self, bool value) {
     if (g_antiGravity.load()) value = true;
     if (old_setThrust) old_setThrust(self, value);
+}
+void setThrustFactor_Hook(void* self, float value) {
+    if (g_antiGravity.load()) value = 100.0f;
+    if (old_setThrustFactor) old_setThrustFactor(self, value);
 }
 
 // ================================================================
@@ -984,7 +997,25 @@ int getDualWieldUnlockLevel_Hook(void* self, void* id) {
 }
 
 // ================================================================
-//  RESPAWN / REBORN HOOKS
+//  DUAL WIELD pickup hooks (v108 fix)
+// ================================================================
+void addPrimaryWeapon_Hook(void* self, void* weapon) {
+    if (old_addPrimaryWeapon) old_addPrimaryWeapon(self, weapon);
+    if (!PlausiblePtr(self)) return;
+    if (!g_dualWieldAll.load()) return;
+    std::lock_guard<std::mutex> lk(g_dualConvertMtx);
+    g_dualConvertMs.erase(self);
+}
+void addSecondaryWeapon_Hook(void* self, void* weapon) {
+    if (old_addSecondaryWeapon) old_addSecondaryWeapon(self, weapon);
+    if (!PlausiblePtr(self)) return;
+    if (!g_dualWieldAll.load()) return;
+    std::lock_guard<std::mutex> lk(g_dualConvertMtx);
+    g_dualConvertMs.erase(self);
+}
+
+// ================================================================
+//  RESPAWN HOOKS
 // ================================================================
 void MgrRespawnPlayer_Hook(void* self) {
     if (old_MgrRespawnPlayer) old_MgrRespawnPlayer(self);
@@ -995,7 +1026,7 @@ int getRespawnTime_Hook(void* self) {
 }
 
 // ================================================================
-//  LOCAL UPDATE HOOK
+//  LOCAL UPDATE HOOK (v108 rework)
 // ================================================================
 void soldierLocalUpdateStep_Hook(void* self, float dt, cpVect a, cpVect b, float c) {
     if (!PlausiblePtr(self)) {
@@ -1011,37 +1042,49 @@ void soldierLocalUpdateStep_Hook(void* self, float dt, cpVect a, cpVect b, float
         b.x *= (double)f; b.y *= (double)f;
     }
 
-    if ((g_unlimitedFlyPower.load() || g_antiGravity.load()) && fn_setPowerF) {
-        if (GUARD_ENTER()) { GUARD_SET(); fn_setPowerF(self, 9999.0f); GUARD_CLR(); }
-        else GUARD_CLR();
-    }
-    if (g_antiGravity.load() && fn_setThrust) {
-        if (GUARD_ENTER()) { GUARD_SET(); fn_setThrust(self, true); GUARD_CLR(); }
-        else GUARD_CLR();
-    }
-
+    // Original first
     if (old_soldierLocalUpdateStep) old_soldierLocalUpdateStep(self, dt, a, b, c);
 
-    if (g_dualWieldAll.load() && fn_switchPrimaryToDual && fn_getPrimaryWeapon && fn_getDualWeapon) {
-        void* prim = nullptr;
-        void* dual = nullptr;
-        if (GUARD_ENTER()) { GUARD_SET(); prim = fn_getPrimaryWeapon(self); GUARD_CLR(); }
-        else GUARD_CLR();
-        if (GUARD_ENTER()) { GUARD_SET(); dual = fn_getDualWeapon(self); GUARD_CLR(); }
-        else GUARD_CLR();
-        if (PlausiblePtr(prim) && !PlausiblePtr(dual)) {
-            uint64_t now = NowMs();
-            bool doConvert = false;
-            {
-                std::lock_guard<std::mutex> lk(g_dualConvertMtx);
-                auto it = g_dualConvertMs.find(self);
-                if (it == g_dualConvertMs.end() || (now - it->second) > 1500) {
-                    g_dualConvertMs[self] = now;
-                    doConvert = true;
-                }
+    // v108: overrides AFTER original
+    if (g_antiGravity.load()) {
+        if (fn_setThrust) {
+            if (GUARD_ENTER()) { GUARD_SET(); fn_setThrust(self, true); GUARD_CLR(); }
+            else GUARD_CLR();
+        }
+        if (fn_setPowerF) {
+            if (GUARD_ENTER()) { GUARD_SET(); fn_setPowerF(self, 9999.0f); GUARD_CLR(); }
+            else GUARD_CLR();
+        }
+        if (fn_setThrustFactor) {
+            if (GUARD_ENTER()) { GUARD_SET(); fn_setThrustFactor(self, 100.0f); GUARD_CLR(); }
+            else GUARD_CLR();
+        }
+    } else if (g_unlimitedFlyPower.load()) {
+        if (fn_setPowerF) {
+            if (GUARD_ENTER()) { GUARD_SET(); fn_setPowerF(self, 9999.0f); GUARD_CLR(); }
+            else GUARD_CLR();
+        }
+    }
+
+    // v108: dual wield retry with 250ms cooldown
+    if (g_dualWieldAll.load()) {
+        uint64_t now = NowMs();
+        bool doConvert = false;
+        {
+            std::lock_guard<std::mutex> lk(g_dualConvertMtx);
+            auto it = g_dualConvertMs.find(self);
+            if (it == g_dualConvertMs.end() || (now - it->second) > 250) {
+                g_dualConvertMs[self] = now;
+                doConvert = true;
             }
-            if (doConvert) {
+        }
+        if (doConvert) {
+            if (fn_switchPrimaryToDual) {
                 if (GUARD_ENTER()) { GUARD_SET(); fn_switchPrimaryToDual(self); GUARD_CLR(); }
+                else GUARD_CLR();
+            }
+            if (fn_switchSecondaryToDual) {
+                if (GUARD_ENTER()) { GUARD_SET(); fn_switchSecondaryToDual(self); GUARD_CLR(); }
                 else GUARD_CLR();
             }
         }
@@ -1049,32 +1092,51 @@ void soldierLocalUpdateStep_Hook(void* self, float dt, cpVect a, cpVect b, float
 }
 
 // ================================================================
-//  SILENT AIM — v107.1 FIXED
-//  Removed undeclared 'old_triggerPull' reference. Auto fire uses
-//  only fn_soldierFire (the correct API for triggering shots).
+//  AIM TARGET COMPUTATION (independent of features)
 // ================================================================
-static void ApplySilentAim(void* localController) {
+static void ComputeAimTarget(void* localController) {
     if (!g_aimResolved.load()) return;
     if (!PlausiblePtr(localController)) return;
-    if (g_localDead.load()) return;
-    if (!g_silentAim.load()) {
-        g_hasAimTarget.store(false); g_hasAimAngle.store(false);
-        g_currentAimTarget.store(nullptr); return;
+    if (g_localDead.load()) {
+        g_hasAimTarget.store(false);
+        g_hasAimAngle.store(false);
+        g_currentAimTarget.store(nullptr);
+        return;
     }
+
+    bool needTarget = g_silentAim.load() || g_autoFire.load() || g_aimMagnet.load();
+    if (!needTarget) {
+        g_hasAimTarget.store(false);
+        g_hasAimAngle.store(false);
+        g_currentAimTarget.store(nullptr);
+        return;
+    }
+
     if (g_lagThrottleAim.load()) {
         static __thread uint32_t frame = 0;
         if ((++frame % 3) != 0) return;
     }
+
     uint64_t now = NowMs();
     uint64_t setMs = g_localInstanceSetMs.load();
     uint64_t aliveMs = g_lastLocalAliveMs.load();
     bool instanceFresh = (setMs > 0 && (now - setMs) < 800);
     bool aliveRecent   = (aliveMs > 0 && (now - aliveMs) < 1500);
-    if (!aliveRecent && !instanceFresh) { g_hasAimTarget.store(false); g_hasAimAngle.store(false); return; }
+    if (!aliveRecent && !instanceFresh) {
+        g_hasAimTarget.store(false);
+        g_hasAimAngle.store(false);
+        return;
+    }
+
     cpVect lp;
-    if (!SafeGetPosition(localController, lp)) { g_hasAimTarget.store(false); g_hasAimAngle.store(false); return; }
+    if (!SafeGetPosition(localController, lp)) {
+        g_hasAimTarget.store(false);
+        g_hasAimAngle.store(false);
+        return;
+    }
     float lx = (float)lp.x, ly = (float)lp.y;
     int localTeam = g_localTeam.load();
+
     bool fovGateActive = g_drawFovCircle.load();
     float designW = g_designW.load(), designH = g_designH.load();
     if (!std::isfinite(designW) || designW < 10.f) designW = 1280.f;
@@ -1084,9 +1146,11 @@ static void ApplySilentAim(void* localController) {
     if (fovDesign > 350) fovDesign = 350;
     if (fovDesign < 60)  fovDesign = 60;
     float fovRadiusSq = (float)fovDesign * (float)fovDesign;
+
     void* bestTarget = nullptr;
     float bestDistSq = MAX_AIM_RANGE * MAX_AIM_RANGE;
     float bestAngleRaw = 0.f, bestRawX = 0.f, bestRawY = 0.f;
+
     {
         std::lock_guard<std::mutex> lock(g_soldierMutex);
         for (auto& kv : g_soldierMap) {
@@ -1112,40 +1176,58 @@ static void ApplySilentAim(void* localController) {
             bestAngleRaw = atan2f(wdy, wdx);
         }
     }
-    if (!bestTarget) {
-        if (g_stickyTarget && (now - g_stickyTargetLastMs) < STICKY_HOLD_MS && g_hasAimAngle.load()) {
-            g_hasAimTarget.store(true); return;
-        }
-        g_stickyTarget = nullptr; g_currentAimTarget.store(nullptr);
-        g_hasAimTarget.store(false); g_hasAimAngle.store(false); return;
-    }
-    g_stickyTarget = bestTarget; g_stickyTargetLastMs = now;
-    g_currentAimTarget.store(bestTarget);
-    g_aimTargetRawX.store(bestRawX); g_aimTargetRawY.store(bestRawY);
-    g_aimAngle.store(bestAngleRaw);
-    g_hasAimAngle.store(true); g_hasAimTarget.store(true);
 
-    // ---------- AUTO FIRE (FIXED) ----------
-    // Fires only through the local controller's fire API. The old
-    // 'old_triggerPull' fallback was removed because no triggerPull
-    // hook is ever installed in this version — it caused a build error.
-    if (g_autoFire.load() && (now - g_lastFireMs) >= MIN_FIRE_INTERVAL_MS) {
-        g_lastFireMs = now;
-        float angleRad = bestAngleRaw;
-        if (fn_soldierFire) {
-            if (GUARD_ENTER()) {
-                GUARD_SET();
-                fn_soldierFire(localController, angleRad);
-                GUARD_CLR();
-            } else {
-                GUARD_CLR();
-            }
+    if (!bestTarget) {
+        if (g_stickyTarget && (now - g_stickyTargetLastMs) < STICKY_HOLD_MS
+            && g_hasAimAngle.load()) {
+            g_hasAimTarget.store(true);
+            return;
+        }
+        g_stickyTarget = nullptr;
+        g_currentAimTarget.store(nullptr);
+        g_hasAimTarget.store(false);
+        g_hasAimAngle.store(false);
+        return;
+    }
+    g_stickyTarget = bestTarget;
+    g_stickyTargetLastMs = now;
+    g_currentAimTarget.store(bestTarget);
+    g_aimTargetRawX.store(bestRawX);
+    g_aimTargetRawY.store(bestRawY);
+    g_aimAngle.store(bestAngleRaw);
+    g_hasAimAngle.store(true);
+    g_hasAimTarget.store(true);
+}
+
+// ================================================================
+//  AUTO FIRE (independent of silent aim)
+// ================================================================
+static void ExecuteAutoFire(void* localController) {
+    if (!g_autoFire.load()) return;
+    if (!g_hasAimTarget.load()) return;
+    if (!PlausiblePtr(localController)) return;
+    if (g_localDead.load()) return;
+
+    uint64_t now = NowMs();
+    if (now - g_lastFireMs < MIN_FIRE_INTERVAL_MS) return;
+    g_lastFireMs = now;
+
+    float angleRad = g_aimAngle.load();
+    if (!std::isfinite(angleRad)) return;
+
+    if (fn_soldierFire) {
+        if (GUARD_ENTER()) {
+            GUARD_SET();
+            fn_soldierFire(localController, angleRad);
+            GUARD_CLR();
+        } else {
+            GUARD_CLR();
         }
     }
 }
 
 // ================================================================
-//  PROJECTILE HOOK — bullet through walls + local-only bomb
+//  PROJECTILE HOOK
 // ================================================================
 static bool IsLocalPlayerWeapon(void* weapon) {
     if (!PlausiblePtr(weapon)) return false;
@@ -1162,7 +1244,6 @@ static bool IsLocalPlayerWeapon(void* weapon) {
 
 void addBullet_Hook(void* self, cpVect pos, float rot, cpVect vel,
                     void* weapon, int ammoType, cpVect targetPos, void* strPtr) {
-    // Silent aim redirect
     if (g_silentAim.load() && g_hasAimTarget.load()) {
         float tx = g_aimTargetRawX.load(), ty = g_aimTargetRawY.load(), aimAngle = g_aimAngle.load();
         if (std::isfinite(tx) && std::isfinite(ty) && std::isfinite(aimAngle)) {
@@ -1184,14 +1265,12 @@ void addBullet_Hook(void* self, cpVect pos, float rot, cpVect vel,
         }
     }
 
-    // Any gun as bomb — local player only
     if (g_anyGunAsBomb.load() && fn_addShell && PlausiblePtr(self) && IsLocalPlayerWeapon(weapon)) {
         if (GUARD_ENTER()) { GUARD_SET(); fn_addShell(self, pos, rot, vel, weapon, false, strPtr); GUARD_CLR(); }
         else GUARD_CLR();
         return;
     }
 
-    // Bullet-through-walls: set TLS hint during raycast
     bool setHint = g_bulletThroughWalls.load();
     if (setHint) tls_bulletRaycast = 1;
     if (old_addBullet) old_addBullet(self, pos, rot, vel, weapon, ammoType, targetPos, strPtr);
@@ -1205,7 +1284,7 @@ float getRandomFiringAngle_Hook(void* self) {
 }
 int getRange_Hook(void* self) {
     if (g_wpnMaxRange.load()) return 999999;
-    if (g_silentAim.load() && g_rangeBoost.load()) return 999999;
+    if ((g_silentAim.load() || g_autoFire.load()) && g_rangeBoost.load()) return 999999;
     return old_getRange ? old_getRange(self) : 5000;
 }
 int getBulletSpeed_Hook(void* self) {
@@ -1336,6 +1415,7 @@ void LocalActivate_Hook(void* self) {
 void StageUpdate_Hook(void* self, float dt) {
     if (old_StageUpdate) old_StageUpdate(self, dt);
     if (!IsModActive() && !g_unlimitedFlyPower.load() && !g_antiGravity.load()) return;
+
     uint64_t now = NowMs();
     int hz = g_lagEspUpdateHz.load();
     if (g_lagAntiLagMode.load() && hz > 30) hz = 30;
@@ -1343,11 +1423,15 @@ void StageUpdate_Hook(void* self, float dt) {
     uint64_t intervalMs = (uint64_t)(1000 / hz);
     if (now - g_lagLastEspUpdateMs < intervalMs) return;
     g_lagLastEspUpdateMs = now;
+
     if (!g_designValid.load()) RefreshDesignSize();
     BuildSnapshots();
+
     void* local = g_localInstance.load();
     if (PlausiblePtr(local)) {
-        ApplySilentAim(local);
+        ComputeAimTarget(local);
+        ExecuteAutoFire(local);
+
         if (g_wpnUnlimitedAmmo.load()) {
             void* wpns[4] = {nullptr, nullptr, nullptr, nullptr};
             if (fn_getPrimaryWeapon)   { if (GUARD_ENTER()) { GUARD_SET(); wpns[0] = fn_getPrimaryWeapon(local);   GUARD_CLR(); } else GUARD_CLR(); }
@@ -1443,6 +1527,7 @@ static void InstallHooksIfNeeded() {
     fn_switchPrimaryToDual   = (switchToDual_t)      (g_libBase + Off::SoldierLocalController_switchPrimaryToDual);
     fn_switchSecondaryToDual = (switchToDual_t)      (g_libBase + Off::SoldierLocalController_switchSecondaryToDual);
     fn_setThrust             = (setThrust_t)         (g_libBase + Off::SoldierController_setThrust);
+    fn_setThrustFactor       = (setThrustFactor_t)   (g_libBase + Off::SoldierController_setThrustFactor);
 
     g_aimResolved.store(true);
     RefreshDesignSize();
@@ -1469,6 +1554,9 @@ static void InstallHooksIfNeeded() {
         SAFE_HOOK(Off::Weapon_getDamage,                   getDamage_w_Hook,           old_getDamage_w,           g_wpnHooksOk);
         SAFE_HOOK(Off::Weapon_getZoomScale,                getZoomScale_Hook,          old_getZoomScale,          g_wpnHooksOk);
         SAFE_HOOK(Off::SoldierLocalController_updateStep,  soldierLocalUpdateStep_Hook,old_soldierLocalUpdateStep, g_wpnHooksOk);
+        // v108: dual wield pickup hooks
+        SAFE_HOOK(Off::SoldierLocalController_addPrimaryWeapon,   addPrimaryWeapon_Hook,   old_addPrimaryWeapon,   g_wpnHooksOk);
+        SAFE_HOOK(Off::SoldierLocalController_addSecondaryWeapon, addSecondaryWeapon_Hook, old_addSecondaryWeapon, g_wpnHooksOk);
         crashLog("HOOK", "Weapon hooks installed");
     }
 
@@ -1480,11 +1568,12 @@ static void InstallHooksIfNeeded() {
         crashLog("HOOK", "Unlock hooks installed");
     }
 
-    // Fly / anti-grav
+    // Fly / anti-grav (v108 adds setThrustFactor)
     if (!g_flyHooksOk.load()) {
-        SAFE_HOOK(Off::MapManager_getMaxPower,      getMaxPower_Hook,      old_getMaxPower,      g_flyHooksOk);
-        SAFE_HOOK(Off::MapManager_getGravityFactor, getGravityFactor_Hook, old_getGravityFactor, g_flyHooksOk);
-        SAFE_HOOK(Off::SoldierController_setThrust, setThrust_Hook,        old_setThrust,        g_flyHooksOk);
+        SAFE_HOOK(Off::MapManager_getMaxPower,            getMaxPower_Hook,       old_getMaxPower,       g_flyHooksOk);
+        SAFE_HOOK(Off::MapManager_getGravityFactor,       getGravityFactor_Hook,  old_getGravityFactor,  g_flyHooksOk);
+        SAFE_HOOK(Off::SoldierController_setThrust,       setThrust_Hook,         old_setThrust,         g_flyHooksOk);
+        SAFE_HOOK(Off::SoldierController_setThrustFactor, setThrustFactor_Hook,   old_setThrustFactor,   g_flyHooksOk);
         crashLog("HOOK", "Fly/anti-grav hooks installed");
     }
 
@@ -1502,7 +1591,7 @@ static void InstallHooksIfNeeded() {
         crashLog("HOOK", "Bomb/gas hooks installed");
     }
 
-    // Respawn / manager / damage
+    // Manager / damage
     if (!g_mgrHooksOk.load()) {
         SAFE_HOOK(Off::SoldierManager_getRespawnTime,  getRespawnTime_Hook,  old_getRespawnTime,  g_mgrHooksOk);
         SAFE_HOOK(Off::SoldierManager_respawnPlayer,   MgrRespawnPlayer_Hook,old_MgrRespawnPlayer,g_mgrHooksOk);
@@ -1558,7 +1647,7 @@ static void ApplyReloadPatch(bool e) {
 }
 
 // ================================================================
-//  ESP DRAWING — v103.0 EXACT
+//  ESP DRAWING — v103.0 exact
 // ================================================================
 static jclass    g_espClass    = nullptr;
 static jmethodID g_espDrawLine = nullptr;
@@ -1682,11 +1771,13 @@ static void DrawPremiumBox(JNIEnv* env, jobject v, jobject c,
     DrawLineColored(env, v, c, 255, cr, cg, cb, cw, x + w, y + h, x + w - cLen, y + h);
     DrawLineColored(env, v, c, 255, cr, cg, cb, cw, x + w, y + h, x + w, y + h - cLen);
 }
+
 extern "C" JNIEXPORT void JNICALL
 Java_com_android_support_Menu_Draw(JNIEnv* env, jclass, jobject espView, jobject canvas) {
     if (!espView || !canvas) return;
     bool espOn    = g_espEnabled.load();
-    bool fovWants = g_drawFovCircle.load() && g_silentAim.load();
+    // v108: FOV circle is standalone — no silent aim dependency
+    bool fovWants = g_drawFovCircle.load();
     if (!espOn && !fovWants) return;
     CacheESPMethods(env, espView);
     if (!g_espClass || !g_espDrawLine || !g_espDrawRect || !g_espDrawText) return;
@@ -1903,11 +1994,11 @@ jobjectArray GetFeatureList(JNIEnv* env, jobject) {
 
         OBFUSCATE("Category_Aim"),
         OBFUSCATE("109_Toggle_Silent Aim"),
-        OBFUSCATE("111_Toggle_Auto Fire (needs Silent Aim)"),
+        OBFUSCATE("111_Toggle_Auto Fire (independent)"),
         OBFUSCATE("113_Toggle_Extended Range"),
         OBFUSCATE("115_SeekBar_Weapon Speed (x1-x20)_1_20"),
-        OBFUSCATE("116_Toggle_Aim Magnet"),
-        OBFUSCATE("120_Toggle_Draw FOV Circle (Auto-Gates Aim)"),
+        OBFUSCATE("116_Toggle_Aim Magnet (independent)"),
+        OBFUSCATE("120_Toggle_Draw FOV Circle (standalone)"),
         OBFUSCATE("121_SeekBar_FOV Size (px)_60_350"),
 
         OBFUSCATE("Category_Weapon"),
@@ -1918,7 +2009,7 @@ jobjectArray GetFeatureList(JNIEnv* env, jobject) {
         OBFUSCATE("204_Toggle_Max Range (Infinite)"),
         OBFUSCATE("205_Toggle_Bullet Speed Boost"),
         OBFUSCATE("206_SeekBar_Bullet Speed Multiplier_1_20"),
-        OBFUSCATE("207_Toggle_Any Gun Dual Wield (Persistent)"),
+        OBFUSCATE("207_Toggle_Any Gun Dual Wield (Fixed)"),
         OBFUSCATE("208_Toggle_Max Zoom (Built-in)"),
         OBFUSCATE("209_Toggle_High Damage"),
         OBFUSCATE("210_SeekBar_Damage Multiplier_1_20"),
@@ -1926,7 +2017,7 @@ jobjectArray GetFeatureList(JNIEnv* env, jobject) {
 
         OBFUSCATE("Category_Flight & Gravity"),
         OBFUSCATE("500_Toggle_Unlimited Flying Power"),
-        OBFUSCATE("501_Toggle_Anti Gravity"),
+        OBFUSCATE("501_Toggle_Anti Gravity (Fixed)"),
         OBFUSCATE("502_Toggle_Fly Through Walls (Per-Frame)"),
 
         OBFUSCATE("Category_Bombs & Gas"),
@@ -2035,7 +2126,12 @@ void Changes(JNIEnv*, jclass, jobject, jint featNum, jstring, jint value, jlong,
         case 109:
             g_silentAim = boolean;
             if (boolean) RefreshDesignSize();
-            else { g_hasAimTarget.store(false); g_hasAimAngle.store(false); g_stickyTarget = nullptr; g_currentAimTarget.store(nullptr); }
+            else if (!IsModActive()) {
+                g_hasAimTarget.store(false);
+                g_hasAimAngle.store(false);
+                g_stickyTarget = nullptr;
+                g_currentAimTarget.store(nullptr);
+            }
             break;
         case 111: g_autoFire = boolean; break;
         case 113: g_rangeBoost = boolean; break;
@@ -2051,7 +2147,13 @@ void Changes(JNIEnv*, jclass, jobject, jint featNum, jstring, jint value, jlong,
         case 204: g_wpnMaxRange = boolean; break;
         case 205: g_wpnBulletSpeedUp = boolean; break;
         case 206: { if (value < 1) value = 1; if (value > 20) value = 20; g_wpnBulletSpeedMul = value; } break;
-        case 207: g_dualWieldAll = boolean; break;
+        case 207: {
+            g_dualWieldAll = boolean;
+            if (!boolean) {
+                std::lock_guard<std::mutex> lk(g_dualConvertMtx);
+                g_dualConvertMs.clear();
+            }
+        } break;
         case 208: g_wpnMaxZoom = boolean; break;
         case 209: g_wpnHighDamage = boolean; break;
         case 210: { if (value < 1) value = 1; if (value > 20) value = 20; g_wpnDamageMul = value; } break;
