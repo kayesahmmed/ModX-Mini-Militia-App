@@ -1,5 +1,5 @@
 // ================================================================
-// Mini Militia — Main.cpp  v107.0
+// Mini Militia — Main.cpp  v107.1
 // - ESP design: v103.0 exact (premium box, ring, FOV circle)
 // - Fixes:
 //     • Antigravity (getGravityFactor=0 + setThrust hook + power force)
@@ -8,6 +8,7 @@
 //     • Respawn time mod + Reborn map (hook-based, no broken NOP)
 //     • Any gun dual wield (removed isDualWield hook; periodic convert)
 //     • Aim tab unchanged (auto fire only works with silent aim)
+//     • v107.1 — Fixed build error: removed undeclared 'old_triggerPull'
 // ================================================================
 
 #include <list>
@@ -371,7 +372,6 @@ typedef MSSize (*directorGetSize_t)(void*);
 typedef void* (*getWeapon_t)(void*);
 typedef void  (*soldierFire_t)(void*, float);
 typedef float (*getRandomFiringAngle_t)(void*);
-typedef void  (*triggerPull_t)(void*, float);
 typedef int   (*getBulletSpeed_t)(void*);
 typedef int   (*getRange_t)(void*);
 typedef void  (*setFireAngle_wpn_t)(void*, float);
@@ -905,7 +905,7 @@ float getGravityFactor_Hook(void* self) {
     return old_getGravityFactor ? old_getGravityFactor(self) : 1.0f;
 }
 void setThrust_Hook(void* self, bool value) {
-    if (g_antiGravity.load()) value = true;   // force thrust on so player hovers
+    if (g_antiGravity.load()) value = true;
     if (old_setThrust) old_setThrust(self, value);
 }
 
@@ -949,10 +949,6 @@ int getClipCapacity_Hook(void* self) { if (g_wpnUnlimitedAmmo.load()) return 999
 int getAmmoCapacity_Hook(void* self) { if (g_wpnUnlimitedAmmo.load()) return 9999; return old_getAmmoCapacity ? old_getAmmoCapacity(self) : 0; }
 int getReloadTime_Hook(void* self) { if (g_wpnFastReload.load()) return 0; return old_getReloadTime ? old_getReloadTime(self) : 1000; }
 
-// NOTE: isDualWield / isDualWieldOnly / isDualWieldPrimaryOnly hooks are
-// NOT installed in v107 because they cause the "gun down" visual bug.
-// Dual wield is instead handled via periodic switchPrimaryToDual in updateStep.
-
 int getZoomLevel_Hook(void* self) { if (g_wpnMaxZoom.load()) return 5; return old_getZoomLevel ? old_getZoomLevel(self) : 0; }
 void applyMaxZoomScale_Hook(void* self) {
     if (old_applyMaxZoomScale) old_applyMaxZoomScale(self);
@@ -994,16 +990,12 @@ void MgrRespawnPlayer_Hook(void* self) {
     if (old_MgrRespawnPlayer) old_MgrRespawnPlayer(self);
 }
 int getRespawnTime_Hook(void* self) {
-    if (g_respawnTimeMod.load()) return 0;   // instant respawn
+    if (g_respawnTimeMod.load()) return 0;
     return old_getRespawnTime ? old_getRespawnTime(self) : 5;
 }
 
 // ================================================================
 //  LOCAL UPDATE HOOK
-//  - char speed
-//  - unlimited fly power
-//  - antigravity (force power + thrust)
-//  - dual wield periodic re-apply
 // ================================================================
 void soldierLocalUpdateStep_Hook(void* self, float dt, cpVect a, cpVect b, float c) {
     if (!PlausiblePtr(self)) {
@@ -1019,7 +1011,6 @@ void soldierLocalUpdateStep_Hook(void* self, float dt, cpVect a, cpVect b, float
         b.x *= (double)f; b.y *= (double)f;
     }
 
-    // Force power for fly / anti-grav
     if ((g_unlimitedFlyPower.load() || g_antiGravity.load()) && fn_setPowerF) {
         if (GUARD_ENTER()) { GUARD_SET(); fn_setPowerF(self, 9999.0f); GUARD_CLR(); }
         else GUARD_CLR();
@@ -1031,7 +1022,6 @@ void soldierLocalUpdateStep_Hook(void* self, float dt, cpVect a, cpVect b, float
 
     if (old_soldierLocalUpdateStep) old_soldierLocalUpdateStep(self, dt, a, b, c);
 
-    // Periodic dual-wield convert (safe, doesn't loop)
     if (g_dualWieldAll.load() && fn_switchPrimaryToDual && fn_getPrimaryWeapon && fn_getDualWeapon) {
         void* prim = nullptr;
         void* dual = nullptr;
@@ -1059,7 +1049,9 @@ void soldierLocalUpdateStep_Hook(void* self, float dt, cpVect a, cpVect b, float
 }
 
 // ================================================================
-//  SILENT AIM (unchanged from v103.0 — auto fire gated behind silent aim)
+//  SILENT AIM — v107.1 FIXED
+//  Removed undeclared 'old_triggerPull' reference. Auto fire uses
+//  only fn_soldierFire (the correct API for triggering shots).
 // ================================================================
 static void ApplySilentAim(void* localController) {
     if (!g_aimResolved.load()) return;
@@ -1132,19 +1124,22 @@ static void ApplySilentAim(void* localController) {
     g_aimTargetRawX.store(bestRawX); g_aimTargetRawY.store(bestRawY);
     g_aimAngle.store(bestAngleRaw);
     g_hasAimAngle.store(true); g_hasAimTarget.store(true);
-    // Auto fire ONLY inside silent aim block (per user requirement)
+
+    // ---------- AUTO FIRE (FIXED) ----------
+    // Fires only through the local controller's fire API. The old
+    // 'old_triggerPull' fallback was removed because no triggerPull
+    // hook is ever installed in this version — it caused a build error.
     if (g_autoFire.load() && (now - g_lastFireMs) >= MIN_FIRE_INTERVAL_MS) {
         g_lastFireMs = now;
         float angleRad = bestAngleRaw;
-        void* weapon = nullptr;
-        if (fn_getPrimaryWeapon) { if (GUARD_ENTER()) { GUARD_SET(); weapon = fn_getPrimaryWeapon(localController); GUARD_CLR(); } else GUARD_CLR(); }
-        if (!PlausiblePtr(weapon) && fn_getSecondaryWeapon) { if (GUARD_ENTER()) { GUARD_SET(); weapon = fn_getSecondaryWeapon(localController); GUARD_CLR(); } else GUARD_CLR(); }
-        if (!PlausiblePtr(weapon) && fn_getDualWeapon) { if (GUARD_ENTER()) { GUARD_SET(); weapon = fn_getDualWeapon(localController); GUARD_CLR(); } else GUARD_CLR(); }
-        bool fired = false;
-        if (fn_soldierFire) { if (GUARD_ENTER()) { GUARD_SET(); fn_soldierFire(localController, angleRad); GUARD_CLR(); fired = true; } else GUARD_CLR(); }
-        if (!fired && PlausiblePtr(weapon) && old_triggerPull) {
-            if (fn_setFireAngleWpn) { if (GUARD_ENTER()) { GUARD_SET(); fn_setFireAngleWpn(weapon, angleRad); GUARD_CLR(); } else GUARD_CLR(); }
-            if (GUARD_ENTER()) { GUARD_SET(); old_triggerPull(weapon, angleRad); GUARD_CLR(); }
+        if (fn_soldierFire) {
+            if (GUARD_ENTER()) {
+                GUARD_SET();
+                fn_soldierFire(localController, angleRad);
+                GUARD_CLR();
+            } else {
+                GUARD_CLR();
+            }
         }
     }
 }
@@ -1485,7 +1480,7 @@ static void InstallHooksIfNeeded() {
         crashLog("HOOK", "Unlock hooks installed");
     }
 
-    // Fly / anti-grav (getMaxPower + getGravityFactor + setThrust)
+    // Fly / anti-grav
     if (!g_flyHooksOk.load()) {
         SAFE_HOOK(Off::MapManager_getMaxPower,      getMaxPower_Hook,      old_getMaxPower,      g_flyHooksOk);
         SAFE_HOOK(Off::MapManager_getGravityFactor, getGravityFactor_Hook, old_getGravityFactor, g_flyHooksOk);
@@ -1493,7 +1488,7 @@ static void InstallHooksIfNeeded() {
         crashLog("HOOK", "Fly/anti-grav hooks installed");
     }
 
-    // Wall collision (fly-through-walls + bullet-through-walls via TLS)
+    // Wall collision
     if (!g_wallHooksOk.load()) {
         SAFE_HOOK(Off::MapManager_isCollisionTile, isCollisionTile_Hook, old_isCollisionTile, g_wallHooksOk);
         SAFE_HOOK(Off::MapManager_mapCollision,    mapCollision_Hook,    old_mapCollision,    g_wallHooksOk);
@@ -1507,7 +1502,7 @@ static void InstallHooksIfNeeded() {
         crashLog("HOOK", "Bomb/gas hooks installed");
     }
 
-    // Respawn time mod (getter override)
+    // Respawn / manager / damage
     if (!g_mgrHooksOk.load()) {
         SAFE_HOOK(Off::SoldierManager_getRespawnTime,  getRespawnTime_Hook,  old_getRespawnTime,  g_mgrHooksOk);
         SAFE_HOOK(Off::SoldierManager_respawnPlayer,   MgrRespawnPlayer_Hook,old_MgrRespawnPlayer,g_mgrHooksOk);
