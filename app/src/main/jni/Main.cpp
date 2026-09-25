@@ -1,9 +1,11 @@
 // ================================================================
-// Mini Militia — Main.cpp v110.0
-//  - Teleport (via getBodyPosition override)
+// Mini Militia — Main.cpp v111.0
+//  - Teleport via X/Y SeekBar + Aim Snap + Physics freeze
+//  - Dual Wield: isDualWield + isDualWieldOnly + isDualWieldPrimaryOnly
 //  - Any Gun As Bomb / Gas / Rocket / Laser
-//  - Dual Wield visual fix
-//  - Antigravity removed (as per request)
+//  - Fly Through Walls (addStaticBodyShape + Poly + Collision)
+//  - ESP Weapon Count Indicator (x1 / x2 in hand)
+//  - Full Logcat + Game Directory logging
 // ================================================================
 
 #include <list>
@@ -51,57 +53,93 @@ struct MPoint { float x, y; };
 struct MSSize { float w, h; };
 
 #define targetLibName OBFUSCATE("libcocos2dcpp.so")
+#define LOG_TAG       "MMMod"
 static constexpr float RAD2DEG = 57.29577951f;
 static constexpr float DEG2RAD = 0.01745329252f;
 
-// ===== Crash logger =====
+// ==================================================================
+// Logging
+// ==================================================================
 static int g_logFd = -1;
 static std::atomic<int> g_crashCount{0};
 static constexpr int MAX_CRASHES_PER_SESSION = 200;
+
 static void ensureLogFd() {
     if (g_logFd >= 0) return;
     const char* paths[] = {
-        "/storage/emulated/0/Android/data/com.appsomniacs.da2/files/MM_Crash.log",
-        "/sdcard/Android/data/com.appsomniacs.da2/files/MM_Crash.log",
-        "/storage/emulated/0/MM_Crash.log",
-        "/sdcard/MM_Crash.log", "/data/local/tmp/MM_Crash.log"
+        "/storage/emulated/0/Android/data/com.appsomniacs.da2/files/MM_Mod.log",
+        "/sdcard/Android/data/com.appsomniacs.da2/files/MM_Mod.log",
+        "/storage/emulated/0/MM_Mod.log",
+        "/sdcard/MM_Mod.log",
+        "/data/local/tmp/MM_Mod.log"
     };
     for (auto p : paths) {
         int fd = open(p, O_WRONLY | O_CREAT | O_APPEND, 0666);
         if (fd >= 0) { g_logFd = fd; return; }
     }
 }
+
+// File-only (for crash-time; logcat not safe inside signal)
 static void crashLogRaw(const char* msg, int len) {
-    ensureLogFd(); if (g_logFd < 0) return; write(g_logFd, msg, len);
-}
-static void crashLog(const char* tag, const char* fmt, ...) {
     ensureLogFd(); if (g_logFd < 0) return;
-    char buf[512];
-    int n = snprintf(buf, sizeof(buf), "[%s] ", tag);
-    if (n < 0 || n >= (int)sizeof(buf)) n = 0;
-    va_list args; va_start(args, fmt);
-    int m = vsnprintf(buf + n, sizeof(buf) - n - 2, fmt, args);
-    va_end(args); if (m < 0) m = 0;
-    int total = n + m;
-    if (total < (int)sizeof(buf) - 1) { buf[total++] = '\n'; buf[total] = 0; }
-    write(g_logFd, buf, total);
+    write(g_logFd, msg, len);
 }
 
+// File + logcat (safe to call from hooks)
+static void crashLog(const char* tag, const char* fmt, ...) {
+    ensureLogFd();
+    char msg[480];
+    va_list args;
+    va_start(args, fmt);
+    vsnprintf(msg, sizeof(msg), fmt, args);
+    va_end(args);
+
+    __android_log_print(ANDROID_LOG_INFO, LOG_TAG, "[%s] %s", tag, msg);
+
+    if (g_logFd < 0) return;
+    char buf[520];
+    int n = snprintf(buf, sizeof(buf), "[%s] %s\n", tag, msg);
+    if (n > 0) write(g_logFd, buf, n);
+}
+
+// Trace helper (debug level logcat + file)
+static void traceLog(const char* fmt, ...) {
+    char msg[400];
+    va_list args;
+    va_start(args, fmt);
+    vsnprintf(msg, sizeof(msg), fmt, args);
+    va_end(args);
+    __android_log_print(ANDROID_LOG_DEBUG, LOG_TAG, "%s", msg);
+    if (g_logFd < 0) ensureLogFd();
+    if (g_logFd >= 0) {
+        char b[440];
+        int n = snprintf(b, sizeof(b), "[TRACE] %s\n", msg);
+        if (n > 0) write(g_logFd, b, n);
+    }
+}
+
+// ==================================================================
+// Crash guard
+// ==================================================================
 static __thread sigjmp_buf tls_guard;
 static __thread volatile sig_atomic_t tls_guardActive = 0;
+
 static void native_crash_handler(int sig, siginfo_t* info, void*) {
     if (tls_guardActive) { tls_guardActive = 0; siglongjmp(tls_guard, 1); }
     ensureLogFd();
     if (g_crashCount.fetch_add(1) < MAX_CRASHES_PER_SESSION) {
         char buf[256];
-        int n = snprintf(buf, sizeof(buf), "\n!!! SIG %d fault=%p\n", sig, info ? info->si_addr : nullptr);
+        int n = snprintf(buf, sizeof(buf), "\n!!! SIG %d fault=%p\n",
+                         sig, info ? info->si_addr : nullptr);
         if (n > 0) crashLogRaw(buf, n);
     }
     struct sigaction sa; memset(&sa, 0, sizeof(sa));
     sa.sa_handler = SIG_DFL; sigaction(sig, &sa, nullptr); raise(sig);
 }
 static void install_crash_handler() {
-    ensureLogFd(); crashLog("BOOT", "Handler installed");
+    ensureLogFd();
+    __android_log_print(ANDROID_LOG_INFO, LOG_TAG, "=== MMMod v111.0 boot ===");
+    crashLog("BOOT", "Crash handler installed");
     struct sigaction sa; memset(&sa, 0, sizeof(sa));
     sa.sa_sigaction = native_crash_handler;
     sa.sa_flags = SA_SIGINFO | SA_NODEFER;
@@ -111,7 +149,13 @@ static void install_crash_handler() {
     sigaction(SIGFPE,  &sa, nullptr);
 }
 
-// ===== ESP colors =====
+#define GUARD_ENTER() (sigsetjmp(tls_guard, 1) == 0)
+#define GUARD_SET()   (tls_guardActive = 1)
+#define GUARD_CLR()   (tls_guardActive = 0)
+
+// ==================================================================
+// ESP colors
+// ==================================================================
 std::atomic<unsigned int> g_espColorArgb{ 0xFF00FF88u };
 static int SKY_R = 0x00, SKY_G = 0xFF, SKY_B = 0x88;
 static int SKY_LIGHT_R = 0x99, SKY_LIGHT_G = 0xFF, SKY_LIGHT_B = 0xCF;
@@ -128,94 +172,71 @@ static inline void RecomputeSkyColors() {
     SKY_DEEP_G  = (SKY_G * 3) / 5;
     SKY_DEEP_B  = (SKY_B * 3) / 5;
 }
+
 __attribute__((constructor)) void early_init() {
     install_crash_handler(); RecomputeSkyColors();
 }
 extern "C" JNIEXPORT void JNICALL
 Java_com_android_support_Main_setNativeCrashDir(JNIEnv*, jclass, jstring) {}
 
-// ===== Offsets =====
+// ==================================================================
+// OFFSETS (verified from cocos2dcpp.cpp dump)
+// ==================================================================
 namespace Off {
-    constexpr uintptr_t Weapon_getRandomFiringAngle = 0x00f40ad0;
-    constexpr uintptr_t Weapon_getBulletSpeed       = 0x00f40ab0;
-    constexpr uintptr_t Weapon_getRange             = 0x00f40784;
-    constexpr uintptr_t Weapon_setFireAngle         = 0x00f40b5c;
-    constexpr uintptr_t Weapon_getDamage            = 0x00f4076c;
-    constexpr uintptr_t Weapon_getRoundsPerFire     = 0x00f40aa0;
-    constexpr uintptr_t Weapon_getAmmo              = 0x00f406bc;
-    constexpr uintptr_t Weapon_setAmmo              = 0x00f40720;
-    constexpr uintptr_t Weapon_subAmmo              = 0x00f40884;
-    constexpr uintptr_t Weapon_getClip              = 0x00f406dc;
-    constexpr uintptr_t Weapon_setClip              = 0x00f40730;
-    constexpr uintptr_t Weapon_getClipCapacity      = 0x00f40794;
-    constexpr uintptr_t Weapon_getAmmoCapacity      = 0x00f4078c;
-    constexpr uintptr_t Weapon_getReloadTime        = 0x00f4079c;
-    constexpr uintptr_t Weapon_isDualWield          = 0x00f40ab8;
-    constexpr uintptr_t Weapon_getZoomLevel         = 0x00f40a90;
-    constexpr uintptr_t Weapon_setZoomLevel         = 0x00f409d4;
-    constexpr uintptr_t Weapon_applyMaxZoomScale    = 0x00f40a70;
-    constexpr uintptr_t Weapon_getZoomScale         = 0x00f408f4;
-    constexpr uintptr_t Weapon_getMeleeDamage       = 0x00f40774;
-    constexpr uintptr_t Weapon_getMeleeLength       = 0x00f4077c;
+    // ---- Weapon ----
+    constexpr uintptr_t Weapon_getRandomFiringAngle     = 0x00f40ad0;
+    constexpr uintptr_t Weapon_getBulletSpeed           = 0x00f40ab0;
+    constexpr uintptr_t Weapon_getRange                 = 0x00f40784;
+    constexpr uintptr_t Weapon_setFireAngle             = 0x00f40b5c;
+    constexpr uintptr_t Weapon_getDamage                = 0x00f4076c;
+    constexpr uintptr_t Weapon_getRoundsPerFire         = 0x00f40aa0;
+    constexpr uintptr_t Weapon_getAmmo                  = 0x00f406bc;
+    constexpr uintptr_t Weapon_setAmmo                  = 0x00f40720;
+    constexpr uintptr_t Weapon_subAmmo                  = 0x00f40884;
+    constexpr uintptr_t Weapon_getClip                  = 0x00f406dc;
+    constexpr uintptr_t Weapon_setClip                  = 0x00f40730;
+    constexpr uintptr_t Weapon_getClipCapacity          = 0x00f40794;
+    constexpr uintptr_t Weapon_getAmmoCapacity          = 0x00f4078c;
+    constexpr uintptr_t Weapon_getReloadTime            = 0x00f4079c;
+    constexpr uintptr_t Weapon_isDualWield              = 0x00f40ab8;
+    constexpr uintptr_t Weapon_isDualWieldOnly          = 0x00f40ac0; // dump-verified
+    constexpr uintptr_t Weapon_isDualWieldPrimaryOnly   = 0x00f40ac8;
+    constexpr uintptr_t Weapon_getZoomLevel             = 0x00f40a90;
+    constexpr uintptr_t Weapon_setZoomLevel             = 0x00f409d4;
+    constexpr uintptr_t Weapon_applyMaxZoomScale        = 0x00f40a70;
+    constexpr uintptr_t Weapon_getZoomScale             = 0x00f408f4;
+    constexpr uintptr_t Weapon_getMeleeDamage           = 0x00f40774;
+    constexpr uintptr_t Weapon_getMeleeLength           = 0x00f4077c;
 
-    constexpr uintptr_t AK47_triggerPull       = 0x00ea2e74;
-    constexpr uintptr_t AA12_triggerPull       = 0x00ea2128;
-    constexpr uintptr_t DEAGLE_triggerPull     = 0x00eacaf0;
-    constexpr uintptr_t M16_triggerPull        = 0x00ee4298;
-    constexpr uintptr_t MINIGUN_triggerPull    = 0x00ee7334;
-    constexpr uintptr_t EMP_triggerPull        = 0x00ead8d0;
-    constexpr uintptr_t RG6_triggerPull        = 0x00f06640;
-    constexpr uintptr_t M14_triggerPull        = 0x00ee3608;
-    constexpr uintptr_t MAGNUM_triggerPull     = 0x00ee63ac;
-    constexpr uintptr_t MP5_triggerPull        = 0x00ee90a0;
-    constexpr uintptr_t TAVOR_triggerPull      = 0x00f2e8e4;
-    constexpr uintptr_t TEC9_triggerPull       = 0x00f2f534;
-    constexpr uintptr_t HUNTING_triggerPull    = 0x00edf94c;
-    constexpr uintptr_t SAWGUN_triggerPull     = 0x00f0afb8;
-    constexpr uintptr_t SMAW_triggerPull       = 0x00f0cb2c;
-    constexpr uintptr_t XM8_triggerPull        = 0x00f4b834;
-    constexpr uintptr_t PHASR_triggerPull      = 0x00ef921c;
+    // ---- Map / Walls ----
+    constexpr uintptr_t MapManager_addStaticBodyShape   = 0x00eeb038;
+    constexpr uintptr_t MapManager_addStaticBodyPoly    = 0x00eeac7c;
+    constexpr uintptr_t MapManager_isCollisionTile      = 0x00eec664;
+    constexpr uintptr_t MapManager_mapCollision         = 0x00eec9f0;
+    constexpr uintptr_t MapManager_isBoundryTile        = 0x00eece3c;
+    constexpr uintptr_t MapManager_getMaxPower          = 0x00eea748;
+    constexpr uintptr_t MapManager_getGravityFactor     = 0x00eea740;
 
-    constexpr uintptr_t EffectsManager_addExplosionAt = 0x00eb1f20;
-    constexpr uintptr_t EffectsManager_addGasCloudAt  = 0x00eb2360;
+    // ---- Effects ----
+    constexpr uintptr_t EffectsManager_addExplosionAt   = 0x00eb1f20;
+    constexpr uintptr_t EffectsManager_addGasCloudAt    = 0x00eb2360;
 
-    constexpr uintptr_t MapManager_getMaxPower        = 0x00eea748;
-    constexpr uintptr_t MapManager_getGravityFactor   = 0x00eea740;
-    constexpr uintptr_t MapManager_isCollisionTile    = 0x00eec664;
-    constexpr uintptr_t MapManager_mapCollision       = 0x00eec9f0;
-    constexpr uintptr_t MapManager_isBoundryTile      = 0x00eece3c;
+    // ---- Projectiles ----
+    constexpr uintptr_t ProjectileManager_addBullet     = 0x00f04b7c;
+    constexpr uintptr_t ProjectileManager_addShell      = 0x00f052d8;
+    constexpr uintptr_t ProjectileManager_addRocket     = 0x00f05008;
+    constexpr uintptr_t ProjectileManager_addGrenade    = 0x00f04d58;
+    constexpr uintptr_t ProjectileManager_addSaw        = 0x00f05750;
+    constexpr uintptr_t ProjectileManager_addFlame      = 0x00f055a4;
 
-    constexpr uintptr_t Enemy_canSeeTarget        = 0x00eb3940;
-    constexpr uintptr_t Explosion_applyDamage     = 0x00eb7ac8;
-    constexpr uintptr_t GasCloud_applyDamage      = 0x00ed5808;
-    constexpr uintptr_t PlasmaBall_applyDamage    = 0x00f00b84;
-    constexpr uintptr_t SAW_checkMapCollision     = 0x00f0a410;
-    constexpr uintptr_t SAW_updateItemStep        = 0x00f0a2a8;
-    constexpr uintptr_t ProxyMine_updateStep      = 0x00f05db8;
-    constexpr uintptr_t ProxyMine_reset           = 0x00f05c98;
-
-    constexpr uintptr_t ProjectileManager_addBullet  = 0x00f04b7c;
-    constexpr uintptr_t ProjectileManager_addShell   = 0x00f052d8;
-    constexpr uintptr_t ProjectileManager_addRocket  = 0x00f05008;
-    constexpr uintptr_t ProjectileManager_addGrenade = 0x00f04d58;
-    constexpr uintptr_t ProjectileManager_addSaw     = 0x00f05750;
-    constexpr uintptr_t ProjectileManager_addFlame   = 0x00f055a4;
-
-    constexpr uintptr_t SoldierManager_getLocalController   = 0x00f1aa00;
-    constexpr uintptr_t SoldierManager_updateRemoteSoldiers = 0x00f1a888;
-    constexpr uintptr_t SoldierManager_updateStep           = 0x00f1a348;
-    constexpr uintptr_t SoldierManager_spawnPlayer          = 0x00f1a618;
-    constexpr uintptr_t SoldierManager_respawnPlayer        = 0x00f19f78;
-    constexpr uintptr_t SoldierManager_getRespawnTime       = 0x00f1b24c;
-    constexpr uintptr_t SoldierManager_isRespawning         = 0x00f1b254;
-
-    constexpr uintptr_t SoldierController_getBodyPosition   = 0x00f13828;
-    constexpr uintptr_t SoldierController_getHP             = 0x00f137d4;
-    constexpr uintptr_t SoldierController_setHP             = 0x00f137e4;
-    constexpr uintptr_t SoldierController_setAlive          = 0x00f13860;
-    constexpr uintptr_t SoldierController_getSoldierView    = 0x00f13074;
-    constexpr uintptr_t SoldierController_isDead            = 0x00f137f4;
-    constexpr uintptr_t SoldierController_addDamage         = 0x00f135a8;
+    // ---- Soldier ----
+    constexpr uintptr_t SoldierController_getBodyPosition    = 0x00f13828;
+    constexpr uintptr_t SoldierController_getHP              = 0x00f137d4;
+    constexpr uintptr_t SoldierController_setHP              = 0x00f137e4;
+    constexpr uintptr_t SoldierController_setAlive           = 0x00f13860;
+    constexpr uintptr_t SoldierController_getSoldierView     = 0x00f13074;
+    constexpr uintptr_t SoldierController_isDead             = 0x00f137f4;
+    constexpr uintptr_t SoldierController_addDamage          = 0x00f135a8;
     constexpr uintptr_t SoldierController_getPrimaryWeapon   = 0x00f1321c;
     constexpr uintptr_t SoldierController_getSecondaryWeapon = 0x00f13224;
     constexpr uintptr_t SoldierController_getDualWeapon      = 0x00f1322c;
@@ -226,20 +247,22 @@ namespace Off {
     constexpr uintptr_t SoldierLocalController_updateStep            = 0x00f14478;
     constexpr uintptr_t SoldierLocalController_addDamage             = 0x00f18c64;
     constexpr uintptr_t SoldierLocalController_activatePlayer        = 0x00f17bb4;
-    constexpr uintptr_t SoldierLocalController_addWeapon             = 0x00f159ec;
-    constexpr uintptr_t SoldierLocalController_addPrimaryWeapon      = 0x00f15e48;
-    constexpr uintptr_t SoldierLocalController_addSecondaryWeapon    = 0x00f160b4;
-    constexpr uintptr_t SoldierLocalController_addDualWeapon         = 0x00f161d8;
+    constexpr uintptr_t SoldierLocalController_setPower              = 0x00f156b4;
     constexpr uintptr_t SoldierLocalController_switchPrimaryToDual   = 0x00f17760;
     constexpr uintptr_t SoldierLocalController_switchSecondaryToDual = 0x00f178b8;
-    constexpr uintptr_t SoldierLocalController_setPower              = 0x00f156b4;
+
+    constexpr uintptr_t SoldierManager_getLocalController   = 0x00f1aa00;
+    constexpr uintptr_t SoldierManager_updateRemoteSoldiers = 0x00f1a888;
+    constexpr uintptr_t SoldierManager_updateStep           = 0x00f1a348;
+    constexpr uintptr_t SoldierManager_spawnPlayer          = 0x00f1a618;
+    constexpr uintptr_t SoldierManager_respawnPlayer        = 0x00f19f78;
+    constexpr uintptr_t SoldierManager_getRespawnTime       = 0x00f1b24c;
+    constexpr uintptr_t SoldierManager_isRespawning         = 0x00f1b254;
 
     constexpr uintptr_t SoldierRemoteController_updateStep = 0x00f1d620;
     constexpr uintptr_t SoldierAIController_updateStep     = 0x00f0fd80;
     constexpr uintptr_t EnemyManager_updateStep            = 0x00eb4d18;
-    constexpr uintptr_t Stage_update                       = 0x00f21938;
-    constexpr uintptr_t NetworkMessageDispatcher_updatePeerDamage = 0x00ef5d60;
-    constexpr uintptr_t NetworkManager_sendWeaponChange    = 0x00ef3ec4;
+
     constexpr uintptr_t HumanoidDrone_addDamage            = 0x00edf408;
     constexpr uintptr_t HawkDrone_addDamage                = 0x00eddc44;
     constexpr uintptr_t WormDrone_addDamage                = 0x00f4b320;
@@ -247,9 +270,15 @@ namespace Off {
     constexpr uintptr_t HawkDrone_updateStep               = 0x00edd640;
     constexpr uintptr_t WormDrone_updateStep               = 0x00f4aaa8;
 
+    // ---- Model / Weapons ----
     constexpr uintptr_t WeaponsModel_isUnlockable            = 0x01113a88;
     constexpr uintptr_t WeaponsModel_isUpgradable            = 0x01113a60;
     constexpr uintptr_t WeaponsModel_getDualWieldUnlockLevel = 0x01113984;
+
+    // ---- Stage / Director ----
+    constexpr uintptr_t Stage_update                 = 0x00f21938;
+    constexpr uintptr_t NetworkMessageDispatcher_updatePeerDamage = 0x00ef5d60;
+    constexpr uintptr_t NetworkManager_sendWeaponChange = 0x00ef3ec4;
 
     constexpr uintptr_t CCNode_convertToWorldSpaceAR = 0x00f88018;
     constexpr uintptr_t CCDirector_sharedDirector    = 0x00f8f5c4;
@@ -258,14 +287,44 @@ namespace Off {
     constexpr uintptr_t Joypad_getDirectionVector    = 0x00ee2aa0;
     constexpr uintptr_t SoldierView_setPlayerHealth  = 0x00f20960;
     constexpr uintptr_t SoldierView_getPlayerName    = 0x00f20994;
-    constexpr uintptr_t SoldierView_updateStep       = 0x00f1f648;
     constexpr uintptr_t CollisionObject_getTeamId    = 0x00eac4f0;
+
+    // ---- Trigger pulls (sprayer) ----
+    constexpr uintptr_t AK47_triggerPull    = 0x00ea2e74;
+    constexpr uintptr_t AA12_triggerPull    = 0x00ea2128;
+    constexpr uintptr_t DEAGLE_triggerPull  = 0x00eacaf0;
+    constexpr uintptr_t M16_triggerPull     = 0x00ee4298;
+    constexpr uintptr_t MINIGUN_triggerPull = 0x00ee7334;
+    constexpr uintptr_t EMP_triggerPull     = 0x00ead8d0;
+    constexpr uintptr_t RG6_triggerPull     = 0x00f06640;
+    constexpr uintptr_t M14_triggerPull     = 0x00ee3608;
+    constexpr uintptr_t MAGNUM_triggerPull  = 0x00ee63ac;
+    constexpr uintptr_t MP5_triggerPull     = 0x00ee90a0;
+    constexpr uintptr_t TAVOR_triggerPull   = 0x00f2e8e4;
+    constexpr uintptr_t TEC9_triggerPull    = 0x00f2f534;
+    constexpr uintptr_t HUNTING_triggerPull = 0x00edf94c;
+    constexpr uintptr_t SAWGUN_triggerPull  = 0x00f0afb8;
+    constexpr uintptr_t SMAW_triggerPull    = 0x00f0cb2c;
+    constexpr uintptr_t XM8_triggerPull     = 0x00f4b834;
+    constexpr uintptr_t PHASR_triggerPull   = 0x00ef921c;
+
+    // ---- Other (compat) ----
+    constexpr uintptr_t Enemy_canSeeTarget          = 0x00eb3940;
+    constexpr uintptr_t Explosion_applyDamage       = 0x00eb7ac8;
+    constexpr uintptr_t GasCloud_applyDamage        = 0x00ed5808;
+    constexpr uintptr_t PlasmaBall_applyDamage      = 0x00f00b84;
+    constexpr uintptr_t SAW_checkMapCollision       = 0x00f0a410;
+    constexpr uintptr_t SAW_updateItemStep          = 0x00f0a2a8;
+    constexpr uintptr_t ProxyMine_updateStep        = 0x00f05db8;
+    constexpr uintptr_t ProxyMine_reset             = 0x00f05c98;
 }
 
 uintptr_t         g_libBase = 0;
 std::atomic<bool> g_libReady{false};
 
-// ===== Mod registry =====
+// ==================================================================
+// Mod registry (for patch-based toggles)
+// ==================================================================
 struct ModDef {
     const char*  name     = nullptr;
     uintptr_t    offset   = 0;
@@ -293,7 +352,9 @@ static void ApplyModByIndex(int idx, bool on) {
     else if (!on && m.enabled) { m.patch.Restore(); m.enabled = false; }
 }
 
-// ===== Typedefs =====
+// ==================================================================
+// Typedefs
+// ==================================================================
 typedef void  (*MgrUpdateRemote_t)(void*, float);
 typedef void  (*MgrUpdateStep_t)(void*, float);
 typedef void  (*MgrSpawnPlayer_t)(void*);
@@ -336,6 +397,8 @@ typedef int   (*getClipCap_t)(void*);
 typedef int   (*getAmmoCap_t)(void*);
 typedef int   (*getReloadTime_t)(void*);
 typedef bool  (*isDualWield_t)(void*);
+typedef bool  (*isDualWieldOnly_t)(void*);
+typedef bool  (*isDualWieldPrimaryOnly_t)(void*);
 typedef int   (*getZoomLevel_t)(void*);
 typedef void  (*setZoomLevel_t)(void*, int);
 typedef void  (*applyMaxZoomScale_t)(void*);
@@ -364,6 +427,8 @@ typedef bool  (*isBoundryTile_t)(void*, cpVect);
 typedef void  (*setThrust_t)(void*, bool);
 typedef int   (*getRespawnTime_t)(void*);
 typedef int   (*isRespawning_t)(void*);
+typedef void  (*addStaticShape_t)(void*, int, int);
+typedef void  (*addStaticPoly_t)(void*, void*);
 
 // Originals
 MgrUpdateRemote_t      old_MgrUpdateRemote      = nullptr;
@@ -403,7 +468,9 @@ setClip_t              old_setClip              = nullptr;
 getClipCap_t           old_getClipCapacity      = nullptr;
 getAmmoCap_t           old_getAmmoCapacity      = nullptr;
 getReloadTime_t        old_getReloadTime        = nullptr;
-isDualWield_t          old_isDualWield          = nullptr;
+isDualWield_t            old_isDualWield            = nullptr;
+isDualWieldOnly_t        old_isDualWieldOnly        = nullptr;
+isDualWieldPrimaryOnly_t old_isDualWieldPrimaryOnly = nullptr;
 getZoomLevel_t         old_getZoomLevel         = nullptr;
 setZoomLevel_t         old_setZoomLevel         = nullptr;
 applyMaxZoomScale_t    old_applyMaxZoomScale    = nullptr;
@@ -422,6 +489,8 @@ setThrust_t                 old_setThrust                 = nullptr;
 getRespawnTime_t            old_getRespawnTime            = nullptr;
 isRespawning_t              old_isRespawning              = nullptr;
 getBodyPosition_t           old_getBodyPosition_hook      = nullptr;
+addStaticShape_t            old_addStaticBodyShape        = nullptr;
+addStaticPoly_t             old_addStaticBodyPoly         = nullptr;
 
 // Direct call pointers
 getLocalController_t   fn_getLocalController = nullptr;
@@ -453,10 +522,13 @@ switchToDual_t         fn_switchPrimaryToDual   = nullptr;
 switchToDual_t         fn_switchSecondaryToDual = nullptr;
 setThrust_t            fn_setThrust          = nullptr;
 
-// ===== HP table =====
+// ==================================================================
+// HP view hash table
+// ==================================================================
 static constexpr int HP_TABLE_SIZE = 1024;
 struct ViewHPEntry { std::atomic<void*> view{nullptr}; std::atomic<int> hp{-1}; };
 static ViewHPEntry g_viewHPTable[HP_TABLE_SIZE];
+
 static inline void viewHPStore(void* view, int hp) {
     if (!view) return;
     uintptr_t v = (uintptr_t)view;
@@ -488,6 +560,9 @@ static inline int viewHPLoad(void* view) {
     return -1;
 }
 
+// ==================================================================
+// ESP data
+// ==================================================================
 struct ESPSoldier {
     void*       instance;
     bool        isLocal;
@@ -500,7 +575,9 @@ struct ESPSoldier {
     int         teamId;
     std::string name;
     bool        isAimTarget;
+    int         weaponCount;    // NEW: how many weapons held (1 or 2)
 };
+
 struct SoldierEntry {
     void*       instance;
     uint64_t    lastSeenTick;
@@ -519,12 +596,16 @@ struct SoldierEntry {
     float       velX, velY;
     uint64_t    lastVelSampleMs;
     bool        hasPrevPos;
+    int         weaponCount;
 };
+
 static std::unordered_map<void*, SoldierEntry> g_soldierMap;
 std::vector<ESPSoldier> g_soldierSnapshots;
 std::mutex              g_soldierMutex;
 
-// ===== Feature flags =====
+// ==================================================================
+// Feature flags
+// ==================================================================
 std::atomic<bool> g_espEnabled {false};
 std::atomic<bool> g_espBox     {true};
 std::atomic<bool> g_espLine    {true};
@@ -533,6 +614,7 @@ std::atomic<bool> g_espDistance{false};
 std::atomic<bool> g_espEnemyOnly{false};
 std::atomic<int>  g_espBoxWidth{3};
 std::atomic<int>  g_boxSizeMul{115};
+std::atomic<bool> g_espWeaponCount{true};
 
 std::atomic<bool> g_silentAim   {false};
 std::atomic<bool> g_autoFire    {false};
@@ -572,13 +654,11 @@ std::atomic<bool> g_flyThroughWalls   {false};
 std::atomic<bool> g_bulletThroughWalls{false};
 std::atomic<bool> g_respawnTimeMod    {false};
 
-// Teleport (v110)
+// Teleport
 std::atomic<bool>  g_teleportActive{false};
 std::atomic<float> g_teleportX{0.f};
 std::atomic<float> g_teleportY{0.f};
 std::atomic<bool>  g_teleportFollowAim{false};
-std::atomic<float> g_lastTeleportX{0.f};
-std::atomic<float> g_lastTeleportY{0.f};
 
 std::atomic<bool> g_lagAntiLagMode    {false};
 std::atomic<int>  g_lagEspUpdateHz    {60};
@@ -626,6 +706,9 @@ static __thread volatile sig_atomic_t tls_bulletRaycast = 0;
 static std::unordered_map<void*, uint64_t> g_dualConvertMs;
 static std::mutex                           g_dualConvertMtx;
 
+// ==================================================================
+// Small helpers
+// ==================================================================
 static inline bool PlausiblePtr(const void* p) {
     uintptr_t v = (uintptr_t)p;
     return v >= 0x10000UL && v < 0xFFFFF000UL;
@@ -643,10 +726,10 @@ static inline float NormalizeDeg(float d) {
     while (d < -180.0f) d += 360.0f;
     return d;
 }
-#define GUARD_ENTER() (sigsetjmp(tls_guard, 1) == 0)
-#define GUARD_SET()   (tls_guardActive = 1)
-#define GUARD_CLR()   (tls_guardActive = 0)
 
+// ==================================================================
+// Safe wrappers
+// ==================================================================
 static bool SafeGetPosition(void* s, cpVect& out) {
     if (!PlausiblePtr(s) || !fn_getBodyPosition) return false;
     out.x = out.y = 0;
@@ -743,6 +826,33 @@ static SoldierEntry& EnsureEntryLocked(void* s) {
     auto res = g_soldierMap.emplace(s, std::move(e));
     return res.first->second;
 }
+
+static int SafeCountWeapons(void* soldier) {
+    int count = 0;
+    if (!PlausiblePtr(soldier)) return 0;
+    if (fn_getPrimaryWeapon) {
+        void* w = nullptr;
+        if (GUARD_ENTER()) { GUARD_SET(); w = fn_getPrimaryWeapon(soldier); GUARD_CLR(); } else GUARD_CLR();
+        if (PlausiblePtr(w)) count++;
+    }
+    if (fn_getSecondaryWeapon) {
+        void* w = nullptr;
+        if (GUARD_ENTER()) { GUARD_SET(); w = fn_getSecondaryWeapon(soldier); GUARD_CLR(); } else GUARD_CLR();
+        if (PlausiblePtr(w)) count++;
+    }
+    if (fn_getDualWeapon) {
+        void* w = nullptr;
+        if (GUARD_ENTER()) { GUARD_SET(); w = fn_getDualWeapon(soldier); GUARD_CLR(); } else GUARD_CLR();
+        if (PlausiblePtr(w)) count++;
+    }
+    if (fn_getSideWeapon) {
+        void* w = nullptr;
+        if (GUARD_ENTER()) { GUARD_SET(); w = fn_getSideWeapon(soldier); GUARD_CLR(); } else GUARD_CLR();
+        if (PlausiblePtr(w)) count++;
+    }
+    return count;
+}
+
 static void RefreshSoldierData(void* s) {
     if (!PlausiblePtr(s)) return;
     uint64_t now = NowMs();
@@ -751,12 +861,15 @@ static void RefreshSoldierData(void* s) {
     int  teamId = SafeGetTeamId(s);
     cpVect p; bool hasPos = SafeGetPosition(s, p);
     float sx = 0, sy = 0; bool hasScreen = QueryScreenPosition(s, sx, sy);
+    int wCount = SafeCountWeapons(s);
+
     void* view = nullptr;
     if (fn_getSoldierView) {
         if (GUARD_ENTER()) { GUARD_SET(); view = fn_getSoldierView(s); GUARD_CLR(); }
         else GUARD_CLR();
     }
     int vhp = (view && PlausiblePtr(view)) ? viewHPLoad(view) : -1;
+
     std::lock_guard<std::mutex> lock(g_soldierMutex);
     SoldierEntry& e = EnsureEntryLocked(s);
     e.lastSeenTick = now;
@@ -765,7 +878,8 @@ static void RefreshSoldierData(void* s) {
         if (e.lastKnownHP < 0 || hp < e.lastKnownHP) e.lastKnownHP = hp;
         if (hp > e.observedMaxHP) e.observedMaxHP = hp;
     }
-    e.isDead = isDead; e.teamId = teamId;
+    e.isDead = isDead; e.teamId = teamId; e.weaponCount = wCount;
+
     if (hasPos) {
         float nx = (float)p.x, ny = (float)p.y;
         if (e.hasPrevPos && e.lastVelSampleMs > 0) {
@@ -788,14 +902,17 @@ static void RefreshSoldierData(void* s) {
         e.worldX = nx; e.worldY = ny; e.worldValid = true;
         if (s == g_localInstance.load()) g_lastLocalAliveMs.store(now);
     } else e.worldValid = false;
+
     if (hasScreen) { e.screenX = sx; e.screenY = sy; e.screenValid = true; }
     else e.screenValid = false;
+
     if (!e.nameResolved && !e.nameLookupFailed) {
         std::string name;
         if (SafeGetName(s, name)) { e.cachedName = name; e.nameResolved = true; }
         else { e.cachedName = "?"; e.nameLookupFailed = true; }
     }
 }
+
 static void BuildSnapshots() {
     uint64_t now = NowMs();
     void* localInst = g_localInstance.load();
@@ -832,6 +949,7 @@ static void BuildSnapshots() {
             snap.teamId = e.teamId;
             snap.name = e.nameResolved ? e.cachedName : "?";
             snap.isAimTarget = (it->first == aimTarget);
+            snap.weaponCount = e.weaponCount;
             newSnaps.push_back(std::move(snap));
             if (isLocal && e.worldValid) {
                 g_localWorldX.store(e.worldX); g_localWorldY.store(e.worldY);
@@ -843,7 +961,9 @@ static void BuildSnapshots() {
     { std::lock_guard<std::mutex> lock(g_soldierMutex); g_soldierSnapshots.swap(newSnaps); }
 }
 
-// ===== Wall hooks =====
+// ==================================================================
+// Wall hooks
+// ==================================================================
 bool isCollisionTile_Hook(void* self, cpVect pos) {
     if (g_flyThroughWalls.load()) return false;
     if (g_bulletThroughWalls.load() && tls_bulletRaycast) return false;
@@ -858,6 +978,14 @@ bool isBoundryTile_Hook(void* self, cpVect pos) {
     if (g_flyThroughWalls.load()) return false;
     return old_isBoundryTile ? old_isBoundryTile(self, pos) : false;
 }
+void addStaticBodyShape_Hook(void* self, int a, int b) {
+    if (g_flyThroughWalls.load()) return;
+    if (old_addStaticBodyShape) old_addStaticBodyShape(self, a, b);
+}
+void addStaticBodyPoly_Hook(void* self, void* obj) {
+    if (g_flyThroughWalls.load()) return;
+    if (old_addStaticBodyPoly) old_addStaticBodyPoly(self, obj);
+}
 float getMaxPower_Hook(void* self) {
     if (g_unlimitedFlyPower.load()) return 100.0f;
     return old_getMaxPower ? old_getMaxPower(self) : 100.0f;
@@ -866,7 +994,9 @@ void setThrust_Hook(void* self, bool value) {
     if (old_setThrust) old_setThrust(self, value);
 }
 
-// ===== Bomb/gas =====
+// ==================================================================
+// Effects hooks
+// ==================================================================
 void addExplosionAt_Hook(void* self, cpVect pos, float radius, void* str, int teamId, bool flag) {
     if (old_addExplosionAt) old_addExplosionAt(self, pos, radius, str, teamId, flag);
     if (g_anyBombAsGas.load() && fn_addGasCloudAt && PlausiblePtr(self)) {
@@ -875,7 +1005,9 @@ void addExplosionAt_Hook(void* self, cpVect pos, float radius, void* str, int te
     }
 }
 
-// ===== Weapon hooks =====
+// ==================================================================
+// Weapon hooks
+// ==================================================================
 int getRoundsPerFire_Hook(void* self) {
     if (g_wpnMultiShot.load()) {
         int n = g_wpnBulletsPerFire.load();
@@ -905,6 +1037,14 @@ int getReloadTime_Hook(void* self) { if (g_wpnFastReload.load()) return 0; retur
 bool isDualWield_Hook(void* self) {
     if (g_dualWieldAll.load()) return true;
     return old_isDualWield ? old_isDualWield(self) : false;
+}
+bool isDualWieldOnly_Hook(void* self) {
+    if (g_dualWieldAll.load()) return false;
+    return old_isDualWieldOnly ? old_isDualWieldOnly(self) : false;
+}
+bool isDualWieldPrimaryOnly_Hook(void* self) {
+    if (g_dualWieldAll.load()) return false;
+    return old_isDualWieldPrimaryOnly ? old_isDualWieldPrimaryOnly(self) : false;
 }
 
 int getZoomLevel_Hook(void* self) { if (g_wpnMaxZoom.load()) return 5; return old_getZoomLevel ? old_getZoomLevel(self) : 0; }
@@ -941,7 +1081,9 @@ int getDualWieldUnlockLevel_Hook(void* self, void* id) {
     return old_getDualWieldUnlockLevel ? old_getDualWieldUnlockLevel(self, id) : 8;
 }
 
-// ===== Respawn =====
+// ==================================================================
+// Respawn
+// ==================================================================
 void MgrRespawnPlayer_Hook(void* self) {
     if (old_MgrRespawnPlayer) old_MgrRespawnPlayer(self);
 }
@@ -954,12 +1096,23 @@ int isRespawning_Hook(void* self) {
     return old_isRespawning ? old_isRespawning(self) : 0;
 }
 
-// ===== Local update =====
+// ==================================================================
+// Local update + Dual Wield + Teleport physics freeze
+// ==================================================================
 void soldierLocalUpdateStep_Hook(void* self, float dt, cpVect a, cpVect b, float c) {
     if (!PlausiblePtr(self)) {
         if (old_soldierLocalUpdateStep) old_soldierLocalUpdateStep(self, dt, a, b, c);
         return;
     }
+
+    // Teleport: kill movement input so overridden position sticks
+    bool isLocal = (self == g_localInstance.load());
+    if (g_teleportActive.load() && isLocal) {
+        a.x = a.y = 0.0;
+        b.x = b.y = 0.0;
+        c = 0.0f;
+    }
+
     if (g_charSpeedOn.load()) {
         int mul = g_charSpeedMul.load();
         if (mul < 1) mul = 1; if (mul > 20) mul = 20;
@@ -967,6 +1120,7 @@ void soldierLocalUpdateStep_Hook(void* self, float dt, cpVect a, cpVect b, float
         a.x *= (double)f; a.y *= (double)f;
         b.x *= (double)f; b.y *= (double)f;
     }
+
     if (old_soldierLocalUpdateStep) old_soldierLocalUpdateStep(self, dt, a, b, c);
 
     if (g_unlimitedFlyPower.load() && fn_setPowerF) {
@@ -974,19 +1128,20 @@ void soldierLocalUpdateStep_Hook(void* self, float dt, cpVect a, cpVect b, float
         else GUARD_CLR();
     }
 
-    // Dual wield: safe one-shot convert with sprite update trigger
+    // Dual wield conversion
     if (g_dualWieldAll.load() && fn_getPrimaryWeapon && fn_getDualWeapon && fn_switchPrimaryToDual) {
         void* prim = nullptr;
         void* dual = nullptr;
         if (GUARD_ENTER()) { GUARD_SET(); prim = fn_getPrimaryWeapon(self); GUARD_CLR(); } else GUARD_CLR();
-        if (GUARD_ENTER()) { GUARD_SET(); dual = fn_getDualWeapon(self); GUARD_CLR(); } else GUARD_CLR();
+        if (GUARD_ENTER()) { GUARD_SET(); dual = fn_getDualWeapon(self);    GUARD_CLR(); } else GUARD_CLR();
+
         if (PlausiblePtr(prim) && !PlausiblePtr(dual)) {
             uint64_t now = NowMs();
             bool shouldAttempt = false;
             {
                 std::lock_guard<std::mutex> lk(g_dualConvertMtx);
                 auto it = g_dualConvertMs.find(self);
-                if (it == g_dualConvertMs.end() || (now - it->second) > 2500) {
+                if (it == g_dualConvertMs.end() || (now - it->second) > 2000) {
                     g_dualConvertMs[self] = now;
                     shouldAttempt = true;
                 }
@@ -994,11 +1149,12 @@ void soldierLocalUpdateStep_Hook(void* self, float dt, cpVect a, cpVect b, float
             if (shouldAttempt) {
                 if (GUARD_ENTER()) { GUARD_SET(); fn_switchPrimaryToDual(self); GUARD_CLR(); }
                 else GUARD_CLR();
-                // v110: fire dummy shot to force sprite refresh so dual weapon appears in hand
+                // Force sprite refresh via dummy fire so the second gun appears
                 if (fn_soldierFire) {
                     if (GUARD_ENTER()) { GUARD_SET(); fn_soldierFire(self, 0.0f); GUARD_CLR(); }
                     else GUARD_CLR();
                 }
+                traceLog("DUAL: switched primary->dual for %p", self);
             }
         } else if (PlausiblePtr(dual)) {
             std::lock_guard<std::mutex> lk(g_dualConvertMtx);
@@ -1007,20 +1163,20 @@ void soldierLocalUpdateStep_Hook(void* self, float dt, cpVect a, cpVect b, float
     }
 }
 
-// ===== Compute aim target =====
+// ==================================================================
+// Aim target
+// ==================================================================
 static void ComputeAimTarget(void* localController) {
     if (!g_aimResolved.load()) return;
     if (!PlausiblePtr(localController)) return;
     if (g_localDead.load()) {
-        g_hasAimTarget.store(false);
-        g_hasAimAngle.store(false);
+        g_hasAimTarget.store(false); g_hasAimAngle.store(false);
         g_currentAimTarget.store(nullptr);
         return;
     }
     bool needTarget = g_silentAim.load() || g_autoFire.load() || g_aimMagnet.load() || g_teleportFollowAim.load();
     if (!needTarget) {
-        g_hasAimTarget.store(false);
-        g_hasAimAngle.store(false);
+        g_hasAimTarget.store(false); g_hasAimAngle.store(false);
         g_currentAimTarget.store(nullptr);
         return;
     }
@@ -1053,6 +1209,7 @@ static void ComputeAimTarget(void* localController) {
     if (fovDesign > 350) fovDesign = 350;
     if (fovDesign < 60)  fovDesign = 60;
     float fovRadiusSq = (float)fovDesign * (float)fovDesign;
+
     void* bestTarget = nullptr;
     float bestDistSq = MAX_AIM_RANGE * MAX_AIM_RANGE;
     float bestAngleRaw = 0.f, bestRawX = 0.f, bestRawY = 0.f;
@@ -1096,7 +1253,9 @@ static void ComputeAimTarget(void* localController) {
     g_hasAimAngle.store(true); g_hasAimTarget.store(true);
 }
 
-// ===== Auto fire =====
+// ==================================================================
+// Auto fire
+// ==================================================================
 static void ExecuteAutoFire(void* localController) {
     if (!g_autoFire.load()) return;
     if (!g_hasAimTarget.load()) return;
@@ -1108,17 +1267,14 @@ static void ExecuteAutoFire(void* localController) {
     float angleRad = g_aimAngle.load();
     if (!std::isfinite(angleRad)) return;
     if (fn_soldierFire) {
-        if (GUARD_ENTER()) {
-            GUARD_SET();
-            fn_soldierFire(localController, angleRad);
-            GUARD_CLR();
-        } else GUARD_CLR();
+        if (GUARD_ENTER()) { GUARD_SET(); fn_soldierFire(localController, angleRad); GUARD_CLR(); }
+        else GUARD_CLR();
     }
 }
 
-// ===== Teleport hook =====
-// Override getBodyPosition for local player when teleport active.
-// This makes game's own systems (sprite, camera, network sync) use target coords.
+// ==================================================================
+// Teleport position override
+// ==================================================================
 void getBodyPosition_Hooked(cpVect* out, void* self) {
     if (old_getBodyPosition_hook) old_getBodyPosition_hook(out, self);
     if (!out) return;
@@ -1128,7 +1284,9 @@ void getBodyPosition_Hooked(cpVect* out, void* self) {
     out->y = (double)g_teleportY.load();
 }
 
-// ===== Projectile hooks =====
+// ==================================================================
+// Projectile hooks
+// ==================================================================
 static bool IsLocalPlayerWeapon(void* weapon) {
     if (!PlausiblePtr(weapon)) return false;
     void* local = g_localInstance.load();
@@ -1141,10 +1299,16 @@ static bool IsLocalPlayerWeapon(void* weapon) {
     for (int i = 0; i < 4; i++) if (mine[i] == weapon) return true;
     return false;
 }
+static inline bool IsFiredByLocalPlayer(cpVect spawnPos) {
+    if (!g_localSeen.load()) return false;
+    float lx = g_localWorldX.load(), ly = g_localWorldY.load();
+    float dx = (float)spawnPos.x - lx, dy = (float)spawnPos.y - ly;
+    return (dx*dx + dy*dy) < (250.f * 250.f);
+}
 
 void addBullet_Hook(void* self, cpVect pos, float rot, cpVect vel,
                     void* weapon, int ammoType, cpVect targetPos, void* strPtr) {
-    // Silent aim redirect (bullet trajectory)
+    // Silent aim redirect
     if (g_silentAim.load() && g_hasAimTarget.load()) {
         float tx = g_aimTargetRawX.load(), ty = g_aimTargetRawY.load(), aimAngle = g_aimAngle.load();
         if (std::isfinite(tx) && std::isfinite(ty) && std::isfinite(aimAngle)) {
@@ -1166,46 +1330,49 @@ void addBullet_Hook(void* self, cpVect pos, float rot, cpVect vel,
         }
     }
 
-    bool isMine = IsLocalPlayerWeapon(weapon);
+    // Local detection: weapon pointer OR position proximity
+    bool isMine = IsLocalPlayerWeapon(weapon) || IsFiredByLocalPlayer(pos);
     void* local = g_localInstance.load();
     int teamId = PlausiblePtr(local) ? SafeGetTeamId(local) : 0;
 
-    // ==== v110: Bomb variants ====
-    // Priority: Rocket > Bomb (Grenade) > Gas > Laser > normal
+    static std::atomic<int> dbgCount{0};
+    if (isMine && (g_anyGunAsBomb.load() || g_anyGunAsGasGun.load()
+                   || g_anyGunAsRocket.load() || g_anyGunAsLaser.load())) {
+        if (dbgCount.fetch_add(1) < 40) {
+            traceLog("GUNMODE bomb=%d gas=%d rocket=%d laser=%d wPtr=%p pos=(%.0f,%.0f)",
+                     (int)g_anyGunAsBomb.load(), (int)g_anyGunAsGasGun.load(),
+                     (int)g_anyGunAsRocket.load(), (int)g_anyGunAsLaser.load(),
+                     weapon, pos.x, pos.y);
+        }
+    }
+
+    // Rocket > Bomb > Gas > Laser > Normal
     if (isMine && g_anyGunAsRocket.load() && fn_addRocket) {
-        if (GUARD_ENTER()) {
-            GUARD_SET();
-            fn_addRocket(self, pos, rot, vel, weapon, false, strPtr);
-            GUARD_CLR();
-        } else GUARD_CLR();
+        if (GUARD_ENTER()) { GUARD_SET(); fn_addRocket(self, pos, rot, vel, weapon, false, strPtr); GUARD_CLR(); }
+        else GUARD_CLR();
         return;
     }
     if (isMine && g_anyGunAsBomb.load() && fn_addGrenade) {
-        // Grenade-based AoE damage (like real frag)
-        if (GUARD_ENTER()) {
-            GUARD_SET();
-            fn_addGrenade(self, pos, rot, vel, false, strPtr, teamId);
-            GUARD_CLR();
-        } else GUARD_CLR();
+        if (GUARD_ENTER()) { GUARD_SET(); fn_addGrenade(self, pos, rot, vel, false, strPtr, teamId); GUARD_CLR(); }
+        else GUARD_CLR();
         return;
     }
     if (isMine && g_anyGunAsGasGun.load() && fn_addGasCloudAt) {
-        // Fire normal bullet (hit damage) + spawn gas cloud at target
         bool setHint = g_bulletThroughWalls.load();
         if (setHint) tls_bulletRaycast = 1;
         if (old_addBullet) old_addBullet(self, pos, rot, vel, weapon, ammoType, targetPos, strPtr);
         if (setHint) tls_bulletRaycast = 0;
-        if (GUARD_ENTER()) {
-            GUARD_SET();
-            fn_addGasCloudAt(self, targetPos, 100.0f, strPtr, teamId);
-            GUARD_CLR();
-        } else GUARD_CLR();
+        cpVect gpos = targetPos;
+        if (fabs(gpos.x) < 0.01 && fabs(gpos.y) < 0.01) {
+            gpos.x = pos.x + vel.x * 0.1;
+            gpos.y = pos.y + vel.y * 0.1;
+        }
+        if (GUARD_ENTER()) { GUARD_SET(); fn_addGasCloudAt(self, gpos, 130.0f, strPtr, teamId); GUARD_CLR(); }
+        else GUARD_CLR();
         return;
     }
     if (isMine && g_anyGunAsLaser.load()) {
-        // Laser = super-fast bullet (feels instant)
-        vel.x *= 20.0;
-        vel.y *= 20.0;
+        vel.x *= 20.0; vel.y *= 20.0;
         bool setHint = g_bulletThroughWalls.load();
         if (setHint) tls_bulletRaycast = 1;
         if (old_addBullet) old_addBullet(self, pos, rot, vel, weapon, ammoType, targetPos, strPtr);
@@ -1213,7 +1380,6 @@ void addBullet_Hook(void* self, cpVect pos, float rot, cpVect vel,
         return;
     }
 
-    // Normal bullet
     bool setHint = g_bulletThroughWalls.load();
     if (setHint) tls_bulletRaycast = 1;
     if (old_addBullet) old_addBullet(self, pos, rot, vel, weapon, ammoType, targetPos, strPtr);
@@ -1254,11 +1420,14 @@ void Joypad_getDirVector_Hook(cpVect* ret, void* self) {
     }
 }
 float Joypad_getDirAngle_Hook(void* self) {
-    if (g_aimMagnet.load() && g_hasAimAngle.load()) return NormalizeDeg(90.0f - g_aimAngle.load() * RAD2DEG);
+    if (g_aimMagnet.load() && g_hasAimAngle.load())
+        return NormalizeDeg(90.0f - g_aimAngle.load() * RAD2DEG);
     return old_Joypad_getDirAngle ? old_Joypad_getDirAngle(self) : 0.0f;
 }
 
-// ===== HP hooks =====
+// ==================================================================
+// HP hooks
+// ==================================================================
 void setPlayerHealth_Hook(void* self, float health) {
     if (old_setPlayerHealth) old_setPlayerHealth(self, health);
     if (!IsModActive() || !PlausiblePtr(self)) return;
@@ -1353,6 +1522,9 @@ void LocalActivate_Hook(void* self) {
     if (old_LocalActivate) old_LocalActivate(self);
 }
 
+// ==================================================================
+// Stage tick
+// ==================================================================
 void StageUpdate_Hook(void* self, float dt) {
     if (old_StageUpdate) old_StageUpdate(self, dt);
     if (!IsModActive() && !g_unlimitedFlyPower.load()) return;
@@ -1370,7 +1542,6 @@ void StageUpdate_Hook(void* self, float dt) {
         ComputeAimTarget(local);
         ExecuteAutoFire(local);
 
-        // Teleport follow-aim
         if (g_teleportFollowAim.load() && g_hasAimTarget.load()) {
             float tx = g_aimTargetRawX.load();
             float ty = g_aimTargetRawY.load();
@@ -1396,6 +1567,9 @@ void StageUpdate_Hook(void* self, float dt) {
     }
 }
 
+// ==================================================================
+// Soldier manager hooks
+// ==================================================================
 void MgrUpdateRemote_Hook(void* self, float dt) {
     if (PlausiblePtr(self) && IsModActive() && fn_getLocalController) {
         void* local = nullptr;
@@ -1448,7 +1622,9 @@ void AIUpdateStep_Hook(void* self, float dt)     { if (PlausiblePtr(self) && IsM
 void EnemyMgrUpdateStep_Hook(void* self, float dt) { if (old_EnemyMgrUpdateStep) old_EnemyMgrUpdateStep(self, dt); }
 void UpdatePeerDamage_Hook(void* self, void* data, void* strRef) { if (old_updatePeerDamage) old_updatePeerDamage(self, data, strRef); }
 
-// ===== Hook installer =====
+// ==================================================================
+// Hook installer
+// ==================================================================
 #define SAFE_HOOK(off, hook, orig, flag) do { \
     uintptr_t _a = g_libBase + (off); \
     HOOK_ABS((void*)_a, hook, orig); \
@@ -1460,6 +1636,7 @@ static void InstallHooksIfNeeded() {
     static bool logged = false;
     if (!logged) { crashLog("HOOK", "Installing hooks base=%p", (void*)g_libBase); logged = true; }
 
+    // Direct pointers
     fn_getLocalController    = (getLocalController_t)(g_libBase + Off::SoldierManager_getLocalController);
     fn_getBodyPosition       = (getBodyPosition_t)   (g_libBase + Off::SoldierController_getBodyPosition);
     fn_getHP                 = (getHP_t)             (g_libBase + Off::SoldierController_getHP);
@@ -1492,10 +1669,9 @@ static void InstallHooksIfNeeded() {
     g_aimResolved.store(true);
     RefreshDesignSize();
 
-    // v110: teleport hook (getBodyPosition override)
     if (!g_teleportHooksOk.load()) {
         SAFE_HOOK(Off::SoldierController_getBodyPosition, getBodyPosition_Hooked, old_getBodyPosition_hook, g_teleportHooksOk);
-        crashLog("HOOK", "Teleport hook installed");
+        crashLog("HOOK", "Teleport hook OK");
     }
 
     if (!g_wpnHooksOk.load()) {
@@ -1515,37 +1691,41 @@ static void InstallHooksIfNeeded() {
         SAFE_HOOK(Off::Weapon_getAmmoCapacity,             getAmmoCapacity_Hook,       old_getAmmoCapacity,       g_wpnHooksOk);
         SAFE_HOOK(Off::Weapon_getReloadTime,               getReloadTime_Hook,         old_getReloadTime,         g_wpnHooksOk);
         SAFE_HOOK(Off::Weapon_isDualWield,                 isDualWield_Hook,           old_isDualWield,           g_wpnHooksOk);
+        SAFE_HOOK(Off::Weapon_isDualWieldOnly,             isDualWieldOnly_Hook,       old_isDualWieldOnly,       g_wpnHooksOk);
+        SAFE_HOOK(Off::Weapon_isDualWieldPrimaryOnly,      isDualWieldPrimaryOnly_Hook,old_isDualWieldPrimaryOnly,g_wpnHooksOk);
         SAFE_HOOK(Off::Weapon_getZoomLevel,                getZoomLevel_Hook,          old_getZoomLevel,          g_wpnHooksOk);
         SAFE_HOOK(Off::Weapon_applyMaxZoomScale,           applyMaxZoomScale_Hook,     old_applyMaxZoomScale,     g_wpnHooksOk);
         SAFE_HOOK(Off::Weapon_getDamage,                   getDamage_w_Hook,           old_getDamage_w,           g_wpnHooksOk);
         SAFE_HOOK(Off::Weapon_getZoomScale,                getZoomScale_Hook,          old_getZoomScale,          g_wpnHooksOk);
         SAFE_HOOK(Off::SoldierLocalController_updateStep,  soldierLocalUpdateStep_Hook,old_soldierLocalUpdateStep, g_wpnHooksOk);
-        crashLog("HOOK", "Weapon hooks installed");
+        crashLog("HOOK", "Weapon hooks OK");
     }
 
     if (!g_wpnUnlockHooksOk.load()) {
         SAFE_HOOK(Off::WeaponsModel_isUnlockable,            isUnlockable_Hook,            old_isUnlockable,            g_wpnUnlockHooksOk);
         SAFE_HOOK(Off::WeaponsModel_isUpgradable,            isUpgradable_Hook,            old_isUpgradable,            g_wpnUnlockHooksOk);
         SAFE_HOOK(Off::WeaponsModel_getDualWieldUnlockLevel, getDualWieldUnlockLevel_Hook, old_getDualWieldUnlockLevel, g_wpnUnlockHooksOk);
-        crashLog("HOOK", "Unlock hooks installed");
+        crashLog("HOOK", "Unlock hooks OK");
     }
 
     if (!g_flyHooksOk.load()) {
         SAFE_HOOK(Off::MapManager_getMaxPower,        getMaxPower_Hook,     old_getMaxPower,     g_flyHooksOk);
         SAFE_HOOK(Off::SoldierController_setThrust,   setThrust_Hook,       old_setThrust,       g_flyHooksOk);
-        crashLog("HOOK", "Fly hooks installed");
+        crashLog("HOOK", "Fly hooks OK");
     }
 
     if (!g_wallHooksOk.load()) {
-        SAFE_HOOK(Off::MapManager_isCollisionTile, isCollisionTile_Hook, old_isCollisionTile, g_wallHooksOk);
-        SAFE_HOOK(Off::MapManager_mapCollision,    mapCollision_Hook,    old_mapCollision,    g_wallHooksOk);
-        SAFE_HOOK(Off::MapManager_isBoundryTile,   isBoundryTile_Hook,   old_isBoundryTile,   g_wallHooksOk);
-        crashLog("HOOK", "Wall hooks installed");
+        SAFE_HOOK(Off::MapManager_addStaticBodyShape, addStaticBodyShape_Hook, old_addStaticBodyShape, g_wallHooksOk);
+        SAFE_HOOK(Off::MapManager_addStaticBodyPoly,  addStaticBodyPoly_Hook,  old_addStaticBodyPoly,  g_wallHooksOk);
+        SAFE_HOOK(Off::MapManager_isCollisionTile,    isCollisionTile_Hook,    old_isCollisionTile,    g_wallHooksOk);
+        SAFE_HOOK(Off::MapManager_mapCollision,       mapCollision_Hook,       old_mapCollision,       g_wallHooksOk);
+        SAFE_HOOK(Off::MapManager_isBoundryTile,      isBoundryTile_Hook,      old_isBoundryTile,      g_wallHooksOk);
+        crashLog("HOOK", "Wall hooks OK");
     }
 
     if (!g_bombGasHooksOk.load()) {
         SAFE_HOOK(Off::EffectsManager_addExplosionAt, addExplosionAt_Hook, old_addExplosionAt, g_bombGasHooksOk);
-        crashLog("HOOK", "Bomb/gas hooks installed");
+        crashLog("HOOK", "Bomb/gas hooks OK");
     }
 
     if (!g_mgrHooksOk.load()) {
@@ -1566,7 +1746,7 @@ static void InstallHooksIfNeeded() {
         SAFE_HOOK(Off::SoldierAIController_updateStep, AIUpdateStep_Hook,    old_AIUpdateStep,    g_mgrHooksOk);
         SAFE_HOOK(Off::EnemyManager_updateStep,        EnemyMgrUpdateStep_Hook, old_EnemyMgrUpdateStep, g_mgrHooksOk);
         SAFE_HOOK(Off::NetworkMessageDispatcher_updatePeerDamage, UpdatePeerDamage_Hook, old_updatePeerDamage, g_mgrHooksOk);
-        crashLog("HOOK", "Mgr hooks installed");
+        crashLog("HOOK", "Mgr hooks OK");
     }
 
     if (!g_droneHooksOk.load()) {
@@ -1576,11 +1756,13 @@ static void InstallHooksIfNeeded() {
         SAFE_HOOK(Off::HumanoidDrone_updateStep, HumanoidUpdate_Hook,    old_humanoidUpdateStep,g_droneHooksOk);
         SAFE_HOOK(Off::HawkDrone_updateStep,     HawkUpdate_Hook,        old_hawkUpdateStep,    g_droneHooksOk);
         SAFE_HOOK(Off::WormDrone_updateStep,     WormUpdate_Hook,        old_wormUpdateStep,    g_droneHooksOk);
-        crashLog("HOOK", "Drone hooks installed");
+        crashLog("HOOK", "Drone hooks OK");
     }
 }
 
-// ===== Simple patches =====
+// ==================================================================
+// Simple patches
+// ==================================================================
 static MemoryPatch g_patchMaxLevel, g_patchNoLocalDamage;
 static std::atomic<bool> g_maxLevelInit{false}, g_noLocalDamageInit{false};
 static void ApplyMaxLevelPatch(bool e) {
@@ -1600,7 +1782,9 @@ static void ApplyReloadPatch(bool e) {
     if (e) g_patchNoLocalDamage.Modify(); else g_patchNoLocalDamage.Restore();
 }
 
-// ===== ESP drawing =====
+// ==================================================================
+// ESP Java methods
+// ==================================================================
 static jclass    g_espClass    = nullptr;
 static jmethodID g_espDrawLine = nullptr;
 static jmethodID g_espDrawRect = nullptr;
@@ -1724,6 +1908,7 @@ Java_com_android_support_Menu_Draw(JNIEnv* env, jclass, jobject espView, jobject
     if (!espOn && !fovWants) return;
     CacheESPMethods(env, espView);
     if (!g_espClass || !g_espDrawLine || !g_espDrawRect || !g_espDrawText) return;
+
     jclass canvasCls = env->GetObjectClass(canvas);
     jmethodID getW = env->GetMethodID(canvasCls, "getWidth",  "()I");
     jmethodID getH = env->GetMethodID(canvasCls, "getHeight", "()I");
@@ -1733,6 +1918,7 @@ Java_com_android_support_Menu_Draw(JNIEnv* env, jclass, jobject espView, jobject
     if (env->ExceptionCheck()) env->ExceptionClear();
     env->DeleteLocalRef(canvasCls);
     if (sw <= 0 || sh <= 0) return;
+
     if (!g_designValid.load()) RefreshDesignSize();
     float designW = g_designW.load(), designH = g_designH.load();
     if (!std::isfinite(designW) || designW < 10.f) designW = 1280.f;
@@ -1741,10 +1927,12 @@ Java_com_android_support_Menu_Draw(JNIEnv* env, jclass, jobject espView, jobject
     float uniformScale = (scaleX < scaleY) ? scaleX : scaleY;
     float offX = ((float)sw - designW * uniformScale) * 0.5f;
     float offY = ((float)sh - designH * uniformScale) * 0.5f;
+
     uint64_t nowMs = NowMs();
     float timeSec = (float)(nowMs % 100000) * 0.001f;
     float pulse = 0.5f + 0.5f * sinf(timeSec * 4.0f);
     int pulseAlpha = 180 + (int)(75.f * pulse);
+
     if (fovWants) {
         float cx = (float)sw * 0.5f, cy = (float)sh * 0.5f;
         int fovDesign = g_fovPixels.load();
@@ -1755,9 +1943,11 @@ Java_com_android_support_Menu_Draw(JNIEnv* env, jclass, jobject espView, jobject
         DrawPremiumFovCircle(env, espView, canvas, cx, cy, radius, timeSec);
     }
     if (!espOn) return;
+
     bool skipExtra = g_lagSkipExtraDraw.load();
     std::vector<ESPSoldier> snaps;
     { std::lock_guard<std::mutex> lock(g_soldierMutex); snaps = g_soldierSnapshots; }
+
     int   boxThick = g_espBoxWidth.load();
     if (boxThick < 1)  boxThick = 1;
     if (boxThick > 10) boxThick = 10;
@@ -1767,30 +1957,36 @@ Java_com_android_support_Menu_Draw(JNIEnv* env, jclass, jobject espView, jobject
     void* localInst = g_localInstance.load();
     void* aimTarget = g_currentAimTarget.load();
     float centerTopX = sw * 0.5f;
+
     float sizeMul = (float)g_boxSizeMul.load() / 100.0f;
     float boxH = sh * 0.16f * sizeMul;
     float boxW = boxH * 0.55f;
     if (boxH < 50.f) boxH = 50.f;
     if (boxH > sh*0.55f) boxH = sh*0.55f;
     if (boxW < 25.f) boxW = 25.f;
+
     const float lineTopPad = 130.0f;
     if (g_espLine.load()) {
         DrawRing(env, espView, canvas, centerTopX, lineTopPad, 9.0f, 255, 0, 0, 0, 4.5f);
         DrawRing(env, espView, canvas, centerTopX, lineTopPad, 5.5f, pulseAlpha, SKY_R, SKY_G, SKY_B, 2.4f);
     }
+
     for (const ESPSoldier& s : snaps) {
         if (!s.hasScreen) continue;
         if (s.instance == localInst) continue;
         if (!s.isLocal && s.hp <= 0) continue;
         if (g_espEnemyOnly.load() && localTeam > 0 && s.teamId == localTeam) continue;
+
         float sx = s.screenX * uniformScale + offX;
         float sy = (float)sh - (s.screenY * uniformScale + offY);
         if (!std::isfinite(sx) || !std::isfinite(sy)) continue;
         if (sx < -sw || sx > sw * 2 || sy < -sh || sy > sh * 2) continue;
+
         float boxLeft = sx - boxW * 0.5f;
         float boxTop  = sy - boxH * 0.5f;
         float boxBottom = boxTop + boxH;
         bool isAimed = (s.instance == aimTarget);
+
         if (g_espLine.load()) {
             DrawLineColored(env, espView, canvas, 255, SKY_R, SKY_G, SKY_B, lineThickness,
                             centerTopX, lineTopPad, sx, boxTop);
@@ -1803,6 +1999,8 @@ Java_com_android_support_Menu_Draw(JNIEnv* env, jclass, jobject espView, jobject
             DrawRectColored(env, espView, canvas, pulseAlpha, SKY_LIGHT_R, SKY_LIGHT_G, SKY_LIGHT_B, 1.2f,
                             boxLeft - 3.f, boxTop - 3.f, boxW + 6.f, boxH + 6.f);
         }
+
+        // HP bar
         if (!skipExtra && g_espHealth.load() && s.maxHP > 0) {
             float hpFrac = (float)s.hp / (float)s.maxHP;
             if (hpFrac < 0.f) hpFrac = 0.f;
@@ -1820,6 +2018,8 @@ Java_com_android_support_Menu_Draw(JNIEnv* env, jclass, jobject espView, jobject
                                 barCX, fillY, barCX, fillY + fillH);
             }
         }
+
+        // Distance
         if (!skipExtra && g_espDistance.load() && s.hasValidPos) {
             float dx = s.position.x - g_localWorldX.load();
             float dy = s.position.y - g_localWorldY.load();
@@ -1831,14 +2031,36 @@ Java_com_android_support_Menu_Draw(JNIEnv* env, jclass, jobject espView, jobject
             float textY = boxBottom + 16.0f + fontSize;
             jstring jn = env->NewStringUTF(buf);
             if (jn) {
-                env->CallVoidMethod(espView, g_espDrawText, canvas, jn, textX, textY, 255, 255, 255, 255, fontSize);
+                env->CallVoidMethod(espView, g_espDrawText, canvas, jn, textX, textY,
+                                    255, 255, 255, 255, fontSize);
                 env->DeleteLocalRef(jn);
+            }
+        }
+
+        // ===== Weapon count indicator (x1 / x2 in hand) =====
+        if (g_espWeaponCount.load() && s.weaponCount > 0) {
+            char wbuf[10];
+            snprintf(wbuf, sizeof(wbuf), "x%d", s.weaponCount);
+            jstring jw = env->NewStringUTF(wbuf);
+            if (jw) {
+                const float fontSize = 26.0f;
+                float estW = strlen(wbuf) * fontSize * 0.58f;
+                float wx = boxLeft + boxW * 0.5f - estW * 0.5f;
+                float wy = boxTop - 6.f;
+                int wr, wg, wb;
+                if (s.weaponCount >= 2) { wr = 0;   wg = 255; wb = 100; }
+                else                    { wr = 255; wg = 200; wb = 0;   }
+                env->CallVoidMethod(espView, g_espDrawText, canvas, jw, wx, wy,
+                                    255, wr, wg, wb, fontSize);
+                env->DeleteLocalRef(jw);
             }
         }
     }
 }
 
-// ===== Mod registry =====
+// ==================================================================
+// Mod Registry & Feature Mapping
+// ==================================================================
 enum {
     M_WPN_NO_BULLET_SPREAD = 0, M_WPN_HIDE_WEAPONS,
     M_WPN_HIGH_MELEE_DMG, M_WPN_HIGH_MELEE_LEN,
@@ -1851,6 +2073,7 @@ enum {
     M_ENM_INFINITE_PROXY_THROW, M_ENM_ENDLESS_SAW, M_ENM_SAW_DAMAGE_REMOVE,
     M_MOD_COUNT
 };
+
 static void RegisterAllMods() {
     static bool done = false; if (done) return; done = true;
     RegisterMod("Weapon_NoBulletSpread",   Off::Weapon_getRandomFiringAngle,    "00 00 A0 E3 1E FF 2F E1");
@@ -1886,6 +2109,7 @@ static void RegisterAllMods() {
     RegisterMod("Enemy_EndlessSaw",        Off::SAW_updateItemStep,       "00 00 A0 E1");
     RegisterMod("Enemy_SawDamageRemove",   Off::SAW_checkMapCollision,    "00 00 A0 E3 1E FF 2F E1");
 }
+
 static int ModIdxForFeature(int feat) {
     if (feat >= 400 && feat <= 436) {
         static const int map[37] = {
@@ -1911,7 +2135,9 @@ static int ModIdxForFeature(int feat) {
     return -1;
 }
 
-// ===== JNI Menu =====
+// ==================================================================
+// Menu
+// ==================================================================
 jobjectArray GetFeatureList(JNIEnv* env, jobject) {
     RegisterAllMods();
     jobjectArray ret;
@@ -1930,6 +2156,7 @@ jobjectArray GetFeatureList(JNIEnv* env, jobject) {
         OBFUSCATE("106_SeekBar_Box & Line Thickness_1_10"),
         OBFUSCATE("107_SeekBar_Box Size %_85_150"),
         OBFUSCATE("108_ColorPicker_ESP Color_#00FF88"),
+        OBFUSCATE("130_Toggle_Show Weapon Count (x1/x2)"),
 
         OBFUSCATE("Category_Aim"),
         OBFUSCATE("109_Toggle_Silent Aim"),
@@ -1940,14 +2167,16 @@ jobjectArray GetFeatureList(JNIEnv* env, jobject) {
         OBFUSCATE("120_Toggle_Draw FOV Circle"),
         OBFUSCATE("121_SeekBar_FOV Size (px)_60_350"),
 
-        OBFUSCATE("Category_Teleport (v110)"),
-        OBFUSCATE("700_Toggle_Teleport to Aim Target (live)"),
-        OBFUSCATE("701_Button_Teleport to Aim Target (once)"),
-        OBFUSCATE("702_Button_Teleport to Map Center"),
+        OBFUSCATE("Category_Teleport (v111)"),
+        OBFUSCATE("700_Toggle_Teleport Freeze at X/Y"),
+        OBFUSCATE("704_SeekBar_Teleport X (offset -5000..+5000)_0_100"),
+        OBFUSCATE("705_SeekBar_Teleport Y (offset -5000..+5000)_0_100"),
+        OBFUSCATE("701_Button_Snap to Aim Target"),
+        OBFUSCATE("702_Button_Snap to Map Center (0,0)"),
         OBFUSCATE("703_Button_Cancel Teleport"),
 
         OBFUSCATE("Category_Weapon"),
-        OBFUSCATE("200_Toggle_Unlimited Ammo (Real 9999)"),
+        OBFUSCATE("200_Toggle_Unlimited Ammo (9999)"),
         OBFUSCATE("201_Toggle_Multi Shot"),
         OBFUSCATE("202_SeekBar_Bullets Per Fire_1_30"),
         OBFUSCATE("203_Toggle_Instant Reload"),
@@ -1962,9 +2191,9 @@ jobjectArray GetFeatureList(JNIEnv* env, jobject) {
 
         OBFUSCATE("Category_Flight"),
         OBFUSCATE("500_Toggle_Unlimited Flying Power"),
-        OBFUSCATE("502_Toggle_Fly Through Walls (Per-Frame)"),
+        OBFUSCATE("502_Toggle_Fly Through Walls (Static + Per-Frame)"),
 
-        OBFUSCATE("Category_Gun Modes (v110)"),
+        OBFUSCATE("Category_Gun Modes (v111)"),
         OBFUSCATE("411_Toggle_Any Gun As Bomb (Grenade AoE)"),
         OBFUSCATE("412_Toggle_Any Gun As Gas (Cloud)"),
         OBFUSCATE("413_Toggle_Any Gun As Rocket"),
@@ -2066,6 +2295,7 @@ void Changes(JNIEnv*, jclass, jobject, jint featNum, jstring, jint value, jlong,
         case 106: { if (value < 1) value = 1; if (value > 10) value = 10; g_espBoxWidth = value; } break;
         case 107: g_boxSizeMul = value; break;
         case 108: g_espColorArgb.store((unsigned int)value); RecomputeSkyColors(); break;
+        case 130: g_espWeaponCount = boolean; break;
 
         case 109:
             g_silentAim = boolean;
@@ -2084,34 +2314,39 @@ void Changes(JNIEnv*, jclass, jobject, jint featNum, jstring, jint value, jlong,
         case 120: g_drawFovCircle = boolean; break;
         case 121: { if (value > 350) value = 350; if (value < 60) value = 60; g_fovPixels = value; } break;
 
-        // ===== Teleport (v110) =====
+        // ===== Teleport =====
         case 700:
-            // Toggle: teleport target follows aim each frame
-            g_teleportFollowAim = boolean;
-            if (!boolean) g_teleportActive.store(false);
+            g_teleportActive.store(boolean);
+            traceLog("TELEPORT freeze=%d X=%.1f Y=%.1f",
+                     (int)boolean, g_teleportX.load(), g_teleportY.load());
             break;
         case 701:
-            // Button: one-shot teleport to current aim target
             if (g_hasAimTarget.load()) {
-                float tx = g_aimTargetRawX.load();
-                float ty = g_aimTargetRawY.load();
+                float tx = g_aimTargetRawX.load(), ty = g_aimTargetRawY.load();
                 if (std::isfinite(tx) && std::isfinite(ty)) {
-                    g_teleportX.store(tx);
-                    g_teleportY.store(ty);
+                    g_teleportX.store(tx); g_teleportY.store(ty);
                     g_teleportActive.store(true);
-                }
-            }
+                    traceLog("TELEPORT snapAim -> (%.1f,%.1f)", tx, ty);
+                } else traceLog("TELEPORT snapAim FAILED non-finite");
+            } else traceLog("TELEPORT snapAim FAILED no target");
             break;
         case 702:
-            // Button: teleport to map center
-            g_teleportX.store(0.0f);
-            g_teleportY.store(0.0f);
+            g_teleportX.store(0.f); g_teleportY.store(0.f);
             g_teleportActive.store(true);
+            traceLog("TELEPORT snapCenter (0,0)");
             break;
         case 703:
-            // Button: cancel teleport
             g_teleportActive.store(false);
             g_teleportFollowAim.store(false);
+            traceLog("TELEPORT canceled");
+            break;
+        case 704:
+            g_teleportX.store(-5000.f + (float)value * 100.f);
+            traceLog("TELEPORT X = %.1f", g_teleportX.load());
+            break;
+        case 705:
+            g_teleportY.store(-5000.f + (float)value * 100.f);
+            traceLog("TELEPORT Y = %.1f", g_teleportY.load());
             break;
 
         case 200: g_wpnUnlimitedAmmo = boolean; break;
@@ -2124,6 +2359,7 @@ void Changes(JNIEnv*, jclass, jobject, jint featNum, jstring, jint value, jlong,
         case 207: {
             g_dualWieldAll = boolean;
             if (!boolean) { std::lock_guard<std::mutex> lk(g_dualConvertMtx); g_dualConvertMs.clear(); }
+            traceLog("DUAL toggle = %d", (int)boolean);
         } break;
         case 208: g_wpnMaxZoom = boolean; break;
         case 209: g_wpnHighDamage = boolean; break;
@@ -2131,13 +2367,15 @@ void Changes(JNIEnv*, jclass, jobject, jint featNum, jstring, jint value, jlong,
         case 211: g_wpnNoRecoil = boolean; break;
 
         case 500: g_unlimitedFlyPower = boolean; break;
-        case 502: g_flyThroughWalls = boolean; break;
+        case 502:
+            g_flyThroughWalls = boolean;
+            traceLog("WALLS toggle = %d", (int)boolean);
+            break;
 
-        // ===== v110: gun modes =====
-        case 411: g_anyGunAsBomb = boolean; break;
-        case 412: g_anyGunAsGasGun = boolean; break;
-        case 413: g_anyGunAsRocket = boolean; break;
-        case 414: g_anyGunAsLaser = boolean; break;
+        case 411: g_anyGunAsBomb = boolean;    traceLog("GUNMODE bomb=%d",    (int)boolean); break;
+        case 412: g_anyGunAsGasGun = boolean;  traceLog("GUNMODE gas=%d",     (int)boolean); break;
+        case 413: g_anyGunAsRocket = boolean;  traceLog("GUNMODE rocket=%d",  (int)boolean); break;
+        case 414: g_anyGunAsLaser = boolean;   traceLog("GUNMODE laser=%d",   (int)boolean); break;
         case 606: g_anyBombAsGas = boolean; break;
         case 410: g_bulletThroughWalls = boolean; break;
 
@@ -2170,7 +2408,9 @@ void Changes(JNIEnv*, jclass, jobject, jint featNum, jstring, jint value, jlong,
     }
 }
 
-// ===== Entry =====
+// ==================================================================
+// Entry
+// ==================================================================
 ElfScanner g_il2cppELF;
 void* hack_thread(void*) {
     int waitCount = 0;
@@ -2182,6 +2422,7 @@ void* hack_thread(void*) {
     crashLog("BOOT", "lib base=%p", (void*)g_libBase);
     sleep(3);
     InstallHooksIfNeeded();
+    crashLog("BOOT", "All hooks installed — ready");
     return nullptr;
 }
 __attribute__((constructor))
