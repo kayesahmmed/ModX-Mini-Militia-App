@@ -1,7 +1,8 @@
 // ================================================================
-// Mini Militia — Main.cpp v114.0
+// Mini Militia — Main.cpp v115.0 (Secure)
+//  - Offset encryption (XOR runtime-decrypted)
+//  - String obfuscation via OBFUSCATE()
 //  - Teleport: recursion-guarded body-pointer discovery
-//  - CRITICAL: fn_getBodyPosition = trampoline (no recursion)
 //  - Dual hook: Soldier + CollisionObject getBodyPosition
 // ================================================================
 
@@ -54,6 +55,31 @@ struct MSSize { float w, h; };
 #define LOG_TAG       "MMMod"
 static constexpr float RAD2DEG = 57.29577951f;
 static constexpr float DEG2RAD = 0.01745329252f;
+
+// ==================================================================
+// 🔒 OFFSET ENCRYPTION LAYER
+// ---------------------------------------------------------------
+// All game offsets are XOR-encrypted at compile time. The plaintext
+// values are only recoverable via SecOff::dec() at runtime — which
+// uses noinline + volatile to defeat compiler constant folding.
+// ==================================================================
+namespace SecOff {
+    // 🔑 CHANGE THIS to your own unique 64-bit value
+    static constexpr uint64_t KEY = 0xB4E7A1C3D9F20586ULL;
+
+    static constexpr uintptr_t enc(uintptr_t v) {
+        return v ^ (uintptr_t)(KEY & 0x0000FFFFFFFFFFFFULL);
+    }
+
+    __attribute__((noinline))
+    static uintptr_t dec(uintptr_t v) {
+        volatile uint64_t k = KEY;
+        return v ^ (uintptr_t)(k & 0x0000FFFFFFFFFFFFULL);
+    }
+}
+
+#define ENC_OFF(v) SecOff::enc(v)
+#define DEC_OFF(v) SecOff::dec(v)
 
 // ==================================================================
 // Logging
@@ -125,7 +151,7 @@ static void native_crash_handler(int sig, siginfo_t* info, void*) {
 }
 static void install_crash_handler() {
     ensureLogFd();
-    __android_log_print(ANDROID_LOG_INFO, LOG_TAG, "=== MMMod v114.0 boot ===");
+    __android_log_print(ANDROID_LOG_INFO, LOG_TAG, "=== MMMod v115.0 (Secure) boot ===");
     crashLog("BOOT", "Crash handler installed");
     struct sigaction sa; memset(&sa, 0, sizeof(sa));
     sa.sa_sigaction = native_crash_handler;
@@ -166,138 +192,154 @@ extern "C" JNIEXPORT void JNICALL
 Java_com_android_support_Main_setNativeCrashDir(JNIEnv*, jclass, jstring) {}
 
 // ==================================================================
-// OFFSETS
+// 🔒 ENCRYPTED OFFSETS
 // ==================================================================
 namespace Off {
-    constexpr uintptr_t Weapon_getRandomFiringAngle     = 0x00f40ad0;
-    constexpr uintptr_t Weapon_getBulletSpeed           = 0x00f40ab0;
-    constexpr uintptr_t Weapon_getRange                 = 0x00f40784;
-    constexpr uintptr_t Weapon_setFireAngle             = 0x00f40b5c;
-    constexpr uintptr_t Weapon_getDamage                = 0x00f4076c;
-    constexpr uintptr_t Weapon_getRoundsPerFire         = 0x00f40aa0;
-    constexpr uintptr_t Weapon_getAmmo                  = 0x00f406bc;
-    constexpr uintptr_t Weapon_setAmmo                  = 0x00f40720;
-    constexpr uintptr_t Weapon_subAmmo                  = 0x00f40884;
-    constexpr uintptr_t Weapon_getClip                  = 0x00f406dc;
-    constexpr uintptr_t Weapon_setClip                  = 0x00f40730;
-    constexpr uintptr_t Weapon_getClipCapacity          = 0x00f40794;
-    constexpr uintptr_t Weapon_getAmmoCapacity          = 0x00f4078c;
-    constexpr uintptr_t Weapon_getReloadTime            = 0x00f4079c;
-    constexpr uintptr_t Weapon_isDualWield              = 0x00f40ab8;
-    constexpr uintptr_t Weapon_isDualWieldOnly          = 0x00f40ac0;
-    constexpr uintptr_t Weapon_isDualWieldPrimaryOnly   = 0x00f40ac8;
-    constexpr uintptr_t Weapon_pickupAsDual             = 0x00f40b4c;
-    constexpr uintptr_t Weapon_setPickupAsDual          = 0x00f40b54;
-    constexpr uintptr_t Weapon_getZoomLevel             = 0x00f40a90;
-    constexpr uintptr_t Weapon_setZoomLevel             = 0x00f409d4;
-    constexpr uintptr_t Weapon_applyMaxZoomScale        = 0x00f40a70;
-    constexpr uintptr_t Weapon_getZoomScale             = 0x00f408f4;
-    constexpr uintptr_t Weapon_getMeleeDamage           = 0x00f40774;
-    constexpr uintptr_t Weapon_getMeleeLength           = 0x00f4077c;
+    // -------- Weapon --------
+    static const uintptr_t Weapon_getRandomFiringAngle     = ENC_OFF(0x00f40ad0);
+    static const uintptr_t Weapon_getBulletSpeed           = ENC_OFF(0x00f40ab0);
+    static const uintptr_t Weapon_getRange                 = ENC_OFF(0x00f40784);
+    static const uintptr_t Weapon_setFireAngle             = ENC_OFF(0x00f40b5c);
+    static const uintptr_t Weapon_getDamage                = ENC_OFF(0x00f4076c);
+    static const uintptr_t Weapon_getRoundsPerFire         = ENC_OFF(0x00f40aa0);
+    static const uintptr_t Weapon_getAmmo                  = ENC_OFF(0x00f406bc);
+    static const uintptr_t Weapon_setAmmo                  = ENC_OFF(0x00f40720);
+    static const uintptr_t Weapon_subAmmo                  = ENC_OFF(0x00f40884);
+    static const uintptr_t Weapon_getClip                  = ENC_OFF(0x00f406dc);
+    static const uintptr_t Weapon_setClip                  = ENC_OFF(0x00f40730);
+    static const uintptr_t Weapon_getClipCapacity          = ENC_OFF(0x00f40794);
+    static const uintptr_t Weapon_getAmmoCapacity          = ENC_OFF(0x00f4078c);
+    static const uintptr_t Weapon_getReloadTime            = ENC_OFF(0x00f4079c);
+    static const uintptr_t Weapon_isDualWield              = ENC_OFF(0x00f40ab8);
+    static const uintptr_t Weapon_isDualWieldOnly          = ENC_OFF(0x00f40ac0);
+    static const uintptr_t Weapon_isDualWieldPrimaryOnly   = ENC_OFF(0x00f40ac8);
+    static const uintptr_t Weapon_pickupAsDual             = ENC_OFF(0x00f40b4c);
+    static const uintptr_t Weapon_setPickupAsDual          = ENC_OFF(0x00f40b54);
+    static const uintptr_t Weapon_getZoomLevel             = ENC_OFF(0x00f40a90);
+    static const uintptr_t Weapon_setZoomLevel             = ENC_OFF(0x00f409d4);
+    static const uintptr_t Weapon_applyMaxZoomScale        = ENC_OFF(0x00f40a70);
+    static const uintptr_t Weapon_getZoomScale             = ENC_OFF(0x00f408f4);
+    static const uintptr_t Weapon_getMeleeDamage           = ENC_OFF(0x00f40774);
+    static const uintptr_t Weapon_getMeleeLength           = ENC_OFF(0x00f4077c);
 
-    constexpr uintptr_t MapManager_addStaticBodyShape   = 0x00eeb038;
-    constexpr uintptr_t MapManager_addStaticBodyPoly    = 0x00eeac7c;
-    constexpr uintptr_t MapManager_isCollisionTile      = 0x00eec664;
-    constexpr uintptr_t MapManager_mapCollision         = 0x00eec9f0;
-    constexpr uintptr_t MapManager_isBoundryTile        = 0x00eece3c;
-    constexpr uintptr_t MapManager_getMaxPower          = 0x00eea748;
-    constexpr uintptr_t MapManager_getGravityFactor     = 0x00eea740;
+    // -------- MapManager --------
+    static const uintptr_t MapManager_addStaticBodyShape   = ENC_OFF(0x00eeb038);
+    static const uintptr_t MapManager_addStaticBodyPoly    = ENC_OFF(0x00eeac7c);
+    static const uintptr_t MapManager_isCollisionTile      = ENC_OFF(0x00eec664);
+    static const uintptr_t MapManager_mapCollision         = ENC_OFF(0x00eec9f0);
+    static const uintptr_t MapManager_isBoundryTile        = ENC_OFF(0x00eece3c);
+    static const uintptr_t MapManager_getMaxPower          = ENC_OFF(0x00eea748);
+    static const uintptr_t MapManager_getGravityFactor     = ENC_OFF(0x00eea740);
 
-    constexpr uintptr_t EffectsManager_addExplosionAt   = 0x00eb1f20;
-    constexpr uintptr_t EffectsManager_addGasCloudAt    = 0x00eb2360;
+    // -------- EffectsManager --------
+    static const uintptr_t EffectsManager_addExplosionAt   = ENC_OFF(0x00eb1f20);
+    static const uintptr_t EffectsManager_addGasCloudAt    = ENC_OFF(0x00eb2360);
 
-    constexpr uintptr_t ProjectileManager_addBullet     = 0x00f04b7c;
-    constexpr uintptr_t ProjectileManager_addShell      = 0x00f052d8;
-    constexpr uintptr_t ProjectileManager_addRocket     = 0x00f05008;
-    constexpr uintptr_t ProjectileManager_addGrenade    = 0x00f04d58;
-    constexpr uintptr_t ProjectileManager_addSaw        = 0x00f05750;
-    constexpr uintptr_t ProjectileManager_addFlame      = 0x00f055a4;
+    // -------- ProjectileManager --------
+    static const uintptr_t ProjectileManager_addBullet     = ENC_OFF(0x00f04b7c);
+    static const uintptr_t ProjectileManager_addShell      = ENC_OFF(0x00f052d8);
+    static const uintptr_t ProjectileManager_addRocket     = ENC_OFF(0x00f05008);
+    static const uintptr_t ProjectileManager_addGrenade    = ENC_OFF(0x00f04d58);
+    static const uintptr_t ProjectileManager_addSaw        = ENC_OFF(0x00f05750);
+    static const uintptr_t ProjectileManager_addFlame      = ENC_OFF(0x00f055a4);
 
-    constexpr uintptr_t SoldierController_getBodyPosition    = 0x00f13828;
-    constexpr uintptr_t SoldierController_getHP              = 0x00f137d4;
-    constexpr uintptr_t SoldierController_setHP              = 0x00f137e4;
-    constexpr uintptr_t SoldierController_setAlive           = 0x00f13860;
-    constexpr uintptr_t SoldierController_getSoldierView     = 0x00f13074;
-    constexpr uintptr_t SoldierController_isDead             = 0x00f137f4;
-    constexpr uintptr_t SoldierController_addDamage          = 0x00f135a8;
-    constexpr uintptr_t SoldierController_getPrimaryWeapon   = 0x00f1321c;
-    constexpr uintptr_t SoldierController_getSecondaryWeapon = 0x00f13224;
-    constexpr uintptr_t SoldierController_getDualWeapon      = 0x00f1322c;
-    constexpr uintptr_t SoldierController_getSideWeapon      = 0x00f13234;
-    constexpr uintptr_t SoldierController_fire               = 0x00f1323c;
-    constexpr uintptr_t SoldierController_setThrust          = 0x00f13044;
+    // -------- SoldierController --------
+    static const uintptr_t SoldierController_getBodyPosition    = ENC_OFF(0x00f13828);
+    static const uintptr_t SoldierController_getHP              = ENC_OFF(0x00f137d4);
+    static const uintptr_t SoldierController_setHP              = ENC_OFF(0x00f137e4);
+    static const uintptr_t SoldierController_setAlive           = ENC_OFF(0x00f13860);
+    static const uintptr_t SoldierController_getSoldierView     = ENC_OFF(0x00f13074);
+    static const uintptr_t SoldierController_isDead             = ENC_OFF(0x00f137f4);
+    static const uintptr_t SoldierController_addDamage          = ENC_OFF(0x00f135a8);
+    static const uintptr_t SoldierController_getPrimaryWeapon   = ENC_OFF(0x00f1321c);
+    static const uintptr_t SoldierController_getSecondaryWeapon = ENC_OFF(0x00f13224);
+    static const uintptr_t SoldierController_getDualWeapon      = ENC_OFF(0x00f1322c);
+    static const uintptr_t SoldierController_getSideWeapon      = ENC_OFF(0x00f13234);
+    static const uintptr_t SoldierController_fire               = ENC_OFF(0x00f1323c);
+    static const uintptr_t SoldierController_setThrust          = ENC_OFF(0x00f13044);
 
-    constexpr uintptr_t CollisionObject_getBodyPosition      = 0x00eac428;
+    // -------- Collision --------
+    static const uintptr_t CollisionObject_getBodyPosition      = ENC_OFF(0x00eac428);
+    static const uintptr_t CollisionObject_getTeamId            = ENC_OFF(0x00eac4f0);
 
-    constexpr uintptr_t SoldierLocalController_updateStep            = 0x00f14478;
-    constexpr uintptr_t SoldierLocalController_addDamage             = 0x00f18c64;
-    constexpr uintptr_t SoldierLocalController_activatePlayer        = 0x00f17bb4;
-    constexpr uintptr_t SoldierLocalController_setPower              = 0x00f156b4;
-    constexpr uintptr_t SoldierLocalController_switchPrimaryToDual   = 0x00f17760;
-    constexpr uintptr_t SoldierLocalController_switchSecondaryToDual = 0x00f178b8;
+    // -------- SoldierLocalController --------
+    static const uintptr_t SoldierLocalController_updateStep            = ENC_OFF(0x00f14478);
+    static const uintptr_t SoldierLocalController_addDamage             = ENC_OFF(0x00f18c64);
+    static const uintptr_t SoldierLocalController_activatePlayer        = ENC_OFF(0x00f17bb4);
+    static const uintptr_t SoldierLocalController_setPower              = ENC_OFF(0x00f156b4);
+    static const uintptr_t SoldierLocalController_switchPrimaryToDual   = ENC_OFF(0x00f17760);
+    static const uintptr_t SoldierLocalController_switchSecondaryToDual = ENC_OFF(0x00f178b8);
 
-    constexpr uintptr_t SoldierManager_getLocalController   = 0x00f1aa00;
-    constexpr uintptr_t SoldierManager_updateRemoteSoldiers = 0x00f1a888;
-    constexpr uintptr_t SoldierManager_updateStep           = 0x00f1a348;
-    constexpr uintptr_t SoldierManager_spawnPlayer          = 0x00f1a618;
-    constexpr uintptr_t SoldierManager_respawnPlayer        = 0x00f19f78;
-    constexpr uintptr_t SoldierManager_getRespawnTime       = 0x00f1b24c;
-    constexpr uintptr_t SoldierManager_isRespawning         = 0x00f1b254;
+    // -------- SoldierManager --------
+    static const uintptr_t SoldierManager_getLocalController   = ENC_OFF(0x00f1aa00);
+    static const uintptr_t SoldierManager_updateRemoteSoldiers = ENC_OFF(0x00f1a888);
+    static const uintptr_t SoldierManager_updateStep           = ENC_OFF(0x00f1a348);
+    static const uintptr_t SoldierManager_spawnPlayer          = ENC_OFF(0x00f1a618);
+    static const uintptr_t SoldierManager_respawnPlayer        = ENC_OFF(0x00f19f78);
+    static const uintptr_t SoldierManager_getRespawnTime       = ENC_OFF(0x00f1b24c);
+    static const uintptr_t SoldierManager_isRespawning         = ENC_OFF(0x00f1b254);
 
-    constexpr uintptr_t SoldierRemoteController_updateStep = 0x00f1d620;
-    constexpr uintptr_t SoldierAIController_updateStep     = 0x00f0fd80;
-    constexpr uintptr_t EnemyManager_updateStep            = 0x00eb4d18;
+    // -------- Controllers --------
+    static const uintptr_t SoldierRemoteController_updateStep = ENC_OFF(0x00f1d620);
+    static const uintptr_t SoldierAIController_updateStep     = ENC_OFF(0x00f0fd80);
+    static const uintptr_t EnemyManager_updateStep            = ENC_OFF(0x00eb4d18);
 
-    constexpr uintptr_t HumanoidDrone_addDamage            = 0x00edf408;
-    constexpr uintptr_t HawkDrone_addDamage                = 0x00eddc44;
-    constexpr uintptr_t WormDrone_addDamage                = 0x00f4b320;
-    constexpr uintptr_t HumanoidDrone_updateStep           = 0x00edf000;
-    constexpr uintptr_t HawkDrone_updateStep               = 0x00edd640;
-    constexpr uintptr_t WormDrone_updateStep               = 0x00f4aaa8;
+    // -------- Drones --------
+    static const uintptr_t HumanoidDrone_addDamage    = ENC_OFF(0x00edf408);
+    static const uintptr_t HawkDrone_addDamage        = ENC_OFF(0x00eddc44);
+    static const uintptr_t WormDrone_addDamage        = ENC_OFF(0x00f4b320);
+    static const uintptr_t HumanoidDrone_updateStep   = ENC_OFF(0x00edf000);
+    static const uintptr_t HawkDrone_updateStep       = ENC_OFF(0x00edd640);
+    static const uintptr_t WormDrone_updateStep       = ENC_OFF(0x00f4aaa8);
 
-    constexpr uintptr_t WeaponsModel_isUnlockable            = 0x01113a88;
-    constexpr uintptr_t WeaponsModel_isUpgradable            = 0x01113a60;
-    constexpr uintptr_t WeaponsModel_getDualWieldUnlockLevel = 0x01113984;
+    // -------- WeaponsModel --------
+    static const uintptr_t WeaponsModel_isUnlockable            = ENC_OFF(0x01113a88);
+    static const uintptr_t WeaponsModel_isUpgradable            = ENC_OFF(0x01113a60);
+    static const uintptr_t WeaponsModel_getDualWieldUnlockLevel = ENC_OFF(0x01113984);
 
-    constexpr uintptr_t Stage_update                 = 0x00f21938;
-    constexpr uintptr_t NetworkMessageDispatcher_updatePeerDamage = 0x00ef5d60;
-    constexpr uintptr_t NetworkManager_sendWeaponChange = 0x00ef3ec4;
+    // -------- Misc --------
+    static const uintptr_t Stage_update                 = ENC_OFF(0x00f21938);
+    static const uintptr_t NetworkMessageDispatcher_updatePeerDamage = ENC_OFF(0x00ef5d60);
+    static const uintptr_t NetworkManager_sendWeaponChange = ENC_OFF(0x00ef3ec4);
+    static const uintptr_t CCNode_convertToWorldSpaceAR = ENC_OFF(0x00f88018);
+    static const uintptr_t CCDirector_sharedDirector    = ENC_OFF(0x00f8f5c4);
+    static const uintptr_t CCDirector_getVisibleSize    = ENC_OFF(0x00f90378);
+    static const uintptr_t Joypad_getDirectionAngle     = ENC_OFF(0x00ee284c);
+    static const uintptr_t Joypad_getDirectionVector    = ENC_OFF(0x00ee2aa0);
+    static const uintptr_t SoldierView_setPlayerHealth  = ENC_OFF(0x00f20960);
+    static const uintptr_t SoldierView_getPlayerName    = ENC_OFF(0x00f20994);
 
-    constexpr uintptr_t CCNode_convertToWorldSpaceAR = 0x00f88018;
-    constexpr uintptr_t CCDirector_sharedDirector    = 0x00f8f5c4;
-    constexpr uintptr_t CCDirector_getVisibleSize    = 0x00f90378;
-    constexpr uintptr_t Joypad_getDirectionAngle     = 0x00ee284c;
-    constexpr uintptr_t Joypad_getDirectionVector    = 0x00ee2aa0;
-    constexpr uintptr_t SoldierView_setPlayerHealth  = 0x00f20960;
-    constexpr uintptr_t SoldierView_getPlayerName    = 0x00f20994;
-    constexpr uintptr_t CollisionObject_getTeamId    = 0x00eac4f0;
+    // -------- Weapon Sprayers --------
+    static const uintptr_t AK47_triggerPull    = ENC_OFF(0x00ea2e74);
+    static const uintptr_t AA12_triggerPull    = ENC_OFF(0x00ea2128);
+    static const uintptr_t DEAGLE_triggerPull  = ENC_OFF(0x00eacaf0);
+    static const uintptr_t M16_triggerPull     = ENC_OFF(0x00ee4298);
+    static const uintptr_t MINIGUN_triggerPull = ENC_OFF(0x00ee7334);
+    static const uintptr_t EMP_triggerPull     = ENC_OFF(0x00ead8d0);
+    static const uintptr_t RG6_triggerPull     = ENC_OFF(0x00f06640);
+    static const uintptr_t M14_triggerPull     = ENC_OFF(0x00ee3608);
+    static const uintptr_t MAGNUM_triggerPull  = ENC_OFF(0x00ee63ac);
+    static const uintptr_t MP5_triggerPull     = ENC_OFF(0x00ee90a0);
+    static const uintptr_t TAVOR_triggerPull   = ENC_OFF(0x00f2e8e4);
+    static const uintptr_t TEC9_triggerPull    = ENC_OFF(0x00f2f534);
+    static const uintptr_t HUNTING_triggerPull = ENC_OFF(0x00edf94c);
+    static const uintptr_t SAWGUN_triggerPull  = ENC_OFF(0x00f0afb8);
+    static const uintptr_t SMAW_triggerPull    = ENC_OFF(0x00f0cb2c);
+    static const uintptr_t XM8_triggerPull     = ENC_OFF(0x00f4b834);
+    static const uintptr_t PHASR_triggerPull   = ENC_OFF(0x00ef921c);
 
-    constexpr uintptr_t AK47_triggerPull    = 0x00ea2e74;
-    constexpr uintptr_t AA12_triggerPull    = 0x00ea2128;
-    constexpr uintptr_t DEAGLE_triggerPull  = 0x00eacaf0;
-    constexpr uintptr_t M16_triggerPull     = 0x00ee4298;
-    constexpr uintptr_t MINIGUN_triggerPull = 0x00ee7334;
-    constexpr uintptr_t EMP_triggerPull     = 0x00ead8d0;
-    constexpr uintptr_t RG6_triggerPull     = 0x00f06640;
-    constexpr uintptr_t M14_triggerPull     = 0x00ee3608;
-    constexpr uintptr_t MAGNUM_triggerPull  = 0x00ee63ac;
-    constexpr uintptr_t MP5_triggerPull     = 0x00ee90a0;
-    constexpr uintptr_t TAVOR_triggerPull   = 0x00f2e8e4;
-    constexpr uintptr_t TEC9_triggerPull    = 0x00f2f534;
-    constexpr uintptr_t HUNTING_triggerPull = 0x00edf94c;
-    constexpr uintptr_t SAWGUN_triggerPull  = 0x00f0afb8;
-    constexpr uintptr_t SMAW_triggerPull    = 0x00f0cb2c;
-    constexpr uintptr_t XM8_triggerPull     = 0x00f4b834;
-    constexpr uintptr_t PHASR_triggerPull   = 0x00ef921c;
+    // -------- Enemy/Explosion --------
+    static const uintptr_t Enemy_canSeeTarget          = ENC_OFF(0x00eb3940);
+    static const uintptr_t Explosion_applyDamage       = ENC_OFF(0x00eb7ac8);
+    static const uintptr_t GasCloud_applyDamage        = ENC_OFF(0x00ed5808);
+    static const uintptr_t PlasmaBall_applyDamage      = ENC_OFF(0x00f00b84);
+    static const uintptr_t SAW_checkMapCollision       = ENC_OFF(0x00f0a410);
+    static const uintptr_t SAW_updateItemStep          = ENC_OFF(0x00f0a2a8);
+    static const uintptr_t ProxyMine_updateStep        = ENC_OFF(0x00f05db8);
+    static const uintptr_t ProxyMine_reset             = ENC_OFF(0x00f05c98);
 
-    constexpr uintptr_t Enemy_canSeeTarget          = 0x00eb3940;
-    constexpr uintptr_t Explosion_applyDamage       = 0x00eb7ac8;
-    constexpr uintptr_t GasCloud_applyDamage        = 0x00ed5808;
-    constexpr uintptr_t PlasmaBall_applyDamage      = 0x00f00b84;
-    constexpr uintptr_t SAW_checkMapCollision       = 0x00f0a410;
-    constexpr uintptr_t SAW_updateItemStep          = 0x00f0a2a8;
-    constexpr uintptr_t ProxyMine_updateStep        = 0x00f05db8;
-    constexpr uintptr_t ProxyMine_reset             = 0x00f05c98;
+    // -------- Special offsets (not in original namespace) --------
+    static const uintptr_t MaxLevel_patch              = ENC_OFF(0x011bae9c);
 }
 
 uintptr_t         g_libBase = 0;
@@ -328,7 +370,11 @@ static void ApplyModByIndex(int idx, bool on) {
     if (idx >= (int)g_mods.size()) return;
     if (!g_libReady.load()) return;
     ModDef& m = g_mods[idx];
-    if (!m.init) { m.patch = MemoryPatch::createWithHex(g_libBase + m.offset, m.patchHex); m.init = true; }
+    if (!m.init) {
+        // 🔥 Decrypt offset at runtime
+        m.patch = MemoryPatch::createWithHex(g_libBase + DEC_OFF(m.offset), m.patchHex);
+        m.init = true;
+    }
     if (on && !m.enabled)      { m.patch.Modify();  m.enabled = true; }
     else if (!on && m.enabled) { m.patch.Restore(); m.enabled = false; }
 }
@@ -480,7 +526,7 @@ addStaticPoly_t             old_addStaticBodyPoly         = nullptr;
 
 // Direct call pointers
 getLocalController_t   fn_getLocalController = nullptr;
-getBodyPosition_t      fn_getBodyPosition    = nullptr;   // will point to trampoline
+getBodyPosition_t      fn_getBodyPosition    = nullptr;
 getHP_t                fn_getHP              = nullptr;
 getTeamId_t            fn_getTeamId          = nullptr;
 getSoldierView_t       fn_getSoldierView     = nullptr;
@@ -692,7 +738,7 @@ static __thread volatile sig_atomic_t tls_bulletRaycast = 0;
 static std::atomic<uintptr_t> g_bodyOffsetFromSelf{(uintptr_t)-1};
 static std::atomic<int>       g_posOffsetInBody{-1};
 static std::atomic<bool>      g_bodyDiscoveryDone{false};
-static std::atomic<bool>      g_discoveryInProgress{false};   // recursion guard
+static std::atomic<bool>      g_discoveryInProgress{false};
 static std::atomic<int>       g_gbpCallLogs{0};
 
 // ==================================================================
@@ -1226,17 +1272,16 @@ static void ExecuteAutoFire(void* localController) {
 }
 
 // ==================================================================
-// Teleport: recursion-guarded discovery (uses TRAMPOLINE)
+// Teleport discovery
 // ==================================================================
 static void TryDiscoverBodyPointer(void* self) {
     if (g_bodyDiscoveryDone.load()) return;
     if (g_discoveryInProgress.exchange(true)) return;
 
-    // RAII-style reset
     struct Guard { ~Guard() { g_discoveryInProgress.store(false); } } guard;
 
     if (!PlausiblePtr(self)) return;
-    if (!old_getBodyPosition_hook) return;   // 🔥 trampoline only
+    if (!old_getBodyPosition_hook) return;
 
     cpVect want{0, 0};
     if (GUARD_ENTER()) { GUARD_SET(); old_getBodyPosition_hook(&want, self); GUARD_CLR(); }
@@ -1296,7 +1341,7 @@ void getBodyPosition_Hooked(cpVect* out, void* self) {
         }
     }
 
-    if (old_getBodyPosition_hook) old_getBodyPosition_hook(out, self);   // trampoline
+    if (old_getBodyPosition_hook) old_getBodyPosition_hook(out, self);
     if (!out) return;
 
     void* local = g_localInstance.load();
@@ -1678,8 +1723,8 @@ void UpdatePeerDamage_Hook(void* self, void* data, void* strRef) { if (old_updat
 // ==================================================================
 // Hook installer
 // ==================================================================
-#define SAFE_HOOK(off, hook, orig, flag) do { \
-    uintptr_t _a = g_libBase + (off); \
+#define SAFE_HOOK(enc_off, hook, orig, flag) do { \
+    uintptr_t _a = g_libBase + DEC_OFF(enc_off); \
     HOOK_ABS((void*)_a, hook, orig); \
     if (orig) (flag).store(true); \
 } while(0)
@@ -1689,34 +1734,33 @@ static void InstallHooksIfNeeded() {
     static bool logged = false;
     if (!logged) { crashLog("HOOK", "Installing hooks base=%p", (void*)g_libBase); logged = true; }
 
-    fn_getLocalController    = (getLocalController_t)(g_libBase + Off::SoldierManager_getLocalController);
-    // NOTE: fn_getBodyPosition set AFTER hook install (to trampoline) — see below
-    fn_getHP                 = (getHP_t)             (g_libBase + Off::SoldierController_getHP);
-    fn_getTeamId             = (getTeamId_t)         (g_libBase + Off::CollisionObject_getTeamId);
-    fn_getSoldierView        = (getSoldierView_t)    (g_libBase + Off::SoldierController_getSoldierView);
-    fn_getPlayerName         = (getPlayerName_t)     (g_libBase + Off::SoldierView_getPlayerName);
-    fn_isDead                = (isDead_t)            (g_libBase + Off::SoldierController_isDead);
-    fn_convertToWorldSpaceAR = (convertToWorldSpaceAR_t)(g_libBase + Off::CCNode_convertToWorldSpaceAR);
-    fn_directorShared        = (directorShared_t)    (g_libBase + Off::CCDirector_sharedDirector);
-    fn_directorGetVisible    = (directorGetSize_t)   (g_libBase + Off::CCDirector_getVisibleSize);
-    fn_getPrimaryWeapon      = (getWeapon_t)         (g_libBase + Off::SoldierController_getPrimaryWeapon);
-    fn_getSecondaryWeapon    = (getWeapon_t)         (g_libBase + Off::SoldierController_getSecondaryWeapon);
-    fn_getDualWeapon         = (getWeapon_t)         (g_libBase + Off::SoldierController_getDualWeapon);
-    fn_getSideWeapon         = (getWeapon_t)         (g_libBase + Off::SoldierController_getSideWeapon);
-    fn_soldierFire           = (soldierFire_t)       (g_libBase + Off::SoldierController_fire);
-    fn_getBulletSpeed        = (getBulletSpeed_t)    (g_libBase + Off::Weapon_getBulletSpeed);
-    fn_getRange              = (getRange_t)          (g_libBase + Off::Weapon_getRange);
-    fn_setFireAngleWpn       = (setFireAngle_wpn_t)  (g_libBase + Off::Weapon_setFireAngle);
-    fn_addShell              = (addShell_t)          (g_libBase + Off::ProjectileManager_addShell);
-    fn_addRocket             = (addRocket_t)         (g_libBase + Off::ProjectileManager_addRocket);
-    fn_addGrenade            = (addGrenade_t)        (g_libBase + Off::ProjectileManager_addGrenade);
-    fn_addSaw                = (addSaw_t)            (g_libBase + Off::ProjectileManager_addSaw);
-    fn_addFlame              = (addFlame_t)          (g_libBase + Off::ProjectileManager_addFlame);
-    fn_addGasCloudAt         = (addGasCloudAt_t)     (g_libBase + Off::EffectsManager_addGasCloudAt);
-    fn_setPowerF             = (setPowerF_t)         (g_libBase + Off::SoldierLocalController_setPower);
-    fn_switchPrimaryToDual   = (switchToDual_t)      (g_libBase + Off::SoldierLocalController_switchPrimaryToDual);
-    fn_switchSecondaryToDual = (switchToDual_t)      (g_libBase + Off::SoldierLocalController_switchSecondaryToDual);
-    fn_setThrust             = (setThrust_t)         (g_libBase + Off::SoldierController_setThrust);
+    fn_getLocalController    = (getLocalController_t)(g_libBase + DEC_OFF(Off::SoldierManager_getLocalController));
+    fn_getHP                 = (getHP_t)             (g_libBase + DEC_OFF(Off::SoldierController_getHP));
+    fn_getTeamId             = (getTeamId_t)         (g_libBase + DEC_OFF(Off::CollisionObject_getTeamId));
+    fn_getSoldierView        = (getSoldierView_t)    (g_libBase + DEC_OFF(Off::SoldierController_getSoldierView));
+    fn_getPlayerName         = (getPlayerName_t)     (g_libBase + DEC_OFF(Off::SoldierView_getPlayerName));
+    fn_isDead                = (isDead_t)            (g_libBase + DEC_OFF(Off::SoldierController_isDead));
+    fn_convertToWorldSpaceAR = (convertToWorldSpaceAR_t)(g_libBase + DEC_OFF(Off::CCNode_convertToWorldSpaceAR));
+    fn_directorShared        = (directorShared_t)    (g_libBase + DEC_OFF(Off::CCDirector_sharedDirector));
+    fn_directorGetVisible    = (directorGetSize_t)   (g_libBase + DEC_OFF(Off::CCDirector_getVisibleSize));
+    fn_getPrimaryWeapon      = (getWeapon_t)         (g_libBase + DEC_OFF(Off::SoldierController_getPrimaryWeapon));
+    fn_getSecondaryWeapon    = (getWeapon_t)         (g_libBase + DEC_OFF(Off::SoldierController_getSecondaryWeapon));
+    fn_getDualWeapon         = (getWeapon_t)         (g_libBase + DEC_OFF(Off::SoldierController_getDualWeapon));
+    fn_getSideWeapon         = (getWeapon_t)         (g_libBase + DEC_OFF(Off::SoldierController_getSideWeapon));
+    fn_soldierFire           = (soldierFire_t)       (g_libBase + DEC_OFF(Off::SoldierController_fire));
+    fn_getBulletSpeed        = (getBulletSpeed_t)    (g_libBase + DEC_OFF(Off::Weapon_getBulletSpeed));
+    fn_getRange              = (getRange_t)          (g_libBase + DEC_OFF(Off::Weapon_getRange));
+    fn_setFireAngleWpn       = (setFireAngle_wpn_t)  (g_libBase + DEC_OFF(Off::Weapon_setFireAngle));
+    fn_addShell              = (addShell_t)          (g_libBase + DEC_OFF(Off::ProjectileManager_addShell));
+    fn_addRocket             = (addRocket_t)         (g_libBase + DEC_OFF(Off::ProjectileManager_addRocket));
+    fn_addGrenade            = (addGrenade_t)        (g_libBase + DEC_OFF(Off::ProjectileManager_addGrenade));
+    fn_addSaw                = (addSaw_t)            (g_libBase + DEC_OFF(Off::ProjectileManager_addSaw));
+    fn_addFlame              = (addFlame_t)          (g_libBase + DEC_OFF(Off::ProjectileManager_addFlame));
+    fn_addGasCloudAt         = (addGasCloudAt_t)     (g_libBase + DEC_OFF(Off::EffectsManager_addGasCloudAt));
+    fn_setPowerF             = (setPowerF_t)         (g_libBase + DEC_OFF(Off::SoldierLocalController_setPower));
+    fn_switchPrimaryToDual   = (switchToDual_t)      (g_libBase + DEC_OFF(Off::SoldierLocalController_switchPrimaryToDual));
+    fn_switchSecondaryToDual = (switchToDual_t)      (g_libBase + DEC_OFF(Off::SoldierLocalController_switchSecondaryToDual));
+    fn_setThrust             = (setThrust_t)         (g_libBase + DEC_OFF(Off::SoldierController_setThrust));
 
     g_aimResolved.store(true);
     RefreshDesignSize();
@@ -1724,12 +1768,11 @@ static void InstallHooksIfNeeded() {
     if (!g_teleportHooksOk.load()) {
         SAFE_HOOK(Off::SoldierController_getBodyPosition, getBodyPosition_Hooked, old_getBodyPosition_hook, g_teleportHooksOk);
         {
-            uintptr_t _a = g_libBase + Off::CollisionObject_getBodyPosition;
+            uintptr_t _a = g_libBase + DEC_OFF(Off::CollisionObject_getBodyPosition);
             HOOK_ABS((void*)_a, getBodyPosition_Coll_Hooked, old_collGetBody);
         }
-        // 🔥 CRITICAL: fn_getBodyPosition এখন trampoline-এ point করে
         if (old_getBodyPosition_hook) fn_getBodyPosition = old_getBodyPosition_hook;
-        crashLog("HOOK", "Teleport hooks OK (2) [trampoline fixed]");
+        crashLog("HOOK", "Teleport hooks OK");
     }
 
     if (!g_wpnHooksOk.load()) {
@@ -1825,10 +1868,13 @@ static void InstallHooksIfNeeded() {
 // ==================================================================
 static MemoryPatch g_patchMaxLevel, g_patchNoLocalDamage;
 static std::atomic<bool> g_maxLevelInit{false}, g_noLocalDamageInit{false};
+
 static void ApplyMaxLevelPatch(bool e) {
     if (!g_libReady.load()) return;
     if (!g_maxLevelInit.load()) {
-        g_patchMaxLevel = MemoryPatch::createWithHex(g_libBase + 0x011bae9c, "64 00 A0 E3 1E FF 2F E1");
+        g_patchMaxLevel = MemoryPatch::createWithHex(
+            g_libBase + DEC_OFF(Off::MaxLevel_patch),
+            OBFUSCATE("64 00 A0 E3 1E FF 2F E1"));
         g_maxLevelInit.store(true);
     }
     if (e) g_patchMaxLevel.Modify(); else g_patchMaxLevel.Restore();
@@ -1836,7 +1882,9 @@ static void ApplyMaxLevelPatch(bool e) {
 static void ApplyReloadPatch(bool e) {
     if (!g_libReady.load()) return;
     if (!g_noLocalDamageInit.load()) {
-        g_patchNoLocalDamage = MemoryPatch::createWithHex(g_libBase + Off::SoldierLocalController_addDamage, "1E FF 2F E1");
+        g_patchNoLocalDamage = MemoryPatch::createWithHex(
+            g_libBase + DEC_OFF(Off::SoldierLocalController_addDamage),
+            OBFUSCATE("1E FF 2F E1"));
         g_noLocalDamageInit.store(true);
     }
     if (e) g_patchNoLocalDamage.Modify(); else g_patchNoLocalDamage.Restore();
@@ -2129,38 +2177,38 @@ enum {
 };
 static void RegisterAllMods() {
     static bool done = false; if (done) return; done = true;
-    RegisterMod("Weapon_NoBulletSpread",   Off::Weapon_getRandomFiringAngle,    "00 00 A0 E3 1E FF 2F E1");
-    RegisterMod("Weapon_HideWeapons",      Off::NetworkManager_sendWeaponChange,"1E FF 2F E1");
-    RegisterMod("Weapon_HighMeleeDamage",  Off::Weapon_getMeleeDamage,          "E7 03 00 E3 1E FF 2F E1");
-    RegisterMod("Weapon_HighMeleeLength",  Off::Weapon_getMeleeLength,          "E7 03 00 E3 1E FF 2F E1");
-    RegisterMod("Spray_AK47",    Off::AK47_triggerPull,    "1E FF 2F E1");
-    RegisterMod("Spray_M16",     Off::M16_triggerPull,     "1E FF 2F E1");
-    RegisterMod("Spray_MiniGun", Off::MINIGUN_triggerPull, "1E FF 2F E1");
-    RegisterMod("Spray_EMP",     Off::EMP_triggerPull,     "1E FF 2F E1");
-    RegisterMod("Spray_RG6",     Off::RG6_triggerPull,     "1E FF 2F E1");
-    RegisterMod("Spray_M14",     Off::M14_triggerPull,     "1E FF 2F E1");
-    RegisterMod("Spray_Magnum",  Off::MAGNUM_triggerPull,  "1E FF 2F E1");
-    RegisterMod("Spray_MP5",     Off::MP5_triggerPull,     "1E FF 2F E1");
-    RegisterMod("Spray_TAVOR",   Off::TAVOR_triggerPull,   "1E FF 2F E1");
-    RegisterMod("Spray_TEC9",    Off::TEC9_triggerPull,    "1E FF 2F E1");
-    RegisterMod("Spray_AA12",    Off::AA12_triggerPull,    "1E FF 2F E1");
-    RegisterMod("Spray_Hunting", Off::HUNTING_triggerPull, "1E FF 2F E1");
-    RegisterMod("Spray_SAWGun",  Off::SAWGUN_triggerPull,  "1E FF 2F E1");
-    RegisterMod("Spray_SMAW",    Off::SMAW_triggerPull,    "1E FF 2F E1");
-    RegisterMod("Spray_XM8",     Off::XM8_triggerPull,     "1E FF 2F E1");
-    RegisterMod("Spray_PHASR",   Off::PHASR_triggerPull,   "1E FF 2F E1");
-    RegisterMod("Spray_DEAGLE",  Off::DEAGLE_triggerPull,  "1E FF 2F E1");
-    RegisterMod("Enemy_RemoveRobot",       Off::HumanoidDrone_updateStep, "1E FF 2F E1");
-    RegisterMod("Enemy_RobotsCantSee",     Off::Enemy_canSeeTarget,       "00 00 A0 E3 1E FF 2F E1");
-    RegisterMod("Enemy_DieByGunsOnly1",    Off::Explosion_applyDamage,    "1E FF 2F E1");
-    RegisterMod("Enemy_DieByGunsOnly2",    Off::GasCloud_applyDamage,     "1E FF 2F E1");
-    RegisterMod("Enemy_DieByGunsOnly3",    Off::PlasmaBall_applyDamage,   "1E FF 2F E1");
-    RegisterMod("Enemy_HideFromProxy",     Off::ProxyMine_updateStep,     "1E FF 2F E1");
-    RegisterMod("Enemy_EndlessProxy",      Off::ProxyMine_reset,          "00 00 A0 E1");
-    RegisterMod("Enemy_AttachProxy",       Off::ProxyMine_reset,          "00 00 A0 E1");
-    RegisterMod("Enemy_InfiniteProxyThrow",Off::ProxyMine_reset,          "00 00 A0 E1");
-    RegisterMod("Enemy_EndlessSaw",        Off::SAW_updateItemStep,       "00 00 A0 E1");
-    RegisterMod("Enemy_SawDamageRemove",   Off::SAW_checkMapCollision,    "00 00 A0 E3 1E FF 2F E1");
+    RegisterMod(OBFUSCATE("Weapon_NoBulletSpread"),   Off::Weapon_getRandomFiringAngle,    OBFUSCATE("00 00 A0 E3 1E FF 2F E1"));
+    RegisterMod(OBFUSCATE("Weapon_HideWeapons"),      Off::NetworkManager_sendWeaponChange,OBFUSCATE("1E FF 2F E1"));
+    RegisterMod(OBFUSCATE("Weapon_HighMeleeDamage"),  Off::Weapon_getMeleeDamage,          OBFUSCATE("E7 03 00 E3 1E FF 2F E1"));
+    RegisterMod(OBFUSCATE("Weapon_HighMeleeLength"),  Off::Weapon_getMeleeLength,          OBFUSCATE("E7 03 00 E3 1E FF 2F E1"));
+    RegisterMod(OBFUSCATE("Spray_AK47"),    Off::AK47_triggerPull,    OBFUSCATE("1E FF 2F E1"));
+    RegisterMod(OBFUSCATE("Spray_M16"),     Off::M16_triggerPull,     OBFUSCATE("1E FF 2F E1"));
+    RegisterMod(OBFUSCATE("Spray_MiniGun"), Off::MINIGUN_triggerPull, OBFUSCATE("1E FF 2F E1"));
+    RegisterMod(OBFUSCATE("Spray_EMP"),     Off::EMP_triggerPull,     OBFUSCATE("1E FF 2F E1"));
+    RegisterMod(OBFUSCATE("Spray_RG6"),     Off::RG6_triggerPull,     OBFUSCATE("1E FF 2F E1"));
+    RegisterMod(OBFUSCATE("Spray_M14"),     Off::M14_triggerPull,     OBFUSCATE("1E FF 2F E1"));
+    RegisterMod(OBFUSCATE("Spray_Magnum"),  Off::MAGNUM_triggerPull,  OBFUSCATE("1E FF 2F E1"));
+    RegisterMod(OBFUSCATE("Spray_MP5"),     Off::MP5_triggerPull,     OBFUSCATE("1E FF 2F E1"));
+    RegisterMod(OBFUSCATE("Spray_TAVOR"),   Off::TAVOR_triggerPull,   OBFUSCATE("1E FF 2F E1"));
+    RegisterMod(OBFUSCATE("Spray_TEC9"),    Off::TEC9_triggerPull,    OBFUSCATE("1E FF 2F E1"));
+    RegisterMod(OBFUSCATE("Spray_AA12"),    Off::AA12_triggerPull,    OBFUSCATE("1E FF 2F E1"));
+    RegisterMod(OBFUSCATE("Spray_Hunting"), Off::HUNTING_triggerPull, OBFUSCATE("1E FF 2F E1"));
+    RegisterMod(OBFUSCATE("Spray_SAWGun"),  Off::SAWGUN_triggerPull,  OBFUSCATE("1E FF 2F E1"));
+    RegisterMod(OBFUSCATE("Spray_SMAW"),    Off::SMAW_triggerPull,    OBFUSCATE("1E FF 2F E1"));
+    RegisterMod(OBFUSCATE("Spray_XM8"),     Off::XM8_triggerPull,     OBFUSCATE("1E FF 2F E1"));
+    RegisterMod(OBFUSCATE("Spray_PHASR"),   Off::PHASR_triggerPull,   OBFUSCATE("1E FF 2F E1"));
+    RegisterMod(OBFUSCATE("Spray_DEAGLE"),  Off::DEAGLE_triggerPull,  OBFUSCATE("1E FF 2F E1"));
+    RegisterMod(OBFUSCATE("Enemy_RemoveRobot"),       Off::HumanoidDrone_updateStep, OBFUSCATE("1E FF 2F E1"));
+    RegisterMod(OBFUSCATE("Enemy_RobotsCantSee"),     Off::Enemy_canSeeTarget,       OBFUSCATE("00 00 A0 E3 1E FF 2F E1"));
+    RegisterMod(OBFUSCATE("Enemy_DieByGunsOnly1"),    Off::Explosion_applyDamage,    OBFUSCATE("1E FF 2F E1"));
+    RegisterMod(OBFUSCATE("Enemy_DieByGunsOnly2"),    Off::GasCloud_applyDamage,     OBFUSCATE("1E FF 2F E1"));
+    RegisterMod(OBFUSCATE("Enemy_DieByGunsOnly3"),    Off::PlasmaBall_applyDamage,   OBFUSCATE("1E FF 2F E1"));
+    RegisterMod(OBFUSCATE("Enemy_HideFromProxy"),     Off::ProxyMine_updateStep,     OBFUSCATE("1E FF 2F E1"));
+    RegisterMod(OBFUSCATE("Enemy_EndlessProxy"),      Off::ProxyMine_reset,          OBFUSCATE("00 00 A0 E1"));
+    RegisterMod(OBFUSCATE("Enemy_AttachProxy"),       Off::ProxyMine_reset,          OBFUSCATE("00 00 A0 E1"));
+    RegisterMod(OBFUSCATE("Enemy_InfiniteProxyThrow"),Off::ProxyMine_reset,          OBFUSCATE("00 00 A0 E1"));
+    RegisterMod(OBFUSCATE("Enemy_EndlessSaw"),        Off::SAW_updateItemStep,       OBFUSCATE("00 00 A0 E1"));
+    RegisterMod(OBFUSCATE("Enemy_SawDamageRemove"),   Off::SAW_checkMapCollision,    OBFUSCATE("00 00 A0 E3 1E FF 2F E1"));
 }
 static int ModIdxForFeature(int feat) {
     if (feat >= 400 && feat <= 436) {

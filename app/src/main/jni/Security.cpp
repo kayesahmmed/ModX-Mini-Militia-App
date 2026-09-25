@@ -392,10 +392,14 @@ static bool detectVpn() {
 // This eliminates false positives on real devices.
 // ================================================================
 
+// ================================================================
+// VPN check REMOVED — game requires VPN
+// ================================================================
+
 static bool isEnvironmentSafe() {
     SLOGI("── env check start ──");
 
-    // -------- HARD FAILS --------
+    // -------- HARD FAILS (real attacks only) --------
     if (detectFridaHard()) {
         SLOGE("ENV: FRIDA DETECTED — abort");
         return false;
@@ -405,12 +409,12 @@ static bool isEnvironmentSafe() {
         return false;
     }
 
-    // -------- SOFT CHECKS (info only) --------
-    if (hasTracer())        SLOGW("ENV: tracer attached (soft)");
+    // -------- SOFT CHECKS (info only, NEVER fail) --------
+    if (hasTracer())        SLOGW("ENV: tracer (soft)");
     if (detectSubstrate())  SLOGW("ENV: substrate (soft)");
-    if (detectRoot())       SLOGW("ENV: rooted device (soft)");
-    if (detectEmulator())   SLOGW("ENV: emulator signature (soft)");
-    if (detectVpn())        SLOGW("ENV: VPN active (soft)");
+    if (detectRoot())       SLOGW("ENV: rooted (soft)");
+    if (detectEmulator())   SLOGW("ENV: emulator (soft)");
+    // VPN check REMOVED — game needs VPN
 
     SLOGI("── env check OK ──");
     return true;
