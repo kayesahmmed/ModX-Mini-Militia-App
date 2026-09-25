@@ -1,24 +1,13 @@
 // ================================================================
-// Security.cpp — Professional Grade Security Layer (v2.0)
+// Security.cpp — Professional Grade Security Layer (v3 — Fixed)
 //
-// Layers implemented:
-//  1.  APK signature verification (multi-cert, constant-time)
-//  2.  HMAC-SHA256 session token
-//  3.  Native URL building (no Firebase URL in dex)
-//  4.  Anti-debug (ptrace, TracerPid, self-ptrace)
-//  5.  Anti-Frida (5-vector detection)
-//  6.  Anti-Xposed / LSPosed
-//  7.  Anti-Substrate
-//  8.  Anti-Magisk / root detection
-//  9.  Anti-emulator (multi-signal)
-//  10. Anti-VPN / proxy
-//  11. Constant-time comparisons
-//  12. String XOR encryption
-//  13. Compile-time OBFUSCATE()
-//  14. Debug build auto-skip
-//  15. Failsafe on tamper
-//  16. Native HTTP fetch (bypasses Java HttpURLConnection)
-//  17. Certificate pinning check
+// Fixes in v3:
+//   - ptraceSelfCheck removed from hard fails (was false-positive)
+//   - "gmain" removed from Frida maps check (too broad)
+//   - "sdk" removed from emulator check (too broad)
+//   - Substrate moved to soft check
+//   - Only REAL Frida/Xposed signatures trigger hard fail
+//   - Extensive logging for diagnostics
 // ================================================================
 
 #include <jni.h>
@@ -34,7 +23,7 @@
 #include <unistd.h>
 #include <fcntl.h>
 #include <dirent.h>
-#include <dlfcn.h>                          // 🔥 FIX: needed for dlopen/dlclose/RTLD_NOW
+#include <dlfcn.h>
 #include <sys/ptrace.h>
 #include <sys/stat.h>
 #include <sys/types.h>
@@ -45,45 +34,28 @@
 
 #include "Includes/obfuscate.h"
 
-// ================================================================
-// Logging macros (debug builds log, release builds strip)
-// ================================================================
 #define SEC_TAG "ModXLab_Security"
+#define SLOGI(...) __android_log_print(ANDROID_LOG_INFO,  SEC_TAG, __VA_ARGS__)
+#define SLOGW(...) __android_log_print(ANDROID_LOG_WARN,  SEC_TAG, __VA_ARGS__)
+#define SLOGE(...) __android_log_print(ANDROID_LOG_ERROR, SEC_TAG, __VA_ARGS__)
 
-#ifdef NDEBUG
-    #define SLOGI(...) ((void)0)
-    #define SLOGW(...) ((void)0)
-    #define SLOGE(...) __android_log_print(ANDROID_LOG_ERROR, SEC_TAG, __VA_ARGS__)
-#else
-    #define SLOGI(...) __android_log_print(ANDROID_LOG_INFO,  SEC_TAG, __VA_ARGS__)
-    #define SLOGW(...) __android_log_print(ANDROID_LOG_WARN,  SEC_TAG, __VA_ARGS__)
-    #define SLOGE(...) __android_log_print(ANDROID_LOG_ERROR, SEC_TAG, __VA_ARGS__)
-#endif
-
-// ================================================================
-// Force OBFUSCATE to const char* (avoid += ambiguity)
-// ================================================================
 #define OBF_STR(s) (static_cast<const char*>(OBFUSCATE(s)))
 
 // ================================================================
-// 🔑 CONFIGURATION — REPLACE WITH YOUR OWN VALUES
+// 🔑 REPLACE WITH YOUR OWN VALUES
 // ================================================================
-
-// Your release cert SHA-256 (no colons, lowercase)
 static const char* SHA256_PRIMARY() {
     return OBF_STR("2214862d49d25c4c72b531bbd14d7e53587508035b6b7084b7d6d3f9763a0502");
 }
-// Optional: additional allowed certs (for key rotation / debug builds)
 static const char* SHA256_ALT1() { return OBF_STR(""); }
 static const char* SHA256_ALT2() { return OBF_STR(""); }
 
-// HMAC secret for session tokens — CHANGE THIS TO UNIQUE RANDOM VALUE
 static const char* HMAC_SECRET() {
     return OBF_STR("xK9mP2QvLt7Rn5Bs4Wz8YhJ6CgD3FeA1NqU4TrXc");
 }
 
 // ================================================================
-// SHA-256 (pure C, no external dependencies)
+// SHA-256 (pure C)
 // ================================================================
 namespace SecSHA {
 
@@ -217,7 +189,6 @@ static std::string getJsonField(const std::string& json, const std::string& key)
     return v;
 }
 
-// Constant-time comparison (prevents timing attacks)
 static bool constTimeEquals(const std::string& a, const std::string& b) {
     if (a.size() != b.size()) return false;
     unsigned char diff = 0;
@@ -225,7 +196,6 @@ static bool constTimeEquals(const std::string& a, const std::string& b) {
     return diff == 0;
 }
 
-// URL-encode a username
 static std::string urlEncode(const std::string& s) {
     std::string out;
     out.reserve(s.size() * 3);
@@ -244,10 +214,10 @@ static std::string urlEncode(const std::string& s) {
 }
 
 // ================================================================
-// ANTI-TAMPER — 11 detection vectors
+// ==============  DETECTION HELPERS  ==============================
 // ================================================================
 
-// --- 1. Debugger via TracerPid in /proc/self/status ---
+// --- Traces via /proc/self/status ---
 static bool hasTracer() {
     int fd = open("/proc/self/status", O_RDONLY);
     if (fd < 0) return false;
@@ -263,110 +233,57 @@ static bool hasTracer() {
     return atoi(p) > 0;
 }
 
-// --- 2. Self-ptrace test — if we can't trace, someone else is ---
-static bool ptraceSelfCheck() {
-    long r = ptrace(PTRACE_TRACEME, 0, 0, 0);
-    return (r == -1);
-}
-
-// --- 3. Frida detection — 5 vectors ---
-static bool checkFridaMaps() {
-    FILE* fp = fopen("/proc/self/maps", "r");
-    if (!fp) return false;
-    char line[512];
-    bool found = false;
-    while (fgets(line, sizeof(line), fp)) {
-        if (strstr(line, "frida") ||
-            strstr(line, "gum-js-loop") ||
-            strstr(line, "gmain") ||
-            strstr(line, "linjector") ||
-            strstr(line, "frida-agent") ||
-            strstr(line, "frida-gadget")) {
-            found = true;
-            break;
-        }
-    }
-    fclose(fp);
-    return found;
-}
-
-static bool checkFridaThreads() {
-    DIR* dir = opendir("/proc/self/task");
-    if (!dir) return false;
-    struct dirent* de;
-    bool found = false;
-    while ((de = readdir(dir)) != nullptr) {
-        if (de->d_name[0] == '.') continue;
-        char path[256];
-        snprintf(path, sizeof(path), "/proc/self/task/%s/comm", de->d_name);
-        int fd = open(path, O_RDONLY);
-        if (fd < 0) continue;
-        char buf[64] = {0};
-        ssize_t n = read(fd, buf, sizeof(buf) - 1);
-        close(fd);
-        if (n > 0) {
-            if (strstr(buf, "gum-js-loop") || strstr(buf, "gmain") ||
-                strstr(buf, "frida")) {
-                found = true;
-                break;
-            }
-        }
-    }
-    closedir(dir);
-    return found;
-}
-
-static bool checkFridaPipe() {
-    DIR* dir = opendir("/data/local/tmp");
-    if (!dir) return false;
-    struct dirent* de;
-    bool found = false;
-    while ((de = readdir(dir)) != nullptr) {
-        if (strstr(de->d_name, "frida") || strstr(de->d_name, "re.frida")) {
-            found = true;
-            break;
-        }
-    }
-    closedir(dir);
-    return found;
-}
-
-static bool checkFridaLibrary() {
-    // 🔥 FIX: now <dlfcn.h> is included, this compiles
-    void* h = dlopen("libfrida-gadget.so", RTLD_NOW);
-    if (h) { dlclose(h); return true; }
-    h = dlopen("libfrida-agent.so", RTLD_NOW);
-    if (h) { dlclose(h); return true; }
-    return false;
-}
-
-// Aggregated Frida check
-static bool isFridaPresent() {
-    if (checkFridaMaps())     { SLOGW("frida: maps");     return true; }
-    if (checkFridaThreads())  { SLOGW("frida: threads");  return true; }
-    if (checkFridaPipe())     { SLOGW("frida: pipe");     return true; }
-    if (checkFridaLibrary())  { SLOGW("frida: library");  return true; }
-    return false;
-}
-
-// --- 4. Xposed / LSPosed detection ---
-static bool isXposedPresent() {
+// --- Frida detection (STRICT — only real signatures) ---
+static bool detectFridaHard() {
+    // 1) Memory map — only specific Frida agent paths
     FILE* fp = fopen("/proc/self/maps", "r");
     if (fp) {
         char line[512];
         bool found = false;
         while (fgets(line, sizeof(line), fp)) {
-            if (strstr(line, "Xposed") || strstr(line, "xposed") ||
-                strstr(line, "edxp") || strstr(line, "LSPosed") ||
-                strstr(line, "lsposed")) {
+            // These strings are Frida-specific; won't appear in normal apps
+            if (strstr(line, "/frida-agent") ||
+                strstr(line, "/frida-gadget") ||
+                strstr(line, "libfrida-gadget") ||
+                strstr(line, "libfrida-agent") ||
+                strstr(line, "gum-js-loop") ||
+                strstr(line, "frida-server") ||
+                strstr(line, "re.frida.server")) {
                 found = true; break;
             }
         }
         fclose(fp);
-        if (found) { SLOGW("xposed: maps"); return true; }
+        if (found) { SLOGW("Frida: maps match"); return true; }
     }
 
-    const char* xposedPaths[] = {
+    // 2) Known Frida default named pipes
+    DIR* dir = opendir("/data/local/tmp");
+    if (dir) {
+        struct dirent* de;
+        bool found = false;
+        while ((de = readdir(dir)) != nullptr) {
+            // Frida-server creates files like "re.frida.server" or specific hashes
+            if (strstr(de->d_name, "re.frida.server") ||
+                strstr(de->d_name, "frida-server")) {
+                found = true; break;
+            }
+        }
+        closedir(dir);
+        if (found) { SLOGW("Frida: tmp file"); return true; }
+    }
+
+    // 3) Frida library loaded in our process
+    void* h1 = dlopen("libfrida-gadget.so", RTLD_NOW);
+    if (h1) { dlclose(h1); SLOGW("Frida: gadget loaded"); return true; }
+    void* h2 = dlopen("libfrida-agent.so", RTLD_NOW);
+    if (h2) { dlclose(h2); SLOGW("Frida: agent loaded"); return true; }
+
+    return false;
+}
+
+// --- Xposed detection (STRICT) ---
+static bool detectXposedHard() {
+    const char* paths[] = {
         "/system/framework/XposedBridge.jar",
         "/system/lib/libxposed_art.so",
         "/system/lib64/libxposed_art.so",
@@ -377,17 +294,17 @@ static bool isXposedPresent() {
         "/data/adb/modules/zygisk_lsposed",
         nullptr
     };
-    for (int i = 0; xposedPaths[i]; i++) {
-        if (access(xposedPaths[i], F_OK) == 0) {
-            SLOGW("xposed: path %s", xposedPaths[i]);
+    for (int i = 0; paths[i]; i++) {
+        if (access(paths[i], F_OK) == 0) {
+            SLOGW("Xposed: %s", paths[i]);
             return true;
         }
     }
     return false;
 }
 
-// --- 5. Substrate detection ---
-static bool isSubstratePresent() {
+// --- Substrate (soft) ---
+static bool detectSubstrate() {
     const char* paths[] = {
         "/system/lib/libsubstrate.so",
         "/system/lib64/libsubstrate.so",
@@ -395,14 +312,48 @@ static bool isSubstratePresent() {
         nullptr
     };
     for (int i = 0; paths[i]; i++) {
-        if (access(paths[i], F_OK) == 0) { SLOGW("substrate"); return true; }
+        if (access(paths[i], F_OK) == 0) return true;
     }
-    FILE* fp = fopen("/proc/self/maps", "r");
+    return false;
+}
+
+// --- Root (soft) ---
+static bool detectRoot() {
+    const char* paths[] = {
+        "/system/bin/su", "/system/xbin/su", "/sbin/su", "/su/bin/su",
+        "/data/local/su", "/data/local/xbin/su",
+        "/system/app/Superuser.apk",
+        "/magisk/.core/bin/su",
+        "/sbin/.magisk",
+        nullptr
+    };
+    for (int i = 0; paths[i]; i++) {
+        if (access(paths[i], F_OK) == 0) return true;
+    }
+    return false;
+}
+
+// --- Emulator (STRICT — only definite emulator markers) ---
+static bool detectEmulator() {
+    // QEMU-specific files — will never exist on real devices
+    if (access("/dev/socket/qemud", F_OK) == 0) return true;
+    if (access("/dev/qemu_pipe", F_OK) == 0) return true;
+
+    // QEMU kernel property
+    char value[PROP_VALUE_MAX] = {0};
+    if (__system_property_get("ro.kernel.qemu", value) > 0) {
+        if (strcmp(value, "1") == 0) return true;
+    }
+
+    // CPU info goldfish/ranchu (emulator-specific)
+    FILE* fp = fopen("/proc/cpuinfo", "r");
     if (fp) {
         char line[512];
         bool found = false;
         while (fgets(line, sizeof(line), fp)) {
-            if (strstr(line, "substrate")) { found = true; break; }
+            if (strstr(line, "goldfish") || strstr(line, "ranchu")) {
+                found = true; break;
+            }
         }
         fclose(fp);
         if (found) return true;
@@ -410,61 +361,8 @@ static bool isSubstratePresent() {
     return false;
 }
 
-// --- 6. Root / Magisk detection ---
-static bool isRooted() {
-    const char* suPaths[] = {
-        "/system/app/Superuser.apk",
-        "/system/bin/su", "/system/xbin/su",
-        "/sbin/su", "/su/bin/su",
-        "/data/local/su", "/data/local/xbin/su",
-        "/data/local/bin/su", "/system/sd/xbin/su",
-        "/system/bin/failsafe/su",
-        "/magisk/.core/bin/su",
-        "/sbin/.magisk",
-        nullptr
-    };
-    for (int i = 0; suPaths[i]; i++) {
-        if (access(suPaths[i], F_OK) == 0) return true;
-    }
-    return false;
-}
-
-// --- 7. Emulator detection ---
-static bool isEmulator() {
-    FILE* fp = fopen("/proc/cpuinfo", "r");
-    if (fp) {
-        char line[512];
-        bool goldfish = false;
-        while (fgets(line, sizeof(line), fp)) {
-            if (strstr(line, "goldfish") || strstr(line, "ranchu") ||
-                strstr(line, "qemu")) {
-                goldfish = true; break;
-            }
-        }
-        fclose(fp);
-        if (goldfish) return true;
-    }
-
-    if (access("/dev/socket/qemud", F_OK) == 0) return true;
-    if (access("/dev/qemu_pipe", F_OK) == 0) return true;
-    if (access("/system/bin/qemud", F_OK) == 0) return true;
-
-    char value[PROP_VALUE_MAX] = {0};
-    if (__system_property_get("ro.kernel.qemu", value) > 0) {
-        if (strcmp(value, "1") == 0) return true;
-    }
-    if (__system_property_get("ro.hardware", value) > 0) {
-        if (strstr(value, "goldfish") || strstr(value, "ranchu")) return true;
-    }
-    if (__system_property_get("ro.product.model", value) > 0) {
-        if (strstr(value, "sdk") || strstr(value, "Emulator") ||
-            strstr(value, "Android SDK")) return true;
-    }
-    return false;
-}
-
-// --- 8. VPN / Proxy detection (soft) ---
-static bool isVpnActive() {
+// --- VPN (soft) ---
+static bool detectVpn() {
     DIR* dir = opendir("/sys/class/net");
     if (!dir) return false;
     struct dirent* de;
@@ -472,7 +370,6 @@ static bool isVpnActive() {
     while ((de = readdir(dir)) != nullptr) {
         if (strncmp(de->d_name, "tun", 3) == 0 ||
             strncmp(de->d_name, "ppp", 3) == 0 ||
-            strncmp(de->d_name, "tap", 3) == 0 ||
             strcmp(de->d_name, "wg0") == 0) {
             found = true; break;
         }
@@ -482,27 +379,48 @@ static bool isVpnActive() {
 }
 
 // ================================================================
-// Aggregated environment check
+// ============  AGGREGATED ENVIRONMENT CHECK  ====================
 // ================================================================
-static bool isEnvironmentSafe() {
-    if (hasTracer())         { SLOGE("ENV: tracer detected");   return false; }
-    if (ptraceSelfCheck())   { SLOGE("ENV: ptrace attached");   return false; }
-    if (isFridaPresent())    { SLOGE("ENV: frida detected");    return false; }
-    if (isXposedPresent())   { SLOGE("ENV: xposed detected");   return false; }
-    if (isSubstratePresent()){ SLOGE("ENV: substrate detected");return false; }
-    if (isEmulator())        { SLOGE("ENV: emulator detected"); return false; }
+//
+// HARD FAILS (real attacks only):
+//   - Frida (specific library/socket/maps signatures)
+//   - Xposed/LSPosed (specific framework paths)
+//
+// SOFT (log only — never fail):
+//   - Tracer, Substrate, Root, Emulator, VPN
+//
+// This eliminates false positives on real devices.
+// ================================================================
 
-    if (isRooted())   SLOGW("ENV: rooted (allowed)");
-    if (isVpnActive())SLOGW("ENV: VPN active (allowed)");
+static bool isEnvironmentSafe() {
+    SLOGI("── env check start ──");
+
+    // -------- HARD FAILS --------
+    if (detectFridaHard()) {
+        SLOGE("ENV: FRIDA DETECTED — abort");
+        return false;
+    }
+    if (detectXposedHard()) {
+        SLOGE("ENV: XPOSED DETECTED — abort");
+        return false;
+    }
+
+    // -------- SOFT CHECKS (info only) --------
+    if (hasTracer())        SLOGW("ENV: tracer attached (soft)");
+    if (detectSubstrate())  SLOGW("ENV: substrate (soft)");
+    if (detectRoot())       SLOGW("ENV: rooted device (soft)");
+    if (detectEmulator())   SLOGW("ENV: emulator signature (soft)");
+    if (detectVpn())        SLOGW("ENV: VPN active (soft)");
+
+    SLOGI("── env check OK ──");
     return true;
 }
 
 // ================================================================
-// Native URL builder — Firebase URL not present in dex
+// Native URL builder
 // ================================================================
 static std::string buildBaseUrl() {
     std::string url;
-    url.reserve(64);
     url += OBF_STR("https://modx-lab-5a6ee");
     url += OBF_STR("-default-rtdb.firebaseio.com");
     return url;
@@ -523,7 +441,7 @@ static std::string buildUpdateUrl() {
 }
 
 // ================================================================
-// Expiry date parser — "YYYY-MM-DD HH:MM [+HH:MM]"
+// Expiry parser
 // ================================================================
 static long long parseExpireDate(const std::string& s) {
     if (s.empty()) return -1;
@@ -576,11 +494,13 @@ extern "C" JNIEXPORT jboolean JNICALL
 Java_com_android_support_SecurityNative_checkSignatureHash(
         JNIEnv* env, jclass, jstring jhash) {
 
-    if (!jhash) return JNI_FALSE;
+    if (!jhash) { SLOGE("Sig: null input"); return JNI_FALSE; }
     const char* raw = env->GetStringUTFChars(jhash, nullptr);
-    if (!raw) return JNI_FALSE;
+    if (!raw) { SLOGE("Sig: release failed"); return JNI_FALSE; }
     std::string given = toLower(std::string(raw));
     env->ReleaseStringUTFChars(jhash, raw);
+
+    SLOGI("Sig: runtime = %s", given.c_str());
 
     auto matches = [&](const char* expected) -> bool {
         std::string e = toLower(std::string(expected));
@@ -588,15 +508,13 @@ Java_com_android_support_SecurityNative_checkSignatureHash(
         return constTimeEquals(given, e);
     };
 
-    if (matches(SHA256_PRIMARY())) return JNI_TRUE;
-
+    if (matches(SHA256_PRIMARY())) { SLOGI("Sig: PRIMARY match"); return JNI_TRUE; }
     std::string a1(SHA256_ALT1());
-    if (!a1.empty() && matches(a1.c_str())) return JNI_TRUE;
-
+    if (!a1.empty() && matches(a1.c_str())) { SLOGI("Sig: ALT1 match"); return JNI_TRUE; }
     std::string a2(SHA256_ALT2());
-    if (!a2.empty() && matches(a2.c_str())) return JNI_TRUE;
+    if (!a2.empty() && matches(a2.c_str())) { SLOGI("Sig: ALT2 match"); return JNI_TRUE; }
 
-    SLOGE("Signature mismatch — refusing");
+    SLOGE("Sig: NO MATCH — expected = %s", SHA256_PRIMARY());
     return JNI_FALSE;
 }
 
@@ -609,22 +527,23 @@ Java_com_android_support_SecurityNative_isEnvironmentValid(JNIEnv*, jclass) {
 }
 
 // ================================================================
-// JNI: Native URL providers
+// JNI: getQueryUrl
 // ================================================================
 extern "C" JNIEXPORT jstring JNICALL
 Java_com_android_support_SecurityNative_getQueryUrl(
         JNIEnv* env, jclass, jstring jUser) {
-
     if (!jUser) return env->NewStringUTF("");
     const char* user = env->GetStringUTFChars(jUser, nullptr);
     if (!user) return env->NewStringUTF("");
     std::string u(user);
     env->ReleaseStringUTFChars(jUser, user);
-
     std::string url = buildQueryUrl(u);
     return env->NewStringUTF(url.c_str());
 }
 
+// ================================================================
+// JNI: getUpdateUrl
+// ================================================================
 extern "C" JNIEXPORT jstring JNICALL
 Java_com_android_support_SecurityNative_getUpdateUrl(JNIEnv* env, jclass) {
     std::string url = buildUpdateUrl();
@@ -679,7 +598,6 @@ Java_com_android_support_SecurityNative_verifyLogin(
 
     if (dbStatus != "true") return fail("blocked");
 
-    // Expiry resolution
     long long expiryMs = 0;
     const char* how = "none";
 
@@ -687,7 +605,6 @@ Java_com_android_support_SecurityNative_verifyLogin(
     if (!expireDate.empty()) {
         long long sec = parseExpireDate(expireDate);
         if (sec > 0) { expiryMs = sec * 1000LL; how = "expire_date"; }
-        else SLOGW("expire_date parse failed: %s", expireDate.c_str());
     }
 
     if (expiryMs == 0) {
@@ -695,10 +612,7 @@ Java_com_android_support_SecurityNative_verifyLogin(
         if (!dbTime.empty()) {
             try {
                 double d = std::stod(dbTime);
-                if (d > 1e11 && d < 9.2e18) {
-                    expiryMs = (long long)d;
-                    how = "time_epoch";
-                }
+                if (d > 1e11 && d < 9.2e18) { expiryMs = (long long)d; how = "time"; }
             } catch (...) {}
         }
     }
@@ -716,10 +630,7 @@ Java_com_android_support_SecurityNative_verifyLogin(
             if (!durH.empty()) {
                 try {
                     double h = std::stod(durH);
-                    if (h > 0 && h < 1e6) {
-                        expiryMs = rgMs + (long long)(h * 3600000.0);
-                        how = "rgtime+hours";
-                    }
+                    if (h > 0 && h < 1e6) { expiryMs = rgMs + (long long)(h*3600000.0); how = "rg+h"; }
                 } catch (...) {}
             }
             if (expiryMs == 0) {
@@ -727,10 +638,7 @@ Java_com_android_support_SecurityNative_verifyLogin(
                 if (!durD.empty()) {
                     try {
                         double d = std::stod(durD);
-                        if (d > 0 && d < 36500) {
-                            expiryMs = rgMs + (long long)(d * 86400000.0);
-                            how = "rgtime+days";
-                        }
+                        if (d > 0 && d < 36500) { expiryMs = rgMs + (long long)(d*86400000.0); how = "rg+d"; }
                     } catch (...) {}
                 }
             }
@@ -739,27 +647,21 @@ Java_com_android_support_SecurityNative_verifyLogin(
 
     if (expiryMs > 0) {
         long long nowMs = (long long)time(nullptr) * 1000LL;
-        double diffHours = (double)(expiryMs - nowMs) / 3600000.0;
-        SLOGI("verifyLogin: user=%s method=%s diff_hours=%.2f",
-              dbUser.c_str(), how, diffHours);
+        SLOGI("verifyLogin: user=%s how=%s diff_h=%.2f",
+              dbUser.c_str(), how, (double)(expiryMs - nowMs) / 3600000.0);
         if (nowMs > expiryMs) return fail("expired");
-    } else {
-        SLOGI("verifyLogin: user=%s no expiry", dbUser.c_str());
     }
 
-    // Generate HMAC-signed session token
     std::string payload = dbUser + "|" + dbPass + "|" +
                           std::to_string(expiryMs) + "|" + dbStatus;
     std::string token = SecSHA::hmacHex(std::string(HMAC_SECRET()), payload);
 
     std::string out = "{\"ok\":true,\"token\":\"";
     out += token;
-    out += "\",\"user\":\"";
-    out += dbUser;
+    out += "\",\"user\":\""; out += dbUser;
     out += "\",\"status\":\"true\",\"expiry\":\"";
     out += std::to_string(expiryMs);
     out += "\"}";
-
     return env->NewStringUTF(out.c_str());
 }
 
@@ -796,7 +698,7 @@ Java_com_android_support_SecurityNative_verifySessionToken(
     std::string expected = SecSHA::hmacHex(std::string(HMAC_SECRET()), payload);
 
     if (!constTimeEquals(token, expected)) {
-        SLOGW("Session token mismatch");
+        SLOGW("Session: token mismatch");
         return JNI_FALSE;
     }
 
@@ -804,20 +706,19 @@ Java_com_android_support_SecurityNative_verifySessionToken(
         long long expiryMs = std::stoll(expiry);
         if (expiryMs > 0) {
             long long now = (long long)time(nullptr) * 1000LL;
-            if (now > expiryMs) return JNI_FALSE;
+            if (now > expiryMs) { SLOGW("Session: expired"); return JNI_FALSE; }
         }
-    } catch (...) { }
+    } catch (...) {}
 
     return JNI_TRUE;
 }
 
 // ================================================================
-// JNI: decryptString — runtime XOR decode
+// JNI: decryptString
 // ================================================================
 extern "C" JNIEXPORT jstring JNICALL
 Java_com_android_support_SecurityNative_decryptString(
         JNIEnv* env, jclass, jstring jEnc, jint key) {
-
     if (!jEnc) return env->NewStringUTF("");
     const char* enc = env->GetStringUTFChars(jEnc, nullptr);
     if (!enc) return env->NewStringUTF("");
@@ -832,7 +733,7 @@ Java_com_android_support_SecurityNative_decryptString(
 }
 
 // ================================================================
-// JNI: getSelfHash — SHA-256 of input (self-check utility)
+// JNI: getSelfHash
 // ================================================================
 extern "C" JNIEXPORT jstring JNICALL
 Java_com_android_support_SecurityNative_getSelfHash(JNIEnv* env, jclass, jstring jInput) {
@@ -846,7 +747,7 @@ Java_com_android_support_SecurityNative_getSelfHash(JNIEnv* env, jclass, jstring
 }
 
 // ================================================================
-// JNI: hmacSign — general HMAC for external callers
+// JNI: hmacSign
 // ================================================================
 extern "C" JNIEXPORT jstring JNICALL
 Java_com_android_support_SecurityNative_hmacSign(JNIEnv* env, jclass, jstring jMessage) {
@@ -860,17 +761,17 @@ Java_com_android_support_SecurityNative_hmacSign(JNIEnv* env, jclass, jstring jM
 }
 
 // ================================================================
-// JNI: isRooted — exposes soft check for diagnostics
+// JNI: isRooted (soft-info)
 // ================================================================
 extern "C" JNIEXPORT jboolean JNICALL
 Java_com_android_support_SecurityNative_isRooted(JNIEnv*, jclass) {
-    return isRooted() ? JNI_TRUE : JNI_FALSE;
+    return detectRoot() ? JNI_TRUE : JNI_FALSE;
 }
 
 // ================================================================
-// JNI: isVpnActive — exposes soft check
+// JNI: isVpnActive (soft-info)
 // ================================================================
 extern "C" JNIEXPORT jboolean JNICALL
 Java_com_android_support_SecurityNative_isVpnActive(JNIEnv*, jclass) {
-    return isVpnActive() ? JNI_TRUE : JNI_FALSE;
+    return detectVpn() ? JNI_TRUE : JNI_FALSE;
 }
