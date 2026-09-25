@@ -1,5 +1,5 @@
 // ================================================================
-// Security.cpp — Professional Grade Security Layer
+// Security.cpp — Professional Grade Security Layer (v2.0)
 //
 // Layers implemented:
 //  1.  APK signature verification (multi-cert, constant-time)
@@ -17,6 +17,8 @@
 //  13. Compile-time OBFUSCATE()
 //  14. Debug build auto-skip
 //  15. Failsafe on tamper
+//  16. Native HTTP fetch (bypasses Java HttpURLConnection)
+//  17. Certificate pinning check
 // ================================================================
 
 #include <jni.h>
@@ -32,6 +34,7 @@
 #include <unistd.h>
 #include <fcntl.h>
 #include <dirent.h>
+#include <dlfcn.h>                          // 🔥 FIX: needed for dlopen/dlclose/RTLD_NOW
 #include <sys/ptrace.h>
 #include <sys/stat.h>
 #include <sys/types.h>
@@ -172,15 +175,6 @@ namespace SecSHA {
         return std::string(buf, 64);
     }
 
-    static std::string hashHexBytes(const uint8_t* data, size_t len) {
-        Ctx c; init(&c);
-        update(&c, data, len);
-        uint8_t out[32]; final(&c, out);
-        char buf[65];
-        for (int i = 0; i < 32; i++) snprintf(buf + i*2, 3, "%02x", out[i]);
-        return std::string(buf, 64);
-    }
-
     static std::string hmacHex(const std::string& key, const std::string& msg) {
         std::string k = key;
         if (k.size() > 64) k = hashHex(k);
@@ -271,7 +265,6 @@ static bool hasTracer() {
 
 // --- 2. Self-ptrace test — if we can't trace, someone else is ---
 static bool ptraceSelfCheck() {
-    // PTRACE_TRACEME should succeed once; if it fails with EPERM, someone is attached
     long r = ptrace(PTRACE_TRACEME, 0, 0, 0);
     return (r == -1);
 }
@@ -323,15 +316,7 @@ static bool checkFridaThreads() {
     return found;
 }
 
-static bool checkFridaPorts() {
-    // Common Frida default ports: 27042, 27043
-    // Check by trying to bind (if bind fails, port in use)
-    // Skipped: requires socket headers, use only maps+threads
-    return false;
-}
-
 static bool checkFridaPipe() {
-    // Frida uses named pipes: /data/local/tmp/frida-*
     DIR* dir = opendir("/data/local/tmp");
     if (!dir) return false;
     struct dirent* de;
@@ -347,7 +332,7 @@ static bool checkFridaPipe() {
 }
 
 static bool checkFridaLibrary() {
-    // Frida agent library name
+    // 🔥 FIX: now <dlfcn.h> is included, this compiles
     void* h = dlopen("libfrida-gadget.so", RTLD_NOW);
     if (h) { dlclose(h); return true; }
     h = dlopen("libfrida-agent.so", RTLD_NOW);
@@ -366,7 +351,6 @@ static bool isFridaPresent() {
 
 // --- 4. Xposed / LSPosed detection ---
 static bool isXposedPresent() {
-    // Check /proc/self/maps
     FILE* fp = fopen("/proc/self/maps", "r");
     if (fp) {
         char line[512];
@@ -382,7 +366,6 @@ static bool isXposedPresent() {
         if (found) { SLOGW("xposed: maps"); return true; }
     }
 
-    // Check common Xposed package paths
     const char* xposedPaths[] = {
         "/system/framework/XposedBridge.jar",
         "/system/lib/libxposed_art.so",
@@ -414,7 +397,6 @@ static bool isSubstratePresent() {
     for (int i = 0; paths[i]; i++) {
         if (access(paths[i], F_OK) == 0) { SLOGW("substrate"); return true; }
     }
-    // Maps check
     FILE* fp = fopen("/proc/self/maps", "r");
     if (fp) {
         char line[512];
@@ -449,7 +431,6 @@ static bool isRooted() {
 
 // --- 7. Emulator detection ---
 static bool isEmulator() {
-    // CPU info
     FILE* fp = fopen("/proc/cpuinfo", "r");
     if (fp) {
         char line[512];
@@ -464,12 +445,10 @@ static bool isEmulator() {
         if (goldfish) return true;
     }
 
-    // QEMU files
     if (access("/dev/socket/qemud", F_OK) == 0) return true;
     if (access("/dev/qemu_pipe", F_OK) == 0) return true;
     if (access("/system/bin/qemud", F_OK) == 0) return true;
 
-    // System properties
     char value[PROP_VALUE_MAX] = {0};
     if (__system_property_get("ro.kernel.qemu", value) > 0) {
         if (strcmp(value, "1") == 0) return true;
@@ -484,9 +463,8 @@ static bool isEmulator() {
     return false;
 }
 
-// --- 8. VPN / Proxy detection ---
+// --- 8. VPN / Proxy detection (soft) ---
 static bool isVpnActive() {
-    // Check for VPN network interfaces
     DIR* dir = opendir("/sys/class/net");
     if (!dir) return false;
     struct dirent* de;
@@ -514,10 +492,8 @@ static bool isEnvironmentSafe() {
     if (isSubstratePresent()){ SLOGE("ENV: substrate detected");return false; }
     if (isEmulator())        { SLOGE("ENV: emulator detected"); return false; }
 
-    // Soft checks — log only, don't fail
     if (isRooted())   SLOGW("ENV: rooted (allowed)");
     if (isVpnActive())SLOGW("ENV: VPN active (allowed)");
-
     return true;
 }
 
@@ -548,7 +524,6 @@ static std::string buildUpdateUrl() {
 
 // ================================================================
 // Expiry date parser — "YYYY-MM-DD HH:MM [+HH:MM]"
-// Returns epoch seconds (UTC) or -1 on failure
 // ================================================================
 static long long parseExpireDate(const std::string& s) {
     if (s.empty()) return -1;
@@ -570,7 +545,6 @@ static long long parseExpireDate(const std::string& s) {
         }
     }
 
-    // Range check
     if (Y < 2020 || Y > 2200) return -1;
     if (M < 1 || M > 12) return -1;
     if (D < 1 || D > 31) return -1;
@@ -578,7 +552,6 @@ static long long parseExpireDate(const std::string& s) {
     if (m < 0 || m > 59) return -1;
     if (hasTZ && (tzH < 0 || tzH > 14 || tzM < 0 || tzM > 59)) return -1;
 
-    // Days since 1970-01-01 (Howard Hinnant's algorithm)
     int y = Y - (M <= 2 ? 1 : 0);
     int era = (y >= 0 ? y : y - 399) / 400;
     unsigned yoe = (unsigned)(y - era * 400);
@@ -699,7 +672,6 @@ Java_com_android_support_SecurityNative_verifyLogin(
 
     if (dbUser.empty() || dbPass.empty()) return fail("no_match");
 
-    // Case-insensitive username compare (constant-time)
     std::string uL  = toLower(sUser);
     std::string dUL = toLower(dbUser);
     if (!constTimeEquals(uL, dUL)) return fail("invalid_credentials");
@@ -707,14 +679,7 @@ Java_com_android_support_SecurityNative_verifyLogin(
 
     if (dbStatus != "true") return fail("blocked");
 
-    // ============================================================
-    // Expiry resolution (priority order):
-    //   1. expire_date    "YYYY-MM-DD HH:MM +HH:MM"
-    //   2. time           epoch ms
-    //   3. rgtime + duration_hours
-    //   4. rgtime + duration_days
-    //   5. (none) → infinite
-    // ============================================================
+    // Expiry resolution
     long long expiryMs = 0;
     const char* how = "none";
 
@@ -772,7 +737,6 @@ Java_com_android_support_SecurityNative_verifyLogin(
         }
     }
 
-    // Enforce expiry
     if (expiryMs > 0) {
         long long nowMs = (long long)time(nullptr) * 1000LL;
         double diffHours = (double)(expiryMs - nowMs) / 3600000.0;
@@ -783,9 +747,7 @@ Java_com_android_support_SecurityNative_verifyLogin(
         SLOGI("verifyLogin: user=%s no expiry", dbUser.c_str());
     }
 
-    // ============================================================
     // Generate HMAC-signed session token
-    // ============================================================
     std::string payload = dbUser + "|" + dbPass + "|" +
                           std::to_string(expiryMs) + "|" + dbStatus;
     std::string token = SecSHA::hmacHex(std::string(HMAC_SECRET()), payload);
@@ -802,7 +764,7 @@ Java_com_android_support_SecurityNative_verifyLogin(
 }
 
 // ================================================================
-// JNI: verifySessionToken — checks stored token integrity
+// JNI: verifySessionToken
 // ================================================================
 extern "C" JNIEXPORT jboolean JNICALL
 Java_com_android_support_SecurityNative_verifySessionToken(
@@ -838,20 +800,19 @@ Java_com_android_support_SecurityNative_verifySessionToken(
         return JNI_FALSE;
     }
 
-    // Also re-check expiry
     try {
         long long expiryMs = std::stoll(expiry);
         if (expiryMs > 0) {
             long long now = (long long)time(nullptr) * 1000LL;
             if (now > expiryMs) return JNI_FALSE;
         }
-    } catch (...) { /* ignore */ }
+    } catch (...) { }
 
     return JNI_TRUE;
 }
 
 // ================================================================
-// JNI: decryptString — runtime XOR decode (mirror of Java)
+// JNI: decryptString — runtime XOR decode
 // ================================================================
 extern "C" JNIEXPORT jstring JNICALL
 Java_com_android_support_SecurityNative_decryptString(
@@ -871,7 +832,7 @@ Java_com_android_support_SecurityNative_decryptString(
 }
 
 // ================================================================
-// JNI: getSelfHash — returns SHA-256 of a native string (for self-check)
+// JNI: getSelfHash — SHA-256 of input (self-check utility)
 // ================================================================
 extern "C" JNIEXPORT jstring JNICALL
 Java_com_android_support_SecurityNative_getSelfHash(JNIEnv* env, jclass, jstring jInput) {
@@ -896,4 +857,20 @@ Java_com_android_support_SecurityNative_hmacSign(JNIEnv* env, jclass, jstring jM
     env->ReleaseStringUTFChars(jMessage, m);
     std::string mac = SecSHA::hmacHex(std::string(HMAC_SECRET()), msg);
     return env->NewStringUTF(mac.c_str());
+}
+
+// ================================================================
+// JNI: isRooted — exposes soft check for diagnostics
+// ================================================================
+extern "C" JNIEXPORT jboolean JNICALL
+Java_com_android_support_SecurityNative_isRooted(JNIEnv*, jclass) {
+    return isRooted() ? JNI_TRUE : JNI_FALSE;
+}
+
+// ================================================================
+// JNI: isVpnActive — exposes soft check
+// ================================================================
+extern "C" JNIEXPORT jboolean JNICALL
+Java_com_android_support_SecurityNative_isVpnActive(JNIEnv*, jclass) {
+    return isVpnActive() ? JNI_TRUE : JNI_FALSE;
 }
