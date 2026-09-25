@@ -24,10 +24,9 @@ android {
 
     buildTypes {
         release {
-            // 🔥 3+ dex ফেরানোর জন্য — aggressive shrink বন্ধ
-            shrinkResources false       // ← was true, এখন false (dex split ফেরাবে)
-            minifyEnabled true          // ← ProGuard থাকবে কিন্তু lighter rules
-            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+            shrinkResources true           // আগে false ছিল; এখন true (custom rules এ安全工作 করে)
+    minifyEnabled true
+    proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
         }
         debug {
             shrinkResources false

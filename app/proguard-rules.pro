@@ -1,10 +1,8 @@
 # ================================================================
-#  ModX Lab — ProGuard Rules (Light)
+#  ModX Lab — ProGuard Rules
 # ================================================================
 
-# ----------------------------------------------------------------
-#  Original rules (kept)
-# ----------------------------------------------------------------
+# Original rules
 -keepclassmembers class ** {
     public static void Start (***);
 }
@@ -18,63 +16,65 @@
 }
 -keep class com.android.support.TitanicTextView { *; }
 
-
-# ================================================================
-#  Keep our own classes
-# ================================================================
--keep class com.android.support.Main { *; }
--keep class com.android.support.MainActivity { *; }
--keep class com.android.support.Menu { *; }
--keep class com.android.support.LoginHelper { *; }
+# 🔒 JNI-bound classes
+-keep class com.android.support.SecurityNative { *; }
+-keep class com.android.support.Main             { *; }
+-keep class com.android.support.MainActivity     { *; }
+-keep class com.android.support.Menu             { *; }
+-keep class com.android.support.LoginHelper      { *; }
 -keep class com.android.support.LoginHelper$Callback { *; }
--keep class com.android.support.ESPView { *; }
--keep class com.android.support.Preferences { *; }
--keep class com.android.support.CrashHandler { *; }
--keep class com.android.support.Launcher { *; }
+-keep class com.android.support.ESPView          { *; }
+-keep class com.android.support.Preferences      { *; }
+-keep class com.android.support.ModFirebase      { *; }
+-keep class com.android.support.CrashHandler     { *; }
+-keep class com.android.support.Launcher         { *; }
+-keep class com.android.support.Titanic          { *; }
 
 -keep class com.android.support.** { *; }
 -keepclassmembers class com.android.support.** { *; }
 
-
-# ================================================================
-#  Native methods
-# ================================================================
--keepclasseswithmembernames class * {
+-keepclasseswithmembernames,includedescriptorclasses class * {
     native <methods>;
 }
 
-
-# ================================================================
-#  Firebase (Light keep)
-# ================================================================
+# Firebase / GMS
 -keep class com.google.firebase.** { *; }
 -keep class com.google.android.gms.** { *; }
 -dontwarn com.google.firebase.**
 -dontwarn com.google.android.gms.**
 
+# AndroidX
+-keep class androidx.** { *; }
+-dontwarn androidx.**
+
+# Attributes
 -keepattributes Signature
 -keepattributes Exceptions
 -keepattributes *Annotation*
 -keepattributes InnerClasses
 -keepattributes EnclosingMethod
-
-
-# ================================================================
-#  AndroidX
-# ================================================================
--keep class androidx.** { *; }
--dontwarn androidx.**
-
-
-# ================================================================
-#  Misc
-# ================================================================
 -keepattributes SourceFile,LineNumberTable
--renamesourcefileattribute SourceFile
 
+# Aggressive obfuscation
+-repackageclasses 'o'
+-allowaccessmodification
+-overloadaggressively
+-useuniqueclassmembernames
+-adaptclassstrings
+
+# Strip logs
+-assumenosideeffects class android.util.Log {
+    public static *** d(...);
+    public static *** v(...);
+    public static *** i(...);
+    public static *** w(...);
+}
+
+# Misc warnings
 -dontwarn kotlin.**
 -dontwarn kotlinx.**
 -dontwarn okhttp3.**
 -dontwarn okio.**
 -dontwarn javax.annotation.**
 -dontwarn javax.inject.**
+-dontwarn org.jetbrains.annotations.**
