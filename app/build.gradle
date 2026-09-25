@@ -18,15 +18,34 @@ android {
         }
     }
 
+    // ============================================================
+    // 🔑 Signing Config — env vars from GitHub Actions
+    // ============================================================
+    signingConfigs {
+        release {
+            def ksPath = System.getenv("KEYSTORE_PATH")
+            if (ksPath != null && !ksPath.isEmpty() && file(ksPath).exists()) {
+                storeFile file(ksPath)
+                storePassword System.getenv("KEYSTORE_PASSWORD") ?: ""
+                keyAlias System.getenv("KEY_ALIAS") ?: ""
+                keyPassword System.getenv("KEY_PASSWORD") ?: ""
+            }
+        }
+    }
+
     aaptOptions {
         noCompress 'resources.arsc'
     }
 
     buildTypes {
         release {
-            shrinkResources true           // আগে false ছিল; এখন true (custom rules এ安全工作 করে)
-    minifyEnabled true
-    proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+            def ksPath = System.getenv("KEYSTORE_PATH")
+            if (ksPath != null && !ksPath.isEmpty() && file(ksPath).exists()) {
+                signingConfig signingConfigs.release
+            }
+            shrinkResources false
+            minifyEnabled true
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
         }
         debug {
             shrinkResources false
@@ -92,7 +111,6 @@ afterEvaluate {
         dependsOn 'cleanDuplicateSoFiles'
     }
 
-    // 🔥 প্রতি build এ NDK rebuild করানোর জন্য
     tasks.matching { it.name.startsWith("buildNdkBuild") }.configureEach {
         outputs.upToDateWhen { false }
     }
