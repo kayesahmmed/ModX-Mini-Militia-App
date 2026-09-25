@@ -2,7 +2,11 @@ package com.android.support;
 
 import android.app.Activity;
 import android.content.Intent;
+import android.os.Build;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
+import android.provider.Settings;
 import android.util.Log;
 import android.widget.Toast;
 
@@ -18,8 +22,6 @@ public class MainActivity extends Activity {
 
         // ============================================================
         // 🔒 LAYER 1: APK Signature verification
-        //    In release builds → enforces your cert hash
-        //    In debug builds   → auto-passes for testing
         // ============================================================
         if (!SecurityNative.verifyApkSignatureOrDebug(this)) {
             Log.e("Mod_security", "APK signature mismatch — refusing to run");
@@ -32,9 +34,7 @@ public class MainActivity extends Activity {
         }
 
         // ============================================================
-        // 🔒 LAYER 2: Environment check
-        //    Fails ONLY on real attacks (Frida/Xposed)
-        //    Root/VPN/Emulator are soft-checked (allowed)
+        // 🔒 LAYER 2: Environment check (Frida/Xposed only)
         // ============================================================
         if (!SecurityNative.isEnvironmentValid()) {
             Log.e("Mod_security", "Unsafe environment detected — aborting");
@@ -47,8 +47,7 @@ public class MainActivity extends Activity {
         }
 
         // ============================================================
-        // 🔒 LAYER 3: Clear any stored session if invalid
-        //    Prevents stale/tampered tokens from being trusted
+        // 🔒 LAYER 3: Session token validation
         // ============================================================
         try {
             String token  = getSharedPreferences("KEY", MODE_PRIVATE).getString("token", "");
@@ -87,11 +86,35 @@ public class MainActivity extends Activity {
     }
 
     @Override
+    protected void onResume() {
+        super.onResume();
+
+        // Fallback: if overlay permission got granted while we were away
+        // and menu isn't running yet, launch it now.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            if (Settings.canDrawOverlays(this) && Main.getMenu() == null) {
+                new Handler(Looper.getMainLooper()).postDelayed(new Runnable() {
+                    @Override
+                    public void run() {
+                        try {
+                            Main.StartWithoutPermission(MainActivity.this);
+                        } catch (Throwable t) {
+                            Log.w("Mod_menu", "onResume relaunch failed: " + t.getMessage());
+                        }
+                    }
+                }, 800);
+            }
+        }
+    }
+
+    @Override
     protected void onDestroy() {
         super.onDestroy();
         // Graceful shutdown — remove overlay views
         try {
             Main.onDestroy();
-        } catch (Throwable ignored) { }
+        } catch (Throwable t) {
+            Log.w("Mod_menu", "Main.onDestroy error: " + t.getMessage());
+        }
     }
 }
