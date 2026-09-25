@@ -41,7 +41,6 @@ import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 import android.widget.Toast;
-
 import org.json.JSONObject;
 
 import java.util.Iterator;
@@ -482,110 +481,109 @@ public class LoginHelper {
     }
 
     private void performLogin() {
-        if (loginInProgress) return;
+    if (loginInProgress) return;
 
-        final String inputUser = editUser.getText().toString().trim();
-        final String inputPass = editPass.getText().toString().trim();
+    final String inputUser = editUser.getText().toString().trim();
+    final String inputPass = editPass.getText().toString().trim();
 
-        if (TextUtils.isEmpty(inputUser) || TextUtils.isEmpty(inputPass)) {
-            setStatus("Please fill in all fields", COLOR_WARN);
-            return;
-        }
+    if (TextUtils.isEmpty(inputUser) || TextUtils.isEmpty(inputPass)) {
+        setStatus("Please fill in all fields", COLOR_WARN);
+        return;
+    }
 
-        loginInProgress = true;
-        loginBtn.setEnabled(false);
-        loginBtn.setText("SIGNING IN...");
-        setStatus("Verifying credentials...", COLOR_ACCENT_HI);
+    loginInProgress = true;
+    loginBtn.setEnabled(false);
+    loginBtn.setText("SIGNING IN...");
+    setStatus("Verifying credentials...", COLOR_ACCENT_HI);
 
-        save.edit().putString("edittext1", inputUser).apply();
-        save.edit().putString("edittext2", inputPass).apply();
+    // Save for "remember me" (never used for local verification)
+    save.edit().putString("edittext1", inputUser).apply();
+    save.edit().putString("edittext2", inputPass).apply();
 
-        new Thread(new Runnable() {
-            @Override
-            public void run() {
-                JSONObject users = ModFirebase.fetchJson("User");
+    new Thread(new Runnable() {
+        @Override
+        public void run() {
+            // ---------------------------------------------------------
+            // 1) Query ONLY the matching user from Firebase
+            //    (orderBy="user" & equalTo="<inputUser>")
+            // ---------------------------------------------------------
+            JSONObject matched = ModFirebase.fetchUserByUsername(inputUser);
+            final String userJson = (matched == null) ? "" : matched.toString();
 
-                if (users == null) {
-                    loginInProgress = false;
-                    new Handler(Looper.getMainLooper()).post(new Runnable() {
-                        @Override public void run() {
-                            loginBtn.setEnabled(true);
-                            loginBtn.setText("SIGN IN");
-                            setStatus("Connection failed", COLOR_DANGER);
-                        }
-                    });
-                    return;
-                }
+            // ---------------------------------------------------------
+            // 2) Native verification — password compare, status, expiry
+            //    All happens in libModXLab.so
+            // ---------------------------------------------------------
+            final String resultJson =
+                    SecurityNative.verifyLogin(inputUser, inputPass, userJson);
 
-                JSONObject matched = null;
-                try {
-                    Iterator<String> keys = users.keys();
-                    while (keys.hasNext()) {
-                        String k = keys.next();
-                        JSONObject u = users.optJSONObject(k);
-                        if (u == null) continue;
-                        String user = u.optString("user", "");
-                        String pass = u.optString("pass", "");
-                        if (inputUser.equals(user) && inputPass.equals(pass)) {
-                            matched = u;
-                            break;
-                        }
-                    }
-                } catch (Exception ignored) { }
+            boolean ok = false;
+            String reason = "network";
+            String token = "";
+            String userOut = "";
+            String statusOut = "";
+            String timeOut = "";
+            try {
+                JSONObject r = new JSONObject(resultJson);
+                ok = r.optBoolean("ok", false);
+                reason = r.optString("reason", "unknown");
+                token = r.optString("token", "");
+                userOut = r.optString("user", "");
+                statusOut = r.optString("status", "");
+                timeOut = r.optString("time", "");
+            } catch (Exception e) {
+                ok = false;
+                reason = "network";
+            }
 
-                if (matched == null) {
-                    loginInProgress = false;
-                    new Handler(Looper.getMainLooper()).post(new Runnable() {
-                        @Override public void run() {
-                            loginBtn.setEnabled(true);
-                            loginBtn.setText("SIGN IN");
-                            setStatus("Invalid username or password", COLOR_DANGER);
-                        }
-                    });
-                    return;
-                }
-
-                String status = matched.optString("status", "false");
-                long time = 0;
-                try { time = (long) matched.optDouble("time", 0); } catch (Exception ignored) { }
-                long now = System.currentTimeMillis();
-                boolean expired = (time > 0 && now > time);
-
-                if (!status.equals("true") || expired) {
-                    loginInProgress = false;
-                    new Handler(Looper.getMainLooper()).post(new Runnable() {
-                        @Override public void run() {
-                            loginBtn.setEnabled(true);
-                            loginBtn.setText("SIGN IN");
-                            setStatus("Key expired or blocked", COLOR_DANGER);
-                            showKeyExpiredDialog();
-                        }
-                    });
-                    return;
-                }
-
-                try {
-                    KEY.edit().putString("User",     matched.optString("user", "")).apply();
-                    KEY.edit().putString("Status",   matched.optString("status", "")).apply();
-                    KEY.edit().putString("Register", matched.optString("rgtime", "")).apply();
-                    KEY.edit().putString("time",     matched.optString("time", "")).apply();
-                    KEY.edit().putString("Valid",    matched.optString("Validity", "")).apply();
-                    KEY.edit().putString("key",      matched.optString("key", "")).apply();
-                } catch (Exception ignored) { }
-
+            if (!ok) {
+                final String fReason = reason;
                 loginInProgress = false;
                 new Handler(Looper.getMainLooper()).post(new Runnable() {
                     @Override public void run() {
                         loginBtn.setEnabled(true);
                         loginBtn.setText("SIGN IN");
-                        setStatus("Welcome back!", COLOR_SUCCESS);
-                        Toast.makeText(ctx, "Login Success", Toast.LENGTH_SHORT).show();
-                        checkUpdateAfterLogin();
+                        if ("expired".equals(fReason)) {
+                            setStatus("Key expired", COLOR_DANGER);
+                            showKeyExpiredDialog();
+                        } else if ("blocked".equals(fReason)) {
+                            setStatus("Account blocked", COLOR_DANGER);
+                            showKeyExpiredDialog();
+                        } else if ("no_match".equals(fReason) || "invalid_credentials".equals(fReason)) {
+                            setStatus("Invalid username or password", COLOR_DANGER);
+                        } else if ("network".equals(fReason)) {
+                            setStatus("Connection failed", COLOR_DANGER);
+                        } else {
+                            setStatus("Login failed", COLOR_DANGER);
+                        }
                     }
                 });
+                return;
             }
-        }).start();
-    }
+
+            // ---------------------------------------------------------
+            // 3) Success — persist token + verified data only
+            // ---------------------------------------------------------
+            try {
+                KEY.edit().putString("User",     userOut).apply();
+                KEY.edit().putString("Status",   statusOut).apply();
+                KEY.edit().putString("time",     timeOut).apply();
+                KEY.edit().putString("token",    token).apply();
+            } catch (Exception ignored) { }
+
+            loginInProgress = false;
+            new Handler(Looper.getMainLooper()).post(new Runnable() {
+                @Override public void run() {
+                    loginBtn.setEnabled(true);
+                    loginBtn.setText("SIGN IN");
+                    setStatus("Welcome back!", COLOR_SUCCESS);
+                    Toast.makeText(ctx, "Login Success", Toast.LENGTH_SHORT).show();
+                    checkUpdateAfterLogin();
+                }
+            });
+        }
+    }).start();
+}
 
     private void checkUpdateAfterLogin() {
         new Thread(new Runnable() {
@@ -625,12 +623,18 @@ public class LoginHelper {
     }
 
     private void proceedToMenu() {
-        new Handler(Looper.getMainLooper()).post(new Runnable() {
-            @Override public void run() {
-                if (callback != null) callback.onLoginSuccess();
-            }
-        });
+    // Final gate: only proceed if native issued a token
+    String token = KEY.getString("token", "");
+    if (token == null || token.isEmpty()) {
+        setStatus("Session invalid", COLOR_DANGER);
+        return;
     }
+    new Handler(Looper.getMainLooper()).post(new Runnable() {
+        @Override public void run() {
+            if (callback != null) callback.onLoginSuccess();
+        }
+    });
+}
 
     private void showUpdateDialog(String version, String msg) {
         final android.app.AlertDialog[] ref = new android.app.AlertDialog[1];
