@@ -2,11 +2,7 @@ package com.android.support;
 
 import android.app.Activity;
 import android.content.Intent;
-import android.os.Build;
 import android.os.Bundle;
-import android.os.Handler;
-import android.os.Looper;
-import android.provider.Settings;
 import android.util.Log;
 import android.widget.Toast;
 
@@ -80,37 +76,21 @@ public class MainActivity extends Activity {
         }
 
         // ============================================================
-        // 🚀 Start the mod menu
+        // 🚀 Start the mod menu — single call, all other paths
+        //     are handled by the native CheckOverlayPermission callback
         // ============================================================
         Main.Start(this);
     }
 
-    @Override
-    protected void onResume() {
-        super.onResume();
-
-        // Fallback: if overlay permission got granted while we were away
-        // and menu isn't running yet, launch it now.
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            if (Settings.canDrawOverlays(this) && Main.getMenu() == null) {
-                new Handler(Looper.getMainLooper()).postDelayed(new Runnable() {
-                    @Override
-                    public void run() {
-                        try {
-                            Main.StartWithoutPermission(MainActivity.this);
-                        } catch (Throwable t) {
-                            Log.w("Mod_menu", "onResume relaunch failed: " + t.getMessage());
-                        }
-                    }
-                }, 800);
-            }
-        }
-    }
+    // NOTE: onResume fallback has been REMOVED.
+    // Reason: it was racing with the native permission callback and
+    // producing TWO Menu instances. The native callback is reliable —
+    // it fires after the user grants permission, calling
+    // Main.StartWithoutPermission() exactly once.
 
     @Override
     protected void onDestroy() {
         super.onDestroy();
-        // Graceful shutdown — remove overlay views
         try {
             Main.onDestroy();
         } catch (Throwable t) {

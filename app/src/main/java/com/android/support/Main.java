@@ -11,15 +11,12 @@ import android.provider.Settings;
 import android.util.Log;
 import android.widget.Toast;
 
+import java.util.concurrent.atomic.AtomicBoolean;
+
 /**
  * ModX Lab — Main entry point
  *
- * Responsibilities:
- *   - Initialize crash handler
- *   - Set native crash-log directory
- *   - Check overlay permission (Android 6+)
- *   - Launch Menu overlay
- *   - Provide cleanup on Activity destroy
+ * Thread-safe, single-launch guarantee.
  */
 public class Main {
 
@@ -40,9 +37,17 @@ public class Main {
     private static native void setNativeCrashDir(String dir);
 
     // ---------------------------------------------------------------
-    // Menu instance tracking (for onDestroy)
+    // Single-launch tracking (thread-safe)
     // ---------------------------------------------------------------
+    private static final Object sLock = new Object();
     private static Menu sMenu = null;
+
+    /**
+     * Set to true as soon as we decide to create a Menu.
+     * Prevents onResume/native-callback race from creating a second Menu.
+     * Never reset during a session — one Menu per process lifetime.
+     */
+    private static final AtomicBoolean sLaunchAttempted = new AtomicBoolean(false);
 
     // ---------------------------------------------------------------
     // Public API — called from MainActivity.onCreate()
@@ -55,10 +60,8 @@ public class Main {
 
         Log.i(TAG, "Main.Start() invoked");
 
-        // Init crash handler
         CrashHandler.init(context, false);
 
-        // Set native crash directory
         try {
             java.io.File extDir = context.getExternalFilesDir(null);
             if (extDir != null) {
@@ -70,14 +73,15 @@ public class Main {
             setNativeCrashDir("/storage/emulated/0/Documents");
         }
 
-        // Native permission check → will call back StartWithoutPermission()
-        // when overlay permission is granted
+        // Native permission check (will call back StartWithoutPermission)
         CheckOverlayPermission(context);
     }
 
     /**
-     * Called from native (via JNI) after overlay permission is granted.
-     * OR can be called directly from Java if you handle permission yourself.
+     * Called by native code (JNI) after overlay permission is confirmed,
+     * OR directly from Java if you handle permission yourself.
+     *
+     * Guaranteed to create AT MOST ONE Menu per process.
      */
     public static void StartWithoutPermission(Context context) {
         if (context == null) {
@@ -85,33 +89,45 @@ public class Main {
             return;
         }
 
-        Log.i(TAG, "StartWithoutPermission() invoked");
+        // 🔥 ATOMIC single-launch guard — prevents race condition
+        if (!sLaunchAttempted.compareAndSet(false, true)) {
+            Log.i(TAG, "Menu launch already attempted — skipping duplicate call");
+            return;
+        }
+
+        Log.i(TAG, "StartWithoutPermission() — first launch attempt");
 
         CrashHandler.init(context, true);
 
         if (!(context instanceof Activity)) {
+            Log.e(TAG, "Context is not an Activity — cannot attach menu");
             Toast.makeText(context, "Failed to launch the mod menu\n", Toast.LENGTH_LONG).show();
-            return;
-        }
-
-        // Prevent double-launch
-        if (sMenu != null) {
-            Log.i(TAG, "Menu already running — skipping");
+            // Allow retry since we didn't actually launch
+            sLaunchAttempted.set(false);
             return;
         }
 
         try {
             Menu menu = new Menu(context);
-            sMenu = menu;
+
+            synchronized (sLock) {
+                sMenu = menu;
+            }
 
             menu.SetWindowManagerActivity();
             menu.ShowMenu();
 
             Log.i(TAG, "Menu launched successfully");
+
         } catch (Throwable t) {
             Log.e(TAG, "Menu launch FAILED: " + t);
             t.printStackTrace();
-            sMenu = null;
+
+            synchronized (sLock) {
+                sMenu = null;
+            }
+            // Allow retry after failure
+            sLaunchAttempted.set(false);
 
             try {
                 Toast.makeText(context,
@@ -123,26 +139,37 @@ public class Main {
 
     /**
      * Cleanup — called from MainActivity.onDestroy()
-     * Removes overlay views, stops animations, releases native refs.
      */
     public static void onDestroy() {
         Log.i(TAG, "Main.onDestroy() invoked");
-        try {
-            if (sMenu != null) {
-                sMenu.onDestroy();
-                sMenu = null;
+        Menu menu;
+        synchronized (sLock) {
+            menu = sMenu;
+            sMenu = null;
+        }
+
+        if (menu != null) {
+            try {
+                menu.onDestroy();
                 Log.i(TAG, "Menu destroyed cleanly");
+            } catch (Throwable t) {
+                Log.w(TAG, "onDestroy error: " + t.getMessage());
             }
-        } catch (Throwable t) {
-            Log.w(TAG, "onDestroy error: " + t.getMessage());
+        }
+        // Note: sLaunchAttempted stays TRUE (menu was created this session)
+    }
+
+    /** True if a Menu has already been created this session. */
+    public static boolean hasLaunched() {
+        return sLaunchAttempted.get();
+    }
+
+    /** Accessor for the current Menu (may be null). */
+    public static Menu getMenu() {
+        synchronized (sLock) {
+            return sMenu;
         }
     }
 
-    /** Accessor for internal checks (e.g. onResume fallback). */
-    public static Menu getMenu() {
-        return sMenu;
-    }
-
-    /** Prevent instantiation. */
     private Main() { }
 }
