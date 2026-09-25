@@ -1,8 +1,8 @@
 // ================================================================
-// Mini Militia — Main.cpp v112.0
-//  - Teleport: real physics body write (auto body-pointer discovery)
+// Mini Militia — Main.cpp v113.0
+//  - Teleport: real physics body write (safe, no SIGBUS)
+//  - Dual hook: Soldier + CollisionObject getBodyPosition
 //  - Dual Wield: pickup-prompt only (no auto-convert)
-//  - All other features from v111 preserved
 // ================================================================
 
 #include <list>
@@ -34,6 +34,7 @@
 #include <unordered_set>
 #include <unordered_map>
 #include <android/log.h>
+#include <sys/mman.h>
 
 #include "Includes/Logger.h"
 #include "Includes/obfuscate.h"
@@ -124,7 +125,7 @@ static void native_crash_handler(int sig, siginfo_t* info, void*) {
 }
 static void install_crash_handler() {
     ensureLogFd();
-    __android_log_print(ANDROID_LOG_INFO, LOG_TAG, "=== MMMod v112.0 boot ===");
+    __android_log_print(ANDROID_LOG_INFO, LOG_TAG, "=== MMMod v113.0 boot ===");
     crashLog("BOOT", "Crash handler installed");
     struct sigaction sa; memset(&sa, 0, sizeof(sa));
     sa.sa_sigaction = native_crash_handler;
@@ -230,6 +231,9 @@ namespace Off {
     constexpr uintptr_t SoldierController_getSideWeapon      = 0x00f13234;
     constexpr uintptr_t SoldierController_fire               = 0x00f1323c;
     constexpr uintptr_t SoldierController_setThrust          = 0x00f13044;
+
+    // CollisionObject base — extra getBodyPosition
+    constexpr uintptr_t CollisionObject_getBodyPosition      = 0x00eac428;
 
     constexpr uintptr_t SoldierLocalController_updateStep            = 0x00f14478;
     constexpr uintptr_t SoldierLocalController_addDamage             = 0x00f18c64;
@@ -480,6 +484,7 @@ setThrust_t                 old_setThrust                 = nullptr;
 getRespawnTime_t            old_getRespawnTime            = nullptr;
 isRespawning_t              old_isRespawning              = nullptr;
 getBodyPosition_t           old_getBodyPosition_hook      = nullptr;
+getBodyPosition_t           old_collGetBody               = nullptr;   // CollisionObject base
 addStaticShape_t            old_addStaticBodyShape        = nullptr;
 addStaticPoly_t             old_addStaticBodyPoly         = nullptr;
 
@@ -698,7 +703,7 @@ static __thread volatile sig_atomic_t tls_bulletRaycast = 0;
 static std::atomic<uintptr_t> g_bodyOffsetFromSelf{(uintptr_t)-1};
 static std::atomic<int>       g_posOffsetInBody{-1};
 static std::atomic<bool>      g_bodyDiscoveryDone{false};
-static std::atomic<bool>      g_bodyDiscoveryTried{false};
+static std::atomic<int>       g_gbpCallLogs{0};
 
 // ==================================================================
 // Small helpers
@@ -719,6 +724,13 @@ static inline float NormalizeDeg(float d) {
     while (d > 180.0f) d -= 360.0f;
     while (d < -180.0f) d += 360.0f;
     return d;
+}
+
+// Safe page-mapped check using mincore
+static inline bool IsAddressMapped(uintptr_t addr) {
+    uintptr_t pageStart = addr & ~(uintptr_t)0xFFF;
+    unsigned char vec = 0;
+    return mincore((void*)pageStart, 0x1000, &vec) == 0;
 }
 
 // ==================================================================
@@ -1020,10 +1032,9 @@ int getClipCapacity_Hook(void* self) { if (g_wpnUnlimitedAmmo.load()) return 999
 int getAmmoCapacity_Hook(void* self) { if (g_wpnUnlimitedAmmo.load()) return 9999; return old_getAmmoCapacity ? old_getAmmoCapacity(self) : 0; }
 int getReloadTime_Hook(void* self) { if (g_wpnFastReload.load()) return 0; return old_getReloadTime ? old_getReloadTime(self) : 1000; }
 
-// ---- Dual Wield hooks (pickup-prompt only, no auto-convert) ----
+// ---- Dual Wield: pickup-prompt only ----
 bool isDualWield_Hook(void* self) {
     if (g_dualWieldAll.load()) {
-        // Only force true for weapons we KNOW are held by local player
         void* local = g_localInstance.load();
         if (PlausiblePtr(local) && fn_getPrimaryWeapon) {
             void* prim = nullptr;
@@ -1035,16 +1046,13 @@ bool isDualWield_Hook(void* self) {
     return old_isDualWield ? old_isDualWield(self) : false;
 }
 bool isDualWieldOnly_Hook(void* self) {
-    // Leave as game decides
     return old_isDualWieldOnly ? old_isDualWieldOnly(self) : false;
 }
 bool isDualWieldPrimaryOnly_Hook(void* self) {
-    // Remove the "primary only" restriction so any gun can dual
     if (g_dualWieldAll.load()) return false;
     return old_isDualWieldPrimaryOnly ? old_isDualWieldPrimaryOnly(self) : false;
 }
 void setPickupAsDual_Hook(void* self, bool v) {
-    // Force dual-ready flag whenever toggle is on → HUD shows dual button
     if (g_dualWieldAll.load()) {
         if (old_setPickupAsDual) old_setPickupAsDual(self, true);
         return;
@@ -1105,7 +1113,7 @@ int isRespawning_Hook(void* self) {
 }
 
 // ==================================================================
-// Local update (no auto-convert; only char speed)
+// Local update (char speed only, no auto-convert)
 // ==================================================================
 void soldierLocalUpdateStep_Hook(void* self, float dt, cpVect a, cpVect b, float c) {
     if (!PlausiblePtr(self)) {
@@ -1231,95 +1239,128 @@ static void ExecuteAutoFire(void* localController) {
 }
 
 // ==================================================================
-// Teleport: real body write
+// Teleport — safe body-pointer discovery + write
 // ==================================================================
 static void TryDiscoverBodyPointer(void* self) {
-    if (g_bodyDiscoveryTried.exchange(true)) return;
-    if (!PlausiblePtr(self) || !fn_getBodyPosition) return;
+    if (g_bodyDiscoveryDone.load()) return;
+    if (!PlausiblePtr(self)) return;
+    if (!fn_getBodyPosition) return;
 
-    cpVect want{0,0};
+    cpVect want{0, 0};
     if (GUARD_ENTER()) { GUARD_SET(); fn_getBodyPosition(&want, self); GUARD_CLR(); }
     else { GUARD_CLR(); return; }
-    if (std::fabs(want.x) < 20.0 && std::fabs(want.y) < 20.0) {
-        g_bodyDiscoveryTried.store(false);
-        return;
-    }
-    uintptr_t base = (uintptr_t)self;
+
+    if (std::fabs(want.x) < 30.0 && std::fabs(want.y) < 30.0) return;
+
     traceLog("TELEPORT scan: self=%p want=(%.1f,%.1f)", self, want.x, want.y);
 
-    for (int selfOff = 0; selfOff < 256; selfOff += 4) {
-        if (selfOff == 0) continue;
+    uintptr_t selfAddr = (uintptr_t)self;
+
+    // Scan first 64 bytes of self for cpBody* candidate
+    for (int selfOff = 4; selfOff <= 60; selfOff += 4) {
+        uintptr_t fieldAddr = selfAddr + selfOff;
+        if (!IsAddressMapped(fieldAddr)) continue;
+
         void* cand = nullptr;
-        bool safe = false;
-        if (GUARD_ENTER()) {
-            GUARD_SET();
-            cand = *(void**)(base + selfOff);
-            safe = PlausiblePtr(cand);
-            GUARD_CLR();
-        } else { GUARD_CLR(); continue; }
-        if (!safe) continue;
+        if (GUARD_ENTER()) { GUARD_SET(); cand = *(void**)fieldAddr; GUARD_CLR(); }
+        else { GUARD_CLR(); continue; }
+        if (!PlausiblePtr(cand)) continue;
 
         uintptr_t cbase = (uintptr_t)cand;
-        for (int posOff = 0; posOff <= 256; posOff += 8) {
+        if (cbase & 0x7) continue;
+
+        // Scan first 128 bytes of candidate for matching doubles
+        for (int posOff = 0; posOff <= 120; posOff += 8) {
+            uintptr_t dAddr = cbase + posOff;
+            if (dAddr & 0x7) continue;
+            if (!IsAddressMapped(dAddr)) continue;
+            if (!IsAddressMapped(dAddr + 8)) continue;
+
             double px = 0, py = 0;
             if (GUARD_ENTER()) {
                 GUARD_SET();
-                px = *(double*)(cbase + posOff);
-                py = *(double*)(cbase + posOff + 8);
+                px = *(double*)dAddr;
+                py = *(double*)(dAddr + 8);
                 GUARD_CLR();
             } else { GUARD_CLR(); continue; }
-            if (std::fabs(px - want.x) < 0.5 && std::fabs(py - want.y) < 0.5) {
+
+            if (std::fabs(px - want.x) < 1.0 && std::fabs(py - want.y) < 1.0) {
                 g_bodyOffsetFromSelf.store((uintptr_t)selfOff);
                 g_posOffsetInBody.store(posOff);
                 g_bodyDiscoveryDone.store(true);
-                traceLog("TELEPORT found: self+0x%x -> cpBody, p at +0x%x",
-                         selfOff, posOff);
+                traceLog("TELEPORT FOUND: body at self+0x%x, p at +0x%x", selfOff, posOff);
                 return;
             }
         }
     }
-    traceLog("TELEPORT scan FAILED — no body pointer found");
+    traceLog("TELEPORT scan: no body found yet, retry later");
 }
 
 void getBodyPosition_Hooked(cpVect* out, void* self) {
+    if (g_gbpCallLogs.load() < 5) {
+        if (g_gbpCallLogs.fetch_add(1) < 5) {
+            traceLog("getBodyPosition call: out=%p self=%p", out, self);
+        }
+    }
+
     if (old_getBodyPosition_hook) old_getBodyPosition_hook(out, self);
     if (!out) return;
 
-    // Discovery (one-shot per session)
-    if (!g_bodyDiscoveryDone.load() && self == g_localInstance.load()) {
-        TryDiscoverBodyPointer(self);
+    void* local = g_localInstance.load();
+    if (local && self == local) {
+        if (!g_bodyDiscoveryDone.load()) {
+            TryDiscoverBodyPointer(self);
+        }
     }
+
     if (!g_teleportActive.load()) return;
-    if (self != g_localInstance.load()) return;
-
-    uintptr_t selfOff = g_bodyOffsetFromSelf.load();
-    int posOff        = g_posOffsetInBody.load();
-    if (selfOff == (uintptr_t)-1 || posOff < 0) return;
-
-    void* body = nullptr;
-    if (GUARD_ENTER()) {
-        GUARD_SET();
-        body = *(void**)((uintptr_t)self + selfOff);
-        GUARD_CLR();
-    } else { GUARD_CLR(); return; }
-    if (!PlausiblePtr(body)) return;
+    if (!local || self != local) return;
 
     float tx = g_teleportX.load();
     float ty = g_teleportY.load();
 
-    if (GUARD_ENTER()) {
-        GUARD_SET();
-        // p (position)
-        *(double*)((uintptr_t)body + posOff)     = (double)tx;
-        *(double*)((uintptr_t)body + posOff + 8) = (double)ty;
-        // v (velocity) — cleared
-        *(double*)((uintptr_t)body + posOff + 16) = 0.0;
-        *(double*)((uintptr_t)body + posOff + 24) = 0.0;
-        // Override return value
-        out->x = (double)tx;
-        out->y = (double)ty;
-        GUARD_CLR();
-    } else GUARD_CLR();
+    uintptr_t selfOff = g_bodyOffsetFromSelf.load();
+    int       posOff  = g_posOffsetInBody.load();
+
+    if (selfOff != (uintptr_t)-1 && posOff >= 0) {
+        uintptr_t fieldAddr = (uintptr_t)self + selfOff;
+        if (IsAddressMapped(fieldAddr)) {
+            void* body = nullptr;
+            if (GUARD_ENTER()) { GUARD_SET(); body = *(void**)fieldAddr; GUARD_CLR(); }
+            else GUARD_CLR();
+
+            if (PlausiblePtr(body)) {
+                uintptr_t pAddr = (uintptr_t)body + posOff;
+                if ((pAddr & 0x7) == 0 &&
+                    IsAddressMapped(pAddr) &&
+                    IsAddressMapped(pAddr + 24)) {
+                    if (GUARD_ENTER()) {
+                        GUARD_SET();
+                        *(double*)(pAddr)      = (double)tx;
+                        *(double*)(pAddr + 8)  = (double)ty;
+                        *(double*)(pAddr + 16) = 0.0;
+                        *(double*)(pAddr + 24) = 0.0;
+                        GUARD_CLR();
+                    } else GUARD_CLR();
+                }
+            }
+        }
+    }
+
+    // Always override return value
+    out->x = (double)tx;
+    out->y = (double)ty;
+}
+
+// CollisionObject base hook — redirect to same logic
+void getBodyPosition_Coll_Hooked(cpVect* out, void* self) {
+    if (old_collGetBody) old_collGetBody(out, self);
+    if (!out) return;
+    if (!g_teleportActive.load()) return;
+    void* local = g_localInstance.load();
+    if (!local || self != local) return;
+    out->x = (double)g_teleportX.load();
+    out->y = (double)g_teleportY.load();
 }
 
 // ==================================================================
@@ -1537,9 +1578,8 @@ void LocalActivate_Hook(void* self) {
             g_localInstance.store(self);
             g_localInstanceSetMs.store(NowMs());
             g_localSeen.store(false); g_localDead.store(false);
-            // Reset body discovery so it runs for the new instance
+            // Reset body discovery
             g_bodyDiscoveryDone.store(false);
-            g_bodyDiscoveryTried.store(false);
             g_bodyOffsetFromSelf.store((uintptr_t)-1);
             g_posOffsetInBody.store(-1);
         }
@@ -1565,7 +1605,6 @@ void StageUpdate_Hook(void* self, float dt) {
     BuildSnapshots();
     void* local = g_localInstance.load();
     if (PlausiblePtr(local)) {
-        // Retry body discovery from stage tick if not yet done
         if (!g_bodyDiscoveryDone.load()) {
             TryDiscoverBodyPointer(local);
         }
@@ -1698,7 +1737,12 @@ static void InstallHooksIfNeeded() {
 
     if (!g_teleportHooksOk.load()) {
         SAFE_HOOK(Off::SoldierController_getBodyPosition, getBodyPosition_Hooked, old_getBodyPosition_hook, g_teleportHooksOk);
-        crashLog("HOOK", "Teleport hook OK");
+        // Extra: hook base CollisionObject::getBodyPosition
+        {
+            uintptr_t _a = g_libBase + Off::CollisionObject_getBodyPosition;
+            HOOK_ABS((void*)_a, getBodyPosition_Coll_Hooked, old_collGetBody);
+        }
+        crashLog("HOOK", "Teleport hooks OK (2)");
     }
 
     if (!g_wpnHooksOk.load()) {
