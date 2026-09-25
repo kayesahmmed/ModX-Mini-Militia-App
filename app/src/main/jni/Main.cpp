@@ -1,8 +1,8 @@
 // ================================================================
-// Mini Militia — Main.cpp v113.0
-//  - Teleport: real physics body write (safe, no SIGBUS)
+// Mini Militia — Main.cpp v114.0
+//  - Teleport: recursion-guarded body-pointer discovery
+//  - CRITICAL: fn_getBodyPosition = trampoline (no recursion)
 //  - Dual hook: Soldier + CollisionObject getBodyPosition
-//  - Dual Wield: pickup-prompt only (no auto-convert)
 // ================================================================
 
 #include <list>
@@ -125,7 +125,7 @@ static void native_crash_handler(int sig, siginfo_t* info, void*) {
 }
 static void install_crash_handler() {
     ensureLogFd();
-    __android_log_print(ANDROID_LOG_INFO, LOG_TAG, "=== MMMod v113.0 boot ===");
+    __android_log_print(ANDROID_LOG_INFO, LOG_TAG, "=== MMMod v114.0 boot ===");
     crashLog("BOOT", "Crash handler installed");
     struct sigaction sa; memset(&sa, 0, sizeof(sa));
     sa.sa_sigaction = native_crash_handler;
@@ -169,7 +169,6 @@ Java_com_android_support_Main_setNativeCrashDir(JNIEnv*, jclass, jstring) {}
 // OFFSETS
 // ==================================================================
 namespace Off {
-    // Weapon
     constexpr uintptr_t Weapon_getRandomFiringAngle     = 0x00f40ad0;
     constexpr uintptr_t Weapon_getBulletSpeed           = 0x00f40ab0;
     constexpr uintptr_t Weapon_getRange                 = 0x00f40784;
@@ -196,7 +195,6 @@ namespace Off {
     constexpr uintptr_t Weapon_getMeleeDamage           = 0x00f40774;
     constexpr uintptr_t Weapon_getMeleeLength           = 0x00f4077c;
 
-    // Map / Walls
     constexpr uintptr_t MapManager_addStaticBodyShape   = 0x00eeb038;
     constexpr uintptr_t MapManager_addStaticBodyPoly    = 0x00eeac7c;
     constexpr uintptr_t MapManager_isCollisionTile      = 0x00eec664;
@@ -205,11 +203,9 @@ namespace Off {
     constexpr uintptr_t MapManager_getMaxPower          = 0x00eea748;
     constexpr uintptr_t MapManager_getGravityFactor     = 0x00eea740;
 
-    // Effects
     constexpr uintptr_t EffectsManager_addExplosionAt   = 0x00eb1f20;
     constexpr uintptr_t EffectsManager_addGasCloudAt    = 0x00eb2360;
 
-    // Projectiles
     constexpr uintptr_t ProjectileManager_addBullet     = 0x00f04b7c;
     constexpr uintptr_t ProjectileManager_addShell      = 0x00f052d8;
     constexpr uintptr_t ProjectileManager_addRocket     = 0x00f05008;
@@ -217,7 +213,6 @@ namespace Off {
     constexpr uintptr_t ProjectileManager_addSaw        = 0x00f05750;
     constexpr uintptr_t ProjectileManager_addFlame      = 0x00f055a4;
 
-    // Soldier
     constexpr uintptr_t SoldierController_getBodyPosition    = 0x00f13828;
     constexpr uintptr_t SoldierController_getHP              = 0x00f137d4;
     constexpr uintptr_t SoldierController_setHP              = 0x00f137e4;
@@ -232,7 +227,6 @@ namespace Off {
     constexpr uintptr_t SoldierController_fire               = 0x00f1323c;
     constexpr uintptr_t SoldierController_setThrust          = 0x00f13044;
 
-    // CollisionObject base — extra getBodyPosition
     constexpr uintptr_t CollisionObject_getBodyPosition      = 0x00eac428;
 
     constexpr uintptr_t SoldierLocalController_updateStep            = 0x00f14478;
@@ -261,12 +255,10 @@ namespace Off {
     constexpr uintptr_t HawkDrone_updateStep               = 0x00edd640;
     constexpr uintptr_t WormDrone_updateStep               = 0x00f4aaa8;
 
-    // Model
     constexpr uintptr_t WeaponsModel_isUnlockable            = 0x01113a88;
     constexpr uintptr_t WeaponsModel_isUpgradable            = 0x01113a60;
     constexpr uintptr_t WeaponsModel_getDualWieldUnlockLevel = 0x01113984;
 
-    // Stage
     constexpr uintptr_t Stage_update                 = 0x00f21938;
     constexpr uintptr_t NetworkMessageDispatcher_updatePeerDamage = 0x00ef5d60;
     constexpr uintptr_t NetworkManager_sendWeaponChange = 0x00ef3ec4;
@@ -280,7 +272,6 @@ namespace Off {
     constexpr uintptr_t SoldierView_getPlayerName    = 0x00f20994;
     constexpr uintptr_t CollisionObject_getTeamId    = 0x00eac4f0;
 
-    // Trigger pulls
     constexpr uintptr_t AK47_triggerPull    = 0x00ea2e74;
     constexpr uintptr_t AA12_triggerPull    = 0x00ea2128;
     constexpr uintptr_t DEAGLE_triggerPull  = 0x00eacaf0;
@@ -299,7 +290,6 @@ namespace Off {
     constexpr uintptr_t XM8_triggerPull     = 0x00f4b834;
     constexpr uintptr_t PHASR_triggerPull   = 0x00ef921c;
 
-    // Other
     constexpr uintptr_t Enemy_canSeeTarget          = 0x00eb3940;
     constexpr uintptr_t Explosion_applyDamage       = 0x00eb7ac8;
     constexpr uintptr_t GasCloud_applyDamage        = 0x00ed5808;
@@ -484,13 +474,13 @@ setThrust_t                 old_setThrust                 = nullptr;
 getRespawnTime_t            old_getRespawnTime            = nullptr;
 isRespawning_t              old_isRespawning              = nullptr;
 getBodyPosition_t           old_getBodyPosition_hook      = nullptr;
-getBodyPosition_t           old_collGetBody               = nullptr;   // CollisionObject base
+getBodyPosition_t           old_collGetBody               = nullptr;
 addStaticShape_t            old_addStaticBodyShape        = nullptr;
 addStaticPoly_t             old_addStaticBodyPoly         = nullptr;
 
 // Direct call pointers
 getLocalController_t   fn_getLocalController = nullptr;
-getBodyPosition_t      fn_getBodyPosition    = nullptr;
+getBodyPosition_t      fn_getBodyPosition    = nullptr;   // will point to trampoline
 getHP_t                fn_getHP              = nullptr;
 getTeamId_t            fn_getTeamId          = nullptr;
 getSoldierView_t       fn_getSoldierView     = nullptr;
@@ -647,7 +637,6 @@ std::atomic<bool> g_flyThroughWalls   {false};
 std::atomic<bool> g_bulletThroughWalls{false};
 std::atomic<bool> g_respawnTimeMod    {false};
 
-// Teleport
 std::atomic<bool>  g_teleportActive{false};
 std::atomic<float> g_teleportX{0.f};
 std::atomic<float> g_teleportY{0.f};
@@ -698,11 +687,12 @@ std::atomic<bool> g_teleportHooksOk{false};
 static __thread volatile sig_atomic_t tls_bulletRaycast = 0;
 
 // ==================================================================
-// Teleport body-pointer discovery
+// Teleport discovery state
 // ==================================================================
 static std::atomic<uintptr_t> g_bodyOffsetFromSelf{(uintptr_t)-1};
 static std::atomic<int>       g_posOffsetInBody{-1};
 static std::atomic<bool>      g_bodyDiscoveryDone{false};
+static std::atomic<bool>      g_discoveryInProgress{false};   // recursion guard
 static std::atomic<int>       g_gbpCallLogs{0};
 
 // ==================================================================
@@ -725,8 +715,6 @@ static inline float NormalizeDeg(float d) {
     while (d < -180.0f) d += 360.0f;
     return d;
 }
-
-// Safe page-mapped check using mincore
 static inline bool IsAddressMapped(uintptr_t addr) {
     uintptr_t pageStart = addr & ~(uintptr_t)0xFFF;
     unsigned char vec = 0;
@@ -1032,7 +1020,6 @@ int getClipCapacity_Hook(void* self) { if (g_wpnUnlimitedAmmo.load()) return 999
 int getAmmoCapacity_Hook(void* self) { if (g_wpnUnlimitedAmmo.load()) return 9999; return old_getAmmoCapacity ? old_getAmmoCapacity(self) : 0; }
 int getReloadTime_Hook(void* self) { if (g_wpnFastReload.load()) return 0; return old_getReloadTime ? old_getReloadTime(self) : 1000; }
 
-// ---- Dual Wield: pickup-prompt only ----
 bool isDualWield_Hook(void* self) {
     if (g_dualWieldAll.load()) {
         void* local = g_localInstance.load();
@@ -1113,7 +1100,7 @@ int isRespawning_Hook(void* self) {
 }
 
 // ==================================================================
-// Local update (char speed only, no auto-convert)
+// Local update
 // ==================================================================
 void soldierLocalUpdateStep_Hook(void* self, float dt, cpVect a, cpVect b, float c) {
     if (!PlausiblePtr(self)) {
@@ -1239,15 +1226,20 @@ static void ExecuteAutoFire(void* localController) {
 }
 
 // ==================================================================
-// Teleport — safe body-pointer discovery + write
+// Teleport: recursion-guarded discovery (uses TRAMPOLINE)
 // ==================================================================
 static void TryDiscoverBodyPointer(void* self) {
     if (g_bodyDiscoveryDone.load()) return;
+    if (g_discoveryInProgress.exchange(true)) return;
+
+    // RAII-style reset
+    struct Guard { ~Guard() { g_discoveryInProgress.store(false); } } guard;
+
     if (!PlausiblePtr(self)) return;
-    if (!fn_getBodyPosition) return;
+    if (!old_getBodyPosition_hook) return;   // 🔥 trampoline only
 
     cpVect want{0, 0};
-    if (GUARD_ENTER()) { GUARD_SET(); fn_getBodyPosition(&want, self); GUARD_CLR(); }
+    if (GUARD_ENTER()) { GUARD_SET(); old_getBodyPosition_hook(&want, self); GUARD_CLR(); }
     else { GUARD_CLR(); return; }
 
     if (std::fabs(want.x) < 30.0 && std::fabs(want.y) < 30.0) return;
@@ -1256,7 +1248,6 @@ static void TryDiscoverBodyPointer(void* self) {
 
     uintptr_t selfAddr = (uintptr_t)self;
 
-    // Scan first 64 bytes of self for cpBody* candidate
     for (int selfOff = 4; selfOff <= 60; selfOff += 4) {
         uintptr_t fieldAddr = selfAddr + selfOff;
         if (!IsAddressMapped(fieldAddr)) continue;
@@ -1269,7 +1260,6 @@ static void TryDiscoverBodyPointer(void* self) {
         uintptr_t cbase = (uintptr_t)cand;
         if (cbase & 0x7) continue;
 
-        // Scan first 128 bytes of candidate for matching doubles
         for (int posOff = 0; posOff <= 120; posOff += 8) {
             uintptr_t dAddr = cbase + posOff;
             if (dAddr & 0x7) continue;
@@ -1296,6 +1286,9 @@ static void TryDiscoverBodyPointer(void* self) {
     traceLog("TELEPORT scan: no body found yet, retry later");
 }
 
+// ==================================================================
+// getBodyPosition hooks
+// ==================================================================
 void getBodyPosition_Hooked(cpVect* out, void* self) {
     if (g_gbpCallLogs.load() < 5) {
         if (g_gbpCallLogs.fetch_add(1) < 5) {
@@ -1303,14 +1296,12 @@ void getBodyPosition_Hooked(cpVect* out, void* self) {
         }
     }
 
-    if (old_getBodyPosition_hook) old_getBodyPosition_hook(out, self);
+    if (old_getBodyPosition_hook) old_getBodyPosition_hook(out, self);   // trampoline
     if (!out) return;
 
     void* local = g_localInstance.load();
-    if (local && self == local) {
-        if (!g_bodyDiscoveryDone.load()) {
-            TryDiscoverBodyPointer(self);
-        }
+    if (local && self == local && !g_bodyDiscoveryDone.load()) {
+        TryDiscoverBodyPointer(self);
     }
 
     if (!g_teleportActive.load()) return;
@@ -1331,9 +1322,7 @@ void getBodyPosition_Hooked(cpVect* out, void* self) {
 
             if (PlausiblePtr(body)) {
                 uintptr_t pAddr = (uintptr_t)body + posOff;
-                if ((pAddr & 0x7) == 0 &&
-                    IsAddressMapped(pAddr) &&
-                    IsAddressMapped(pAddr + 24)) {
+                if ((pAddr & 0x7) == 0 && IsAddressMapped(pAddr) && IsAddressMapped(pAddr + 24)) {
                     if (GUARD_ENTER()) {
                         GUARD_SET();
                         *(double*)(pAddr)      = (double)tx;
@@ -1347,12 +1336,10 @@ void getBodyPosition_Hooked(cpVect* out, void* self) {
         }
     }
 
-    // Always override return value
     out->x = (double)tx;
     out->y = (double)ty;
 }
 
-// CollisionObject base hook — redirect to same logic
 void getBodyPosition_Coll_Hooked(cpVect* out, void* self) {
     if (old_collGetBody) old_collGetBody(out, self);
     if (!out) return;
@@ -1578,7 +1565,6 @@ void LocalActivate_Hook(void* self) {
             g_localInstance.store(self);
             g_localInstanceSetMs.store(NowMs());
             g_localSeen.store(false); g_localDead.store(false);
-            // Reset body discovery
             g_bodyDiscoveryDone.store(false);
             g_bodyOffsetFromSelf.store((uintptr_t)-1);
             g_posOffsetInBody.store(-1);
@@ -1704,7 +1690,7 @@ static void InstallHooksIfNeeded() {
     if (!logged) { crashLog("HOOK", "Installing hooks base=%p", (void*)g_libBase); logged = true; }
 
     fn_getLocalController    = (getLocalController_t)(g_libBase + Off::SoldierManager_getLocalController);
-    fn_getBodyPosition       = (getBodyPosition_t)   (g_libBase + Off::SoldierController_getBodyPosition);
+    // NOTE: fn_getBodyPosition set AFTER hook install (to trampoline) — see below
     fn_getHP                 = (getHP_t)             (g_libBase + Off::SoldierController_getHP);
     fn_getTeamId             = (getTeamId_t)         (g_libBase + Off::CollisionObject_getTeamId);
     fn_getSoldierView        = (getSoldierView_t)    (g_libBase + Off::SoldierController_getSoldierView);
@@ -1737,12 +1723,13 @@ static void InstallHooksIfNeeded() {
 
     if (!g_teleportHooksOk.load()) {
         SAFE_HOOK(Off::SoldierController_getBodyPosition, getBodyPosition_Hooked, old_getBodyPosition_hook, g_teleportHooksOk);
-        // Extra: hook base CollisionObject::getBodyPosition
         {
             uintptr_t _a = g_libBase + Off::CollisionObject_getBodyPosition;
             HOOK_ABS((void*)_a, getBodyPosition_Coll_Hooked, old_collGetBody);
         }
-        crashLog("HOOK", "Teleport hooks OK (2)");
+        // 🔥 CRITICAL: fn_getBodyPosition এখন trampoline-এ point করে
+        if (old_getBodyPosition_hook) fn_getBodyPosition = old_getBodyPosition_hook;
+        crashLog("HOOK", "Teleport hooks OK (2) [trampoline fixed]");
     }
 
     if (!g_wpnHooksOk.load()) {
