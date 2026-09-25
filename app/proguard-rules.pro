@@ -1,13 +1,10 @@
 # ================================================================
-#  ModX Lab — ProGuard Rules
+# ModX Lab — Professional ProGuard Rules
 # ================================================================
 
 # Original rules
--keepclassmembers class ** {
-    public static void Start (***);
-}
+-keepclassmembers class ** { public static void Start (***); }
 -keep public class com.android.support.MainActivity
-
 -keepclassmembers class com.android.support.TitanicTextView {
     public void setMaskX(float);
     public void setMaskY(float);
@@ -16,7 +13,7 @@
 }
 -keep class com.android.support.TitanicTextView { *; }
 
-# 🔒 JNI-bound classes
+# 🔒 JNI-bound classes — MUST keep
 -keep class com.android.support.SecurityNative { *; }
 -keep class com.android.support.Main             { *; }
 -keep class com.android.support.MainActivity     { *; }
@@ -59,10 +56,9 @@
 -repackageclasses 'o'
 -allowaccessmodification
 -overloadaggressively
--useuniqueclassmembernames
 -adaptclassstrings
 
-# Strip logs
+# Strip logs (release only)
 -assumenosideeffects class android.util.Log {
     public static *** d(...);
     public static *** v(...);
@@ -70,7 +66,6 @@
     public static *** w(...);
 }
 
-# Misc warnings
 -dontwarn kotlin.**
 -dontwarn kotlinx.**
 -dontwarn okhttp3.**
