@@ -1,18 +1,20 @@
 // ================================================================
-//  Top-level build file
+//  Root Project build.gradle
+//  Top-level build file — shared config for all sub-projects
 // ================================================================
 
 buildscript {
     repositories {
         google()
         mavenCentral()
+        gradlePluginPortal()
     }
     dependencies {
         // Android Gradle Plugin
         classpath 'com.android.tools.build:gradle:8.6.1'
 
-        // 🔥 Firebase Google Services Plugin
-        classpath 'com.google.gms:google-services:4.4.1'
+        // (Optional) Firebase / Google Services — only if you add them later
+        // classpath 'com.google.gms:google-services:4.4.2'
     }
 }
 
@@ -20,9 +22,14 @@ allprojects {
     repositories {
         google()
         mavenCentral()
+        maven { url 'https://jitpack.io' }
+        flatDir {
+            dirs 'libs'
+        }
     }
 }
 
+// Clean task
 tasks.register('clean', Delete) {
     delete rootProject.buildDir
 }
