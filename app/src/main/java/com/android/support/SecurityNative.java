@@ -7,36 +7,24 @@ import android.content.pm.Signature;
 
 import java.security.MessageDigest;
 
-/**
- * SecurityNative — anti-tamper, native login verification.
- * Critical logic lives in libModXLab.so (Security.cpp).
- */
 public final class SecurityNative {
 
     static {
-        try {
-            System.loadLibrary("ModXLab");
-        } catch (Throwable t) {
-            // already loaded by Main
-        }
+        try { System.loadLibrary("ModXLab"); } catch (Throwable ignored) { }
     }
 
-    // ------------------------------------------------------------------
-    // Native methods
-    // ------------------------------------------------------------------
+    // ---------- Native methods ----------
     public static native boolean checkSignatureHash(String sha256Hex);
+    public static native boolean isEnvironmentValid();
+    public static native boolean verifySessionToken(String token, String user, String pass, String expiry);
     public static native String  verifyLogin(String inputUser, String inputPass, String userJson);
     public static native String  decryptString(String encoded, int key);
-    public static native boolean isEnvironmentValid();
+    public static native String  getQueryUrl(String username);
+    public static native String  getUpdateUrl();
 
-    // ------------------------------------------------------------------
-    // Signature verify — returns true in DEBUG builds (so you can test),
-    // enforces the real hash in RELEASE builds.
-    // ------------------------------------------------------------------
+    // ---------- APK signature ----------
     public static boolean verifyApkSignatureOrDebug(Context ctx) {
-        if (com.android.support.BuildConfig.DEBUG) {
-            return true;
-        }
+        if (com.android.support.BuildConfig.DEBUG) return true;
         return verifyApkSignature(ctx);
     }
 
@@ -70,9 +58,7 @@ public final class SecurityNative {
             StringBuilder sb = new StringBuilder(h.length * 2);
             for (byte b : h) sb.append(String.format("%02x", b));
             return sb.toString();
-        } catch (Exception e) {
-            return "";
-        }
+        } catch (Exception e) { return ""; }
     }
 
     private SecurityNative() { }

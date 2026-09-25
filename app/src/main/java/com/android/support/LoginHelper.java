@@ -482,8 +482,7 @@ public class LoginHelper {
 
     private void performLogin() {
     if (loginInProgress) return;
-
-    final String inputUser = editUser.getText().toString().trim();
+    final String inputUser = editUser.getText().toString().trim().toLowerCase();
     final String inputPass = editPass.getText().toString().trim();
 
     if (TextUtils.isEmpty(inputUser) || TextUtils.isEmpty(inputPass)) {
@@ -496,33 +495,19 @@ public class LoginHelper {
     loginBtn.setText("SIGNING IN...");
     setStatus("Verifying credentials...", COLOR_ACCENT_HI);
 
-    // Save for "remember me" (never used for local verification)
     save.edit().putString("edittext1", inputUser).apply();
     save.edit().putString("edittext2", inputPass).apply();
 
     new Thread(new Runnable() {
         @Override
         public void run() {
-            // ---------------------------------------------------------
-            // 1) Query ONLY the matching user from Firebase
-            //    (orderBy="user" & equalTo="<inputUser>")
-            // ---------------------------------------------------------
             JSONObject matched = ModFirebase.fetchUserByUsername(inputUser);
             final String userJson = (matched == null) ? "" : matched.toString();
-
-            // ---------------------------------------------------------
-            // 2) Native verification — password compare, status, expiry
-            //    All happens in libModXLab.so
-            // ---------------------------------------------------------
-            final String resultJson =
-                    SecurityNative.verifyLogin(inputUser, inputPass, userJson);
+            final String resultJson = SecurityNative.verifyLogin(inputUser, inputPass, userJson);
 
             boolean ok = false;
             String reason = "network";
-            String token = "";
-            String userOut = "";
-            String statusOut = "";
-            String timeOut = "";
+            String token = "", userOut = "", statusOut = "", expiryOut = "";
             try {
                 JSONObject r = new JSONObject(resultJson);
                 ok = r.optBoolean("ok", false);
@@ -530,11 +515,8 @@ public class LoginHelper {
                 token = r.optString("token", "");
                 userOut = r.optString("user", "");
                 statusOut = r.optString("status", "");
-                timeOut = r.optString("time", "");
-            } catch (Exception e) {
-                ok = false;
-                reason = "network";
-            }
+                expiryOut = r.optString("expiry", "");
+            } catch (Exception e) { ok = false; reason = "network"; }
 
             if (!ok) {
                 final String fReason = reason;
@@ -543,31 +525,20 @@ public class LoginHelper {
                     @Override public void run() {
                         loginBtn.setEnabled(true);
                         loginBtn.setText("SIGN IN");
-                        if ("expired".equals(fReason)) {
-                            setStatus("Key expired", COLOR_DANGER);
-                            showKeyExpiredDialog();
-                        } else if ("blocked".equals(fReason)) {
-                            setStatus("Account blocked", COLOR_DANGER);
-                            showKeyExpiredDialog();
-                        } else if ("no_match".equals(fReason) || "invalid_credentials".equals(fReason)) {
+                        if ("expired".equals(fReason)) { setStatus("Key expired", COLOR_DANGER); showKeyExpiredDialog(); }
+                        else if ("blocked".equals(fReason)) { setStatus("Account blocked", COLOR_DANGER); showKeyExpiredDialog(); }
+                        else if ("no_match".equals(fReason) || "invalid_credentials".equals(fReason))
                             setStatus("Invalid username or password", COLOR_DANGER);
-                        } else if ("network".equals(fReason)) {
-                            setStatus("Connection failed", COLOR_DANGER);
-                        } else {
-                            setStatus("Login failed", COLOR_DANGER);
-                        }
+                        else setStatus("Login failed", COLOR_DANGER);
                     }
                 });
                 return;
             }
 
-            // ---------------------------------------------------------
-            // 3) Success — persist token + verified data only
-            // ---------------------------------------------------------
             try {
                 KEY.edit().putString("User",     userOut).apply();
                 KEY.edit().putString("Status",   statusOut).apply();
-                KEY.edit().putString("time",     timeOut).apply();
+                KEY.edit().putString("expiry",   expiryOut).apply();
                 KEY.edit().putString("token",    token).apply();
             } catch (Exception ignored) { }
 
@@ -586,47 +557,44 @@ public class LoginHelper {
 }
 
     private void checkUpdateAfterLogin() {
-        new Thread(new Runnable() {
-            @Override
-            public void run() {
-                JSONObject updateJson = ModFirebase.fetchJson("update");
-                if (updateJson == null) {
-                    proceedToMenu();
-                    return;
-                }
-                try {
-                    JSONObject up = updateJson.optJSONObject("up");
-                    if (up == null) {
-                        proceedToMenu();
-                        return;
-                    }
-                    String latestVersion = up.optString("version", "");
-                    String message = up.optString("message", "");
-                    String currentVersion = getVersionName();
-
-                    if (!TextUtils.isEmpty(latestVersion) && !currentVersion.equals(latestVersion)) {
-                        final String fV = latestVersion;
-                        final String fM = message;
-                        new Handler(Looper.getMainLooper()).post(new Runnable() {
-                            @Override public void run() {
-                                showUpdateDialog(fV, fM);
-                            }
-                        });
-                    } else {
-                        proceedToMenu();
-                    }
-                } catch (Exception e) {
-                    proceedToMenu();
-                }
-            }
-        }).start();
-    }
+    new Thread(new Runnable() {
+        @Override
+        public void run() {
+            JSONObject updateJson = ModFirebase.fetchUpdate();
+            if (updateJson == null) { proceedToMenu(); return; }
+            try {
+                JSONObject up = updateJson.optJSONObject("up");
+                if (up == null) { proceedToMenu(); return; }
+                String latest = up.optString("version", "");
+                String msg = up.optString("message", "");
+                String current = getVersionName();
+                if (!TextUtils.isEmpty(latest) && !current.equals(latest)) {
+                    final String fv = latest, fm = msg;
+                    new Handler(Looper.getMainLooper()).post(new Runnable() {
+                        @Override public void run() { showUpdateDialog(fv, fm); }
+                    });
+                } else proceedToMenu();
+            } catch (Exception e) { proceedToMenu(); }
+        }
+    }).start();
+}
 
     private void proceedToMenu() {
-    // Final gate: only proceed if native issued a token
-    String token = KEY.getString("token", "");
+    final String token = KEY.getString("token", "");
+    final String user = KEY.getString("User", "");
+    final String pass = save.getString("edittext2", "");
+    final String expiry = KEY.getString("expiry", "");
+
     if (token == null || token.isEmpty()) {
-        setStatus("Session invalid", COLOR_DANGER);
+        new Handler(Looper.getMainLooper()).post(new Runnable() {
+            @Override public void run() { setStatus("Session invalid", COLOR_DANGER); }
+        });
+        return;
+    }
+    if (!SecurityNative.verifySessionToken(token, user, pass, expiry)) {
+        new Handler(Looper.getMainLooper()).post(new Runnable() {
+            @Override public void run() { setStatus("Session tampered", COLOR_DANGER); }
+        });
         return;
     }
     new Handler(Looper.getMainLooper()).post(new Runnable() {

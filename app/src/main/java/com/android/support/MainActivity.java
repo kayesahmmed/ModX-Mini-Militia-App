@@ -15,22 +15,29 @@ public class MainActivity extends Activity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
-        // 🔒 Anti-tamper — debug build এ auto-pass, release এ enforce
+        // 🔒 Layer 1: signature
         if (!SecurityNative.verifyApkSignatureOrDebug(this)) {
-            Log.e("Mod_menu", "Signature mismatch — refusing to run.");
-            try {
-                Toast.makeText(this, "Invalid build signature", Toast.LENGTH_LONG).show();
-            } catch (Throwable ignored) { }
-            finishAffinity();
-            System.exit(0);
-            return;
+            Log.e("Mod_menu", "Signature mismatch");
+            try { Toast.makeText(this, "Invalid signature", Toast.LENGTH_LONG).show(); } catch (Throwable t) {}
+            finishAffinity(); System.exit(0); return;
         }
 
+        // 🔒 Layer 2: environment (root/frida/debugger/emulator)
         if (!SecurityNative.isEnvironmentValid()) {
-            Log.e("Mod_menu", "Suspicious environment detected.");
-            finishAffinity();
-            System.exit(0);
-            return;
+            Log.e("Mod_menu", "Unsafe environment");
+            finishAffinity(); System.exit(0); return;
+        }
+
+        // 🔒 Layer 3: verify stored session token (if "remember me")
+        String storedToken = getSharedPreferences("KEY", MODE_PRIVATE).getString("token", "");
+        if (storedToken != null && !storedToken.isEmpty()) {
+            String u = getSharedPreferences("KEY", MODE_PRIVATE).getString("User", "");
+            String p = getSharedPreferences("save", MODE_PRIVATE).getString("edittext2", "");
+            String e = getSharedPreferences("KEY", MODE_PRIVATE).getString("expiry", "");
+            if (!SecurityNative.verifySessionToken(storedToken, u, p, e)) {
+                Log.w("Mod_menu", "Stored token invalid — clearing");
+                getSharedPreferences("KEY", MODE_PRIVATE).edit().clear().apply();
+            }
         }
 
         if (!hasLaunched) {
