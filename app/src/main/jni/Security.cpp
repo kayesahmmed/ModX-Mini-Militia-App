@@ -21,7 +21,7 @@
 //  (এখন placeholder রাখছি, পরে actual release hash বসাবেন)
 // ================================================================
 static const char* EXPECTED_SHA256() {
-    return OBFUSCATE("84b8260972203fa5ddeabcd7e9a70039e827979ab3a827d2865e46769684b1e9");
+    return OBFUSCATE("2214862d49d25c4c72b531bbd14d7e53587508035b6b7084b7d6d3f9763a0502");
 }
 
 // ================================================================
