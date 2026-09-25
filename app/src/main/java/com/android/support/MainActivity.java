@@ -23,10 +23,10 @@ public class MainActivity extends Activity {
         }
 
         // 🔒 Layer 2: environment (root/frida/debugger/emulator)
-        if (!SecurityNative.isEnvironmentValid()) {
-            Log.e("Mod_menu", "Unsafe environment");
-            finishAffinity(); System.exit(0); return;
-        }
+        //if (!SecurityNative.isEnvironmentValid()) {
+            //Log.e("Mod_menu", "Unsafe environment");
+            //finishAffinity(); System.exit(0); return;
+       // }
 
         // 🔒 Layer 3: verify stored session token (if "remember me")
         String storedToken = getSharedPreferences("KEY", MODE_PRIVATE).getString("token", "");
