@@ -11,6 +11,11 @@ import java.util.Iterator;
  *  - HTTPS with certificate pinning
  *  - Cloud Function for login verification (server-side)
  *  - Query-based access via native URLs
+ *
+ *  FIX (v2):
+ *    - Appwrite /executions endpoint requires WRAPPER JSON:
+ *        { "body": "<inner-json-string>", "method":"POST", "path":"/", "async":false }
+ *    - Response is { ... "responseBody":"<string>", ... } → parse twice.
  */
 public final class ModFirebase {
 
@@ -21,7 +26,6 @@ public final class ModFirebase {
 
     /**
      * Fetch user by username via native-built URL + pinned HTTPS.
-     * Uses Appwrite REST API for direct document queries.
      */
     public static JSONObject fetchUserByUsername(String username) {
         if (username == null || username.isEmpty()) return null;
@@ -59,23 +63,60 @@ public final class ModFirebase {
 
     /**
      * Server-side login via Appwrite Cloud Function.
-     * URL from native, uses pinned HTTPS with X-Appwrite-Project header.
+     *
+     * Appwrite /v1/functions/{id}/executions EXPECTS:
+     *   {
+     *     "body":    "<string payload>",
+     *     "method":  "POST",
+     *     "path":    "/",
+     *     "async":   false
+     *   }
+     *
+     * Appwrite RETURNS:
+     *   {
+     *     "$id": "...",
+     *     "status": "completed",
+     *     "responseStatusCode": 200,
+     *     "responseBody": "{ ...actual function JSON... }",
+     *     ...
+     *   }
      */
     public static JSONObject verifyLoginRemote(String user, String pass) {
         try {
             String urlStr = SecurityNative.getCloudFnUrl();
             if (urlStr == null || urlStr.isEmpty()) return null;
 
-            String body = "{\"user\":\"" + esc(user) + "\",\"pass\":\"" + esc(pass) + "\"}";
+            // ── 1) Inner JSON — the actual payload the function reads
+            String inner = "{\"user\":\"" + esc(user) + "\",\"pass\":\"" + esc(pass) + "\"}";
+
+            // ── 2) Outer JSON — Appwrite executions wrapper
+            //     IMPORTANT: "body" is a STRING containing the inner JSON,
+            //     so inner quotes must be escaped via esc().
+            String body = "{\"body\":\"" + esc(inner) + "\","
+                        + "\"method\":\"POST\","
+                        + "\"path\":\"/\","
+                        + "\"async\":false}";
+
             String raw = PinnedHttp.post(urlStr, body, APPWRITE_PROJECT_ID);
             if (raw == null || raw.isEmpty()) return null;
 
-            return new JSONObject(raw);
+            // ── 3) Parse the Appwrite wrapper object
+            JSONObject wrapper = new JSONObject(raw);
+
+            // ── 4) Extract the function's actual response (nested JSON string)
+            String responseBody = wrapper.optString("responseBody", "");
+            if (responseBody == null || responseBody.isEmpty() || "null".equals(responseBody)) {
+                // Some Appwrite setups / versions return the function JSON directly.
+                return wrapper;
+            }
+            return new JSONObject(responseBody);
+
         } catch (Exception e) {
             return null;
         }
     }
 
+    /** JSON-string escape (backslash + double-quote). */
     private static String esc(String s) {
         if (s == null) return "";
         return s.replace("\\", "\\\\").replace("\"", "\\\"");
