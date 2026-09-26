@@ -5,19 +5,23 @@ import org.json.JSONObject;
 import java.util.Iterator;
 
 /**
- * Firebase access layer.
+ * Appwrite Cloud access layer.
  *
- *  - URL comes from native (not in dex)
+ *  - URL from native (not in dex)
  *  - HTTPS with certificate pinning
  *  - Cloud Function for login verification (server-side)
- *  - Query-based access — no full node dumps
+ *  - Query-based access via native URLs
  */
 public final class ModFirebase {
+
+    // 🔑 Appwrite Project ID
+    private static final String APPWRITE_PROJECT_ID = "modxlab";
 
     private ModFirebase() { }
 
     /**
      * Fetch user by username via native-built URL + pinned HTTPS.
+     * Uses Appwrite REST API for direct document queries.
      */
     public static JSONObject fetchUserByUsername(String username) {
         if (username == null || username.isEmpty()) return null;
@@ -54,12 +58,8 @@ public final class ModFirebase {
     }
 
     /**
-     * Server-side login verification via Cloud Function.
-     *   URL is retrieved from native (not in dex).
-     *
-     * @return JSON like:
-     *   {"ok":true,"token":"...","user":"...","status":"true","expiry":"..."}
-     *   or {"ok":false,"reason":"invalid_credentials"}
+     * Server-side login via Appwrite Cloud Function.
+     * URL from native, uses pinned HTTPS with X-Appwrite-Project header.
      */
     public static JSONObject verifyLoginRemote(String user, String pass) {
         try {
@@ -67,7 +67,7 @@ public final class ModFirebase {
             if (urlStr == null || urlStr.isEmpty()) return null;
 
             String body = "{\"user\":\"" + esc(user) + "\",\"pass\":\"" + esc(pass) + "\"}";
-            String raw = PinnedHttp.post(urlStr, body);
+            String raw = PinnedHttp.post(urlStr, body, APPWRITE_PROJECT_ID);
             if (raw == null || raw.isEmpty()) return null;
 
             return new JSONObject(raw);
