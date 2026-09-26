@@ -5,52 +5,35 @@ import android.util.Log;
 import java.io.BufferedReader;
 import java.io.InputStream;
 import java.io.InputStreamReader;
-import java.net.HttpURLConnection;
 import java.net.URL;
 import java.security.MessageDigest;
 import java.security.cert.Certificate;
 import java.security.cert.X509Certificate;
-import java.util.Arrays;
-import java.util.HashSet;
-import java.util.Set;
 
 import javax.net.ssl.HttpsURLConnection;
 import javax.net.ssl.SSLSocket;
 import javax.net.ssl.SSLSocketFactory;
 
 /**
- * HTTPS client with certificate pinning + diagnostic logging.
+ * HTTPS client with native-side certificate pinning.
  *
- * NOTE: All logs use Log.e() so they survive ProGuard stripping
- *       in Release builds (proguard-rules.pro strips d/v/i/w).
+ * Pins are OBFUSCATED inside libModXLab.so — not visible in dex.
  */
 public final class PinnedHttp {
 
     private static final String TAG = "ModXLab_HTTP";
-
-    // ⚠️ Update these if pin mismatch occurs (logcat shows actual hash).
-    private static final Set<String> PINNED = new HashSet<>(Arrays.asList(
-        // Appwrite Singapore — leaf cert
-        "6bd255ea86d4cf05e8aed3d6e071895b8c29736ba83908dbcf409817aa8b03ed",
-        // Google Trust Services — intermediate
-        "fec41e32ca75c295a6240fa639d3abe3bfb5cb131d6690e2331a176bed2e5bd2",
-        // Firebase
-        "170b2def1e9c89c59970f25c62ffe64c0fba73989cd29a098dc0a2d405d87ed7"
-    ));
+    private static final boolean VERBOSE = BuildConfig.DEBUG;
 
     private PinnedHttp() { }
 
-    /** GET request with cert pinning. */
     public static String get(String urlStr) {
         return request(urlStr, "GET", null, null, null);
     }
 
-    /** POST request with Appwrite project header (legacy signature). */
     public static String post(String urlStr, String body, String projectId) {
         return request(urlStr, "POST", body, projectId, null);
     }
 
-    /** POST with explicit response format header (recommended for Appwrite). */
     public static String postJson(String urlStr, String body,
                                   String projectId, String responseFormat) {
         return request(urlStr, "POST", body, projectId, responseFormat);
@@ -60,8 +43,7 @@ public final class PinnedHttp {
                                   String projectId, String responseFormat) {
         HttpsURLConnection conn = null;
         try {
-            // ✅ Log.e survives ProGuard stripping
-            Log.e(TAG, "→ " + method + " " + urlStr);
+            if (VERBOSE) Log.e(TAG, "→ " + method + " " + urlStr);
 
             URL url = new URL(urlStr);
             conn = (HttpsURLConnection) url.openConnection();
@@ -84,20 +66,20 @@ public final class PinnedHttp {
                 conn.getOutputStream().write(body.getBytes("UTF-8"));
             }
 
-            // Skip pinning in debug builds
-            if (!com.android.support.BuildConfig.DEBUG) {
+            // Pinning always active — even in release
+            if (!BuildConfig.DEBUG) {
                 conn.setSSLSocketFactory(new PinnedFactory());
             }
 
             int code = conn.getResponseCode();
-            Log.e(TAG, "← HTTP " + code);
+            if (VERBOSE) Log.e(TAG, "← HTTP " + code);
 
             InputStream is = (code >= 200 && code < 300)
                     ? conn.getInputStream()
                     : conn.getErrorStream();
 
             if (is == null) {
-                Log.e(TAG, "Empty response stream (code=" + code + ")");
+                if (VERBOSE) Log.e(TAG, "Empty response (code=" + code + ")");
                 return null;
             }
 
@@ -110,28 +92,30 @@ public final class PinnedHttp {
             String result = sb.toString();
 
             if (code < 200 || code >= 300) {
-                // ✅ Show error body — CRITICAL for debugging
-                Log.e(TAG, "HTTP " + code + " body: " + result);
+                if (VERBOSE) Log.e(TAG, "HTTP " + code + " body: " + result);
                 return null;
             }
 
-            // ✅ Show success body
-            if (result.length() > 1000) {
-                Log.e(TAG, "Body (truncated): " + result.substring(0, 1000) + "...");
-            } else {
-                Log.e(TAG, "Body: " + result);
+            if (VERBOSE) {
+                if (result.length() > 500) {
+                    Log.e(TAG, "Body (truncated): " + result.substring(0, 500) + "...");
+                } else {
+                    Log.e(TAG, "Body: " + result);
+                }
             }
             return result;
 
         } catch (Throwable t) {
-            Log.e(TAG, method + " failed: "
-                    + t.getClass().getSimpleName() + " — " + t.getMessage(), t);
+            if (VERBOSE) Log.e(TAG, method + " failed: " + t.getMessage());
             return null;
         } finally {
             if (conn != null) try { conn.disconnect(); } catch (Throwable ignored) { }
         }
     }
 
+    // =================================================================
+    // SSLSocketFactory that asks NATIVE code to verify pins
+    // =================================================================
     private static class PinnedFactory extends SSLSocketFactory {
         private final SSLSocketFactory delegate;
 
@@ -165,20 +149,14 @@ public final class PinnedHttp {
                 if (certs == null || certs.length == 0) {
                     throw new java.io.IOException("No certs");
                 }
-                boolean matched = false;
-                StringBuilder actual = new StringBuilder();
+                // ✅ Pins live in native, not in dex
                 for (Certificate c : certs) {
                     if (c instanceof X509Certificate) {
                         String hash = sha256Hex(((X509Certificate) c).getEncoded());
-                        actual.append(hash).append(" ");
-                        if (PINNED.contains(hash)) matched = true;
+                        if (SecurityNative.verifyCertPin(hash)) return ss;
                     }
                 }
-                if (matched) return ss;
-                // ✅ Show actual hashes in logcat → copy to PINNED above
-                Log.e(TAG, "PIN MISMATCH. Actual hashes: " + actual.toString().trim());
-                throw new java.io.IOException(
-                        "Pin mismatch. Update PINNED with: " + actual.toString().trim());
+                throw new java.io.IOException("Pin mismatch");
             } catch (javax.net.ssl.SSLException e) {
                 throw e;
             } catch (Throwable t) {

@@ -17,13 +17,14 @@ import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
 
 /**
- * SecurityNative — silent security layer.
+ * SecurityNative — silent security layer (v10).
  *
- * Design:
- *   - NO user-visible strings
- *   - NO descriptive logs
- *   - All verification in native code
- *   - Single entry point: preload()
+ * NEW in v10:
+ *   • getProjectId()          — project ID moved to native (OBFUSCATED)
+ *   • verifyCertPin(hash)     — cert pin hashes moved to native
+ *   • verifyNativeSig(...)    — HMAC verify of server response
+ *   • getApkSigHash(ctx)      — expose APK sig for server-side attestation
+ *   • getApkSigHashNoCache()  — recompute (for tamper detection)
  */
 public final class SecurityNative {
 
@@ -46,10 +47,10 @@ public final class SecurityNative {
     }
 
     // =================================================================
-    // Native methods (all registered via JNI_OnLoad)
+    // Native methods (all registered via standard Java_<pkg>_<class>_<m>)
     // =================================================================
     private static native boolean verifyHashes(String sigHash, String dexHash, boolean isDebug);
-    public static native boolean verifyLibHash(String libHash);
+    public  static native boolean verifyLibHash(String libHash);
     public  static native String  verifyLogin(String inputUser, String inputPass, String userJson);
     public  static native String  verifyLoginWithTime(String inputUser, String inputPass, String userJson, long nowMs);
     public  static native boolean verifySessionToken(String token, String user, String pass, String expiry);
@@ -57,9 +58,19 @@ public final class SecurityNative {
     public  static native String  getUpdateUrl();
     public  static native String  getCloudFnUrl();
 
+    // ── NEW native methods ──
+    public  static native String  getProjectId();
+    public  static native boolean verifyCertPin(String hash);
+    public  static native boolean verifyNativeSig(String user, String expiry, String sig);
+    public  static native boolean verifyLoginSig(String user, String pass, String sig);
+
     // =================================================================
-    // APK signature hash
+    // APK signature hash (SHA-256 hex)
     // =================================================================
+    public static String getApkSigHash(Context ctx) {
+        return sigHash(ctx);
+    }
+
     private static String sigHash(Context ctx) {
         try {
             PackageManager pm = ctx.getPackageManager();

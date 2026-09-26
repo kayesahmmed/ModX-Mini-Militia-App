@@ -50,8 +50,8 @@ public class LoginHelper {
     public interface CheckListener { void onChanged(boolean checked); }
 
     private static final String TAG = "LoginHelper";
+    private static final boolean VERBOSE = BuildConfig.DEBUG;
 
-    private static final int COLOR_BG_1       = Color.parseColor("#0C0E14");
     private static final int COLOR_CARD       = Color.parseColor("#181B24");
     private static final int COLOR_BORDER     = Color.parseColor("#2E313C");
     private static final int COLOR_FIELD_BG   = Color.parseColor("#14161F");
@@ -66,13 +66,12 @@ public class LoginHelper {
     private static final int COLOR_HINT       = Color.parseColor("#5C5F6A");
     private static final int COLOR_ON_ACCENT  = Color.parseColor("#14161F");
 
-    private static final int COLOR_DIALOG_BG     = Color.parseColor("#1D2029");
-    private static final int COLOR_DIALOG_TITLE  = Color.parseColor("#ECE8DF");
-    private static final int COLOR_DIALOG_SUB    = Color.parseColor("#A7A9B2");
-    private static final int COLOR_DIALOG_SUB2   = Color.parseColor("#7D7F89");
-    private static final int COLOR_DIALOG_BODY   = Color.parseColor("#C6C8D0");
-    private static final int COLOR_CTA           = Color.parseColor("#D8B36C");
-    private static final int COLOR_OUTLINE       = Color.parseColor("#3A3D49");
+    private static final int COLOR_DIALOG_BG    = Color.parseColor("#1D2029");
+    private static final int COLOR_DIALOG_TITLE = Color.parseColor("#ECE8DF");
+    private static final int COLOR_DIALOG_SUB   = Color.parseColor("#A7A9B2");
+    private static final int COLOR_DIALOG_BODY  = Color.parseColor("#C6C8D0");
+    private static final int COLOR_CTA          = Color.parseColor("#D8B36C");
+    private static final int COLOR_OUTLINE      = Color.parseColor("#3A3D49");
 
     private static final int WRAP_CONTENT = ViewGroup.LayoutParams.WRAP_CONTENT;
     private static final int MATCH_PARENT = ViewGroup.LayoutParams.MATCH_PARENT;
@@ -127,8 +126,7 @@ public class LoginHelper {
         card.setBackground(cardBg);
         root.addView(card);
 
-        TextView userLabel = makeFieldLabel("USERNAME");
-        card.addView(userLabel);
+        card.addView(makeFieldLabel("USERNAME"));
 
         userBox = makeFieldContainer();
         ImageView userIcon = new ImageView(ctx);
@@ -152,8 +150,7 @@ public class LoginHelper {
         userBox.setLayoutParams(uLp);
         card.addView(userBox);
 
-        TextView passLabel = makeFieldLabel("PASSWORD");
-        card.addView(passLabel);
+        card.addView(makeFieldLabel("PASSWORD"));
 
         passBox = makeFieldContainer();
         ImageView passIcon = new ImageView(ctx);
@@ -254,7 +251,7 @@ public class LoginHelper {
         }
 
         GradientDrawable lb = new GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT,
-                                                    new int[]{COLOR_ACCENT, Color.parseColor("#C79C56")});
+                new int[]{COLOR_ACCENT, Color.parseColor("#C79C56")});
         lb.setCornerRadius(dp(12));
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
             RippleDrawable ripple = new RippleDrawable(
@@ -374,9 +371,7 @@ public class LoginHelper {
                 });
                 va.start();
                 FieldIcon fi = (FieldIcon) icon.getDrawable();
-                if (fi != null) {
-                    fi.animateColor(hasFocus ? COLOR_ACCENT_HI : COLOR_TEXT_MUTED, 200);
-                }
+                if (fi != null) fi.animateColor(hasFocus ? COLOR_ACCENT_HI : COLOR_TEXT_MUTED, 200);
             }
         });
         et.setOnTouchListener(new View.OnTouchListener() {
@@ -446,15 +441,13 @@ public class LoginHelper {
     }
 
     // =====================================================================
-    // 🎯 PERFORM LOGIN — Appwrite-only
+    // PERFORM LOGIN
     // =====================================================================
     private void performLogin() {
         if (loginInProgress) return;
 
-        // 🔒 CLIENT-SIDE RATE LIMIT
         if (RateLimiter.isLocked(ctx)) {
             long sec = RateLimiter.lockRemainingMs(ctx) / 1000;
-            Log.e(TAG, "Rate limited: " + sec + "s");
             setStatus("Too many attempts. Wait " + sec + "s", COLOR_DANGER);
             return;
         }
@@ -463,12 +456,11 @@ public class LoginHelper {
         final String inputPass = editPass.getText().toString().trim();
 
         if (TextUtils.isEmpty(inputUser) || TextUtils.isEmpty(inputPass)) {
-            Log.e(TAG, "Empty input");
             setStatus("Please fill in all fields", COLOR_WARN);
             return;
         }
 
-        Log.e(TAG, "🔐 Login attempt: user=" + inputUser);
+        if (VERBOSE) Log.e(TAG, "Login attempt: user=" + inputUser);
 
         loginInProgress = true;
         loginBtn.setEnabled(false);
@@ -480,39 +472,30 @@ public class LoginHelper {
 
         new Thread(new Runnable() {
             @Override public void run() {
-                // ── ☁️ Call Appwrite Cloud Function ONLY ──
-                Log.e(TAG, "Calling ModFirebase.verifyLoginRemote...");
-                JSONObject remote = ModFirebase.verifyLoginRemote(inputUser, inputPass);
+                JSONObject remote = ModFirebase.verifyLoginRemote(ctx, inputUser, inputPass);
 
-                // ── Case A: Network / server failure ──
                 if (remote == null) {
-                    Log.e(TAG, "❌ remote == null (network/server failure)");
                     loginInProgress = false;
                     new Handler(Looper.getMainLooper()).post(new Runnable() {
                         @Override public void run() {
                             loginBtn.setEnabled(true);
                             loginBtn.setText("SIGN IN");
-                            setStatus("Cannot reach server. Check connection.",
-                                    COLOR_DANGER);
+                            setStatus("Cannot reach server. Check connection.", COLOR_DANGER);
                         }
                     });
                     return;
                 }
 
-                Log.e(TAG, "Server response: " + remote.toString());
-
-                // ── Parse response ──
                 boolean ok = remote.optBoolean("ok", false);
                 String reason = remote.optString("reason", "unknown");
                 String token = remote.optString("token", "");
                 String userOut = remote.optString("user", "");
                 String statusOut = remote.optString("status", "");
                 String expiryOut = remote.optString("expiry", "");
+                String nativeSig = remote.optString("nativeSig", "");
 
-                Log.e(TAG, "Parsed: ok=" + ok + " reason=" + reason
-                        + " user=" + userOut + " expiry=" + expiryOut);
+                if (VERBOSE) Log.e(TAG, "Response: ok=" + ok + " reason=" + reason);
 
-                // ── Case B: Server said NO ──
                 if (!ok) {
                     final String fReason = reason;
                     loginInProgress = false;
@@ -522,39 +505,44 @@ public class LoginHelper {
                             loginBtn.setText("SIGN IN");
 
                             if ("expired".equals(fReason)) {
-                                Log.e(TAG, "❌ Expired");
                                 setStatus("Key expired", COLOR_DANGER);
                                 RateLimiter.recordFailure(ctx);
                                 showKeyExpiredDialog();
                             } else if ("blocked".equals(fReason)) {
-                                Log.e(TAG, "❌ Blocked");
                                 setStatus("Account blocked", COLOR_DANGER);
                                 RateLimiter.recordFailure(ctx);
                                 showKeyExpiredDialog();
                             } else if ("invalid_credentials".equals(fReason)
                                     || "no_match".equals(fReason)) {
-                                Log.e(TAG, "❌ Invalid credentials");
                                 setStatus("Invalid username or password", COLOR_DANGER);
                                 RateLimiter.recordFailure(ctx);
-                            } else if ("bad_input".equals(fReason)) {
-                                Log.e(TAG, "❌ Bad input");
-                                setStatus("Invalid input. Check your credentials.", COLOR_DANGER);
                             } else if ("rate_limited".equals(fReason)) {
                                 setStatus("Too many attempts. Try later", COLOR_DANGER);
+                            } else if ("bad_input".equals(fReason)) {
+                                setStatus("Invalid input", COLOR_DANGER);
                             } else if ("server_error".equals(fReason)) {
-                                Log.e(TAG, "❌ Server error");
                                 setStatus("Server error. Try again later.", COLOR_DANGER);
                             } else {
-                                Log.e(TAG, "❌ Unknown reason: " + fReason);
-                                setStatus("Login failed (" + fReason + ")", COLOR_DANGER);
+                                setStatus("Login failed", COLOR_DANGER);
                             }
                         }
                     });
                     return;
                 }
 
-                // ── Case C: SUCCESS ──
-                Log.e(TAG, "✅ Login SUCCESS");
+                // ── ✅ Verify server's HMAC signature in native ──
+                if (!SecurityNative.verifyNativeSig(userOut, expiryOut, nativeSig)) {
+                    if (VERBOSE) Log.e(TAG, "NativeSig verify FAILED");
+                    loginInProgress = false;
+                    new Handler(Looper.getMainLooper()).post(new Runnable() {
+                        @Override public void run() {
+                            loginBtn.setEnabled(true);
+                            loginBtn.setText("SIGN IN");
+                            setStatus("Response tampered. Contact support.", COLOR_DANGER);
+                        }
+                    });
+                    return;
+                }
 
                 try {
                     KEY.edit().putString("User", userOut).apply();
@@ -608,20 +596,17 @@ public class LoginHelper {
         final String expiry = KEY.getString("expiry", "");
 
         if (token == null || token.isEmpty()) {
-            Log.e(TAG, "❌ Token empty");
             new Handler(Looper.getMainLooper()).post(new Runnable() {
                 @Override public void run() { setStatus("Session invalid", COLOR_DANGER); }
             });
             return;
         }
         if (!SecurityNative.verifySessionToken(token, user, pass, expiry)) {
-            Log.e(TAG, "❌ Session token verify failed");
             new Handler(Looper.getMainLooper()).post(new Runnable() {
                 @Override public void run() { setStatus("Session invalid", COLOR_DANGER); }
             });
             return;
         }
-        Log.e(TAG, "✅ Session verified → opening menu");
         new Handler(Looper.getMainLooper()).post(new Runnable() {
             @Override public void run() {
                 if (callback != null) callback.onLoginSuccess();
@@ -682,7 +667,7 @@ public class LoginHelper {
         updateBtn.setTextSize(12.5f);
         updateBtn.setTypeface(tfBold);
         GradientDrawable uBg = new GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT,
-                                                     new int[]{COLOR_CTA, Color.parseColor("#C79C56")});
+                new int[]{COLOR_CTA, Color.parseColor("#C79C56")});
         uBg.setCornerRadius(dp(25));
         updateBtn.setBackground(uBg);
         updateBtn.setPadding(dp(20), 0, dp(20), 0);
@@ -783,7 +768,7 @@ public class LoginHelper {
         contact.setTextSize(12.5f);
         contact.setTypeface(tfBold);
         GradientDrawable cBg = new GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT,
-                                                     new int[]{COLOR_CTA, Color.parseColor("#C79C56")});
+                new int[]{COLOR_CTA, Color.parseColor("#C79C56")});
         cBg.setCornerRadius(dp(25));
         contact.setBackground(cBg);
         contact.setPadding(dp(20), 0, dp(20), 0);

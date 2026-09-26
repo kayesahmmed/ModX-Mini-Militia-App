@@ -8,7 +8,6 @@ import java.net.URL;
 
 /**
  * NTP-based trusted time.
- * Prevents device clock manipulation for expiry bypass.
  */
 public final class NtpTime {
 
@@ -21,10 +20,11 @@ public final class NtpTime {
     private static volatile long sLastSyncMs = 0L;
     private static volatile boolean sLoaded = false;
 
+    // ✅ No Firebase — only HTTPS endpoints with Date header
     private static final String[] TIME_URLS = {
-        "https://modx-lab-5a6ee-default-rtdb.firebaseio.com/.json?shallow=true",
         "https://www.google.com",
-        "https://www.cloudflare.com"
+        "https://www.cloudflare.com",
+        "https://www.apple.com"
     };
 
     private NtpTime() { }
