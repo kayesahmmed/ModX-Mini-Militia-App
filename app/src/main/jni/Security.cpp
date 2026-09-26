@@ -1,22 +1,12 @@
 // ================================================================
-// Security.cpp — Professional Grade Security Layer (v4)
+// Security.cpp — Silent Security Layer (v5)
 //
-// Layers:
-//  1.  APK signature verification (multi-cert, constant-time)
-//  2.  HMAC-SHA256 session token
-//  3.  Native URL building (no Firebase URL in dex)
-//  4.  Anti-debug (TracerPid)
-//  5.  Anti-Frida (multi-vector)
-//  6.  Anti-Xposed / LSPosed
-//  7.  Anti-Substrate
-//  8.  Anti-Root (soft)
-//  9.  Anti-Emulator (soft)
-//  10. VPN check (REMOVED — game needs VPN)
-//  11. Constant-time comparisons
-//  12. String XOR encryption
-//  13. Compile-time OBFUSCATE()
-//  14. Debug build auto-skip
-//  15. DEX integrity verification  ← NEW in v4
+// Design principles:
+//   - NO user-visible strings
+//   - NO log messages that leak what check failed
+//   - All sensitive data obfuscated at compile time
+//   - Single entry point: verifyHashes()
+//   - Constant-time comparisons
 // ================================================================
 
 #include <jni.h>
@@ -43,10 +33,11 @@
 
 #include "Includes/obfuscate.h"
 
-#define SEC_TAG "ModXLab_Security"
-#define SLOGI(...) __android_log_print(ANDROID_LOG_INFO,  SEC_TAG, __VA_ARGS__)
-#define SLOGW(...) __android_log_print(ANDROID_LOG_WARN,  SEC_TAG, __VA_ARGS__)
-#define SLOGE(...) __android_log_print(ANDROID_LOG_ERROR, SEC_TAG, __VA_ARGS__)
+// ================================================================
+// Silent logging — only used for catastrophic errors, not security
+// ================================================================
+#define SEC_TAG "ModXLab"
+#define SLOG_CRIT(...) __android_log_print(ANDROID_LOG_ERROR, SEC_TAG, __VA_ARGS__)
 
 #define OBF_STR(s) (static_cast<const char*>(OBFUSCATE(s)))
 
@@ -61,23 +52,18 @@ static const char* SHA256_PRIMARY() {
 static const char* SHA256_ALT1() { return OBF_STR(""); }
 static const char* SHA256_ALT2() { return OBF_STR(""); }
 
-// HMAC secret for session tokens — CHANGE THIS
+// HMAC secret — CHANGE THIS TO YOUR OWN UNIQUE VALUE
 static const char* HMAC_SECRET() {
-    return OBF_STR("vXn20pF6jsVwsYz9akoCaogcvxcICEX3gJEGm1pmfMubVzIoqsKQ5ldnFxcxmMun");
+    return OBF_STR("xK9mP2QvLt7Rn5Bs4Wz8YhJ6CgD3FeA1NqU4TrXc");
 }
 
-// ================================================================
-// 🔑 EXPECTED DEX HASH — updated after first build
-// ---------------------------------------------------------------
-//  First build:  leave all-zeros → check skipped (fail-open)
-//  Then compute real hash → paste → rebuild → check active
-// ================================================================
+// Expected DEX hash — update after first build
 static const char* EXPECTED_DEX_HASH() {
-    return OBF_STR("eab7565e3e69c969f39247f9486f717569c5423c8fc2fb81238c83c8256588f5");
+    return OBF_STR("0000000000000000000000000000000000000000000000000000000000000000");
 }
 
 // ================================================================
-// SHA-256 (pure C)
+// SHA-256 (pure C, no external dependencies)
 // ================================================================
 namespace SecSHA {
 
@@ -236,33 +222,19 @@ static std::string urlEncode(const std::string& s) {
 }
 
 // ================================================================
-// DETECTION HELPERS
+// Detection helpers (all SILENT — no logs)
 // ================================================================
 
-static bool hasTracer() {
-    int fd = open("/proc/self/status", O_RDONLY);
-    if (fd < 0) return false;
-    char buf[4096];
-    ssize_t n = read(fd, buf, sizeof(buf) - 1);
-    close(fd);
-    if (n <= 0) return false;
-    buf[n] = '\0';
-    const char* p = strstr(buf, "TracerPid:");
-    if (!p) return false;
-    p += 10;
-    while (*p == ' ' || *p == '\t') p++;
-    return atoi(p) > 0;
-}
-
-static bool detectFridaHard() {
-    // 1) Memory map
+// --- Frida detection (multi-vector) ---
+static bool detectFrida() {
+    // 1) Memory map scan
     FILE* fp = fopen("/proc/self/maps", "r");
     if (fp) {
         char line[512];
         bool found = false;
         while (fgets(line, sizeof(line), fp)) {
-            if (strstr(line, "/frida-agent") ||
-                strstr(line, "/frida-gadget") ||
+            if (strstr(line, "frida-agent") ||
+                strstr(line, "frida-gadget") ||
                 strstr(line, "libfrida-gadget") ||
                 strstr(line, "libfrida-agent") ||
                 strstr(line, "gum-js-loop") ||
@@ -272,7 +244,7 @@ static bool detectFridaHard() {
             }
         }
         fclose(fp);
-        if (found) { SLOGW("Frida: maps match"); return true; }
+        if (found) return true;
     }
 
     // 2) Known Frida tmp files
@@ -287,19 +259,20 @@ static bool detectFridaHard() {
             }
         }
         closedir(dir);
-        if (found) { SLOGW("Frida: tmp file"); return true; }
+        if (found) return true;
     }
 
     // 3) Frida libraries loaded in-process
     void* h1 = dlopen("libfrida-gadget.so", RTLD_NOW);
-    if (h1) { dlclose(h1); SLOGW("Frida: gadget loaded"); return true; }
+    if (h1) { dlclose(h1); return true; }
     void* h2 = dlopen("libfrida-agent.so", RTLD_NOW);
-    if (h2) { dlclose(h2); SLOGW("Frida: agent loaded"); return true; }
+    if (h2) { dlclose(h2); return true; }
 
     return false;
 }
 
-static bool detectXposedHard() {
+// --- Xposed / LSPosed detection ---
+static bool detectXposed() {
     const char* paths[] = {
         "/system/framework/XposedBridge.jar",
         "/system/lib/libxposed_art.so",
@@ -312,14 +285,28 @@ static bool detectXposedHard() {
         nullptr
     };
     for (int i = 0; paths[i]; i++) {
-        if (access(paths[i], F_OK) == 0) {
-            SLOGW("Xposed: %s", paths[i]);
-            return true;
-        }
+        if (access(paths[i], F_OK) == 0) return true;
     }
     return false;
 }
 
+// --- Debugger via TracerPid ---
+static bool detectTracer() {
+    int fd = open("/proc/self/status", O_RDONLY);
+    if (fd < 0) return false;
+    char buf[4096];
+    ssize_t n = read(fd, buf, sizeof(buf) - 1);
+    close(fd);
+    if (n <= 0) return false;
+    buf[n] = '\0';
+    const char* p = strstr(buf, "TracerPid:");
+    if (!p) return false;
+    p += 10;
+    while (*p == ' ' || *p == '\t') p++;
+    return atoi(p) > 0;
+}
+
+// --- Substrate (soft) ---
 static bool detectSubstrate() {
     const char* paths[] = {
         "/system/lib/libsubstrate.so",
@@ -333,6 +320,7 @@ static bool detectSubstrate() {
     return false;
 }
 
+// --- Root (soft) ---
 static bool detectRoot() {
     const char* paths[] = {
         "/system/bin/su", "/system/xbin/su", "/sbin/su", "/su/bin/su",
@@ -348,6 +336,7 @@ static bool detectRoot() {
     return false;
 }
 
+// --- Emulator (soft) ---
 static bool detectEmulator() {
     if (access("/dev/socket/qemud", F_OK) == 0) return true;
     if (access("/dev/qemu_pipe", F_OK) == 0) return true;
@@ -373,22 +362,19 @@ static bool detectEmulator() {
 }
 
 // ================================================================
-// Aggregated environment check
+// Aggregated environment check — silent, no logs
 // ================================================================
 static bool isEnvironmentSafe() {
-    SLOGI("── env check start ──");
-
     // HARD FAILS
-    if (detectFridaHard()) { SLOGE("ENV: FRIDA DETECTED");  return false; }
-    if (detectXposedHard()){ SLOGE("ENV: XPOSED DETECTED"); return false; }
+    if (detectFrida())      return false;
+    if (detectXposed())     return false;
+    if (detectTracer())     return false;
 
-    // SOFT (info only — VPN check removed, game needs it)
-    if (hasTracer())        SLOGW("ENV: tracer attached (soft)");
-    if (detectSubstrate())  SLOGW("ENV: substrate (soft)");
-    if (detectRoot())       SLOGW("ENV: rooted device (soft)");
-    if (detectEmulator())   SLOGW("ENV: emulator signature (soft)");
+    // SOFT CHECKS — run them (no logs) but don't fail
+    (void)detectSubstrate();
+    (void)detectRoot();
+    (void)detectEmulator();
 
-    SLOGI("── env check OK ──");
     return true;
 }
 
@@ -417,7 +403,7 @@ static std::string buildUpdateUrl() {
 }
 
 // ================================================================
-// Expiry parser
+// Expiry date parser — "YYYY-MM-DD HH:MM [+HH:MM]"
 // ================================================================
 static long long parseExpireDate(const std::string& s) {
     if (s.empty()) return -1;
@@ -464,115 +450,88 @@ static long long parseExpireDate(const std::string& s) {
 }
 
 // ================================================================
-// JNI: checkSignatureHash
+// JNI: verifyHashes — SILENT SECURITY GATE
+// ---------------------------------------------------------------
+// Combines:
+//   - APK signature verify (multi-cert, constant-time)
+//   - DEX integrity verify
+//   - Environment check (Frida, Xposed, Tracer)
+//
+// Returns:
+//   JNI_TRUE  → all checks pass
+//   JNI_FALSE → any check fails (caller should kill process silently)
+//
+// NO logging. NO descriptive strings.
 // ================================================================
 extern "C" JNIEXPORT jboolean JNICALL
-Java_com_android_support_SecurityNative_checkSignatureHash(
-        JNIEnv* env, jclass, jstring jhash) {
+Java_com_android_support_SecurityNative_verifyHashes(
+        JNIEnv* env, jclass, jstring jsig, jstring jdex, jboolean jdebug) {
 
-    if (!jhash) { SLOGE("Sig: null input"); return JNI_FALSE; }
-    const char* raw = env->GetStringUTFChars(jhash, nullptr);
-    if (!raw) { SLOGE("Sig: release failed"); return JNI_FALSE; }
-    std::string given = toLower(std::string(raw));
-    env->ReleaseStringUTFChars(jhash, raw);
+    if (!jsig || !jdex) return JNI_FALSE;
 
-    SLOGI("Sig: runtime = %s", given.c_str());
-
-    auto matches = [&](const char* expected) -> bool {
-        std::string e = toLower(std::string(expected));
-        if (e.empty() || e.size() != given.size()) return false;
-        return constTimeEquals(given, e);
-    };
-
-    if (matches(SHA256_PRIMARY())) { SLOGI("Sig: PRIMARY match"); return JNI_TRUE; }
-    std::string a1(SHA256_ALT1());
-    if (!a1.empty() && matches(a1.c_str())) { SLOGI("Sig: ALT1 match"); return JNI_TRUE; }
-    std::string a2(SHA256_ALT2());
-    if (!a2.empty() && matches(a2.c_str())) { SLOGI("Sig: ALT2 match"); return JNI_TRUE; }
-
-    SLOGE("Sig: NO MATCH — expected = %s", SHA256_PRIMARY());
-    return JNI_FALSE;
-}
-
-// ================================================================
-// JNI: isEnvironmentValid
-// ================================================================
-extern "C" JNIEXPORT jboolean JNICALL
-Java_com_android_support_SecurityNative_isEnvironmentValid(JNIEnv*, jclass) {
-    return isEnvironmentSafe() ? JNI_TRUE : JNI_FALSE;
-}
-
-// ================================================================
-// JNI: verifyDexHash — NEW in v4
-// ================================================================
-extern "C" JNIEXPORT jboolean JNICALL
-Java_com_android_support_SecurityNative_verifyDexHash(
-        JNIEnv* env, jclass, jstring jhash) {
-
-    if (!jhash) {
-        SLOGE("DexHash: null input");
+    const char* csig = env->GetStringUTFChars(jsig, nullptr);
+    const char* cdex = env->GetStringUTFChars(jdex, nullptr);
+    if (!csig || !cdex) {
+        if (csig) env->ReleaseStringUTFChars(jsig, csig);
+        if (cdex) env->ReleaseStringUTFChars(jdex, cdex);
         return JNI_FALSE;
     }
 
-    const char* raw = env->GetStringUTFChars(jhash, nullptr);
-    if (!raw) return JNI_FALSE;
+    std::string sigHash = toLower(std::string(csig));
+    std::string dexHash = toLower(std::string(cdex));
+    env->ReleaseStringUTFChars(jsig, csig);
+    env->ReleaseStringUTFChars(jdex, cdex);
 
-    std::string given = toLower(std::string(raw));
-    env->ReleaseStringUTFChars(jhash, raw);
+    bool isDebug = (jdebug == JNI_TRUE);
 
-    std::string expected = toLower(std::string(EXPECTED_DEX_HASH()));
+    // ---------- Signature verify (skip in debug) ----------
+    if (!isDebug) {
+        std::string expected = toLower(std::string(SHA256_PRIMARY()));
 
-    // Skip if placeholder (first build)
-    bool placeholder = true;
-    for (char c : expected) {
-        if (c != '0') { placeholder = false; break; }
+        bool ok = false;
+        if (!expected.empty() && sigHash.size() == expected.size()) {
+            if (constTimeEquals(sigHash, expected)) ok = true;
+        }
+
+        if (!ok) {
+            // Try alternative certs (key rotation)
+            std::string a1 = toLower(std::string(SHA256_ALT1()));
+            if (!a1.empty() && sigHash.size() == a1.size()) {
+                if (constTimeEquals(sigHash, a1)) ok = true;
+            }
+            std::string a2 = toLower(std::string(SHA256_ALT2()));
+            if (!ok && !a2.empty() && sigHash.size() == a2.size()) {
+                if (constTimeEquals(sigHash, a2)) ok = true;
+            }
+        }
+
+        if (!ok) return JNI_FALSE;
     }
-    if (placeholder) {
-        SLOGW("DexHash: expected hash not set — skipping check");
-        return JNI_TRUE;
+
+    // ---------- DEX integrity verify (skip in debug) ----------
+    if (!isDebug) {
+        std::string expected = toLower(std::string(EXPECTED_DEX_HASH()));
+
+        // Check if placeholder (all zeros) — skip if so
+        bool placeholder = true;
+        for (char c : expected) {
+            if (c != '0') { placeholder = false; break; }
+        }
+
+        if (!placeholder) {
+            if (dexHash.size() != expected.size()) return JNI_FALSE;
+            if (!constTimeEquals(dexHash, expected)) return JNI_FALSE;
+        }
     }
 
-    if (given.empty() || given.size() != expected.size()) {
-        SLOGE("DexHash: size mismatch (given=%zu expected=%zu)",
-              given.size(), expected.size());
-        return JNI_FALSE;
-    }
+    // ---------- Environment check (always) ----------
+    if (!isEnvironmentSafe()) return JNI_FALSE;
 
-    if (!constTimeEquals(given, expected)) {
-        SLOGE("DexHash: MISMATCH — APK tampered");
-        return JNI_FALSE;
-    }
-
-    SLOGI("DexHash: OK");
     return JNI_TRUE;
 }
 
 // ================================================================
-// JNI: getQueryUrl
-// ================================================================
-extern "C" JNIEXPORT jstring JNICALL
-Java_com_android_support_SecurityNative_getQueryUrl(
-        JNIEnv* env, jclass, jstring jUser) {
-    if (!jUser) return env->NewStringUTF("");
-    const char* user = env->GetStringUTFChars(jUser, nullptr);
-    if (!user) return env->NewStringUTF("");
-    std::string u(user);
-    env->ReleaseStringUTFChars(jUser, user);
-    std::string url = buildQueryUrl(u);
-    return env->NewStringUTF(url.c_str());
-}
-
-// ================================================================
-// JNI: getUpdateUrl
-// ================================================================
-extern "C" JNIEXPORT jstring JNICALL
-Java_com_android_support_SecurityNative_getUpdateUrl(JNIEnv* env, jclass) {
-    std::string url = buildUpdateUrl();
-    return env->NewStringUTF(url.c_str());
-}
-
-// ================================================================
-// JNI: verifyLogin
+// JNI: verifyLogin — native login verification + HMAC token
 // ================================================================
 extern "C" JNIEXPORT jstring JNICALL
 Java_com_android_support_SecurityNative_verifyLogin(
@@ -619,25 +578,28 @@ Java_com_android_support_SecurityNative_verifyLogin(
 
     if (dbStatus != "true") return fail("blocked");
 
+    // ---------- Expiry resolution ----------
     long long expiryMs = 0;
-    const char* how = "none";
 
+    // Priority 1: expire_date string
     std::string expireDate = getJsonField(sJson, "expire_date");
     if (!expireDate.empty()) {
         long long sec = parseExpireDate(expireDate);
-        if (sec > 0) { expiryMs = sec * 1000LL; how = "expire_date"; }
+        if (sec > 0) expiryMs = sec * 1000LL;
     }
 
+    // Priority 2: time epoch ms
     if (expiryMs == 0) {
         std::string dbTime = getJsonField(sJson, "time");
         if (!dbTime.empty()) {
             try {
                 double d = std::stod(dbTime);
-                if (d > 1e11 && d < 9.2e18) { expiryMs = (long long)d; how = "time"; }
+                if (d > 1e11 && d < 9.2e18) expiryMs = (long long)d;
             } catch (...) {}
         }
     }
 
+    // Priority 3: rgtime + duration_hours/days
     if (expiryMs == 0) {
         std::string rgStr = getJsonField(sJson, "rgtime");
         long long rgMs = 0;
@@ -651,7 +613,7 @@ Java_com_android_support_SecurityNative_verifyLogin(
             if (!durH.empty()) {
                 try {
                     double h = std::stod(durH);
-                    if (h > 0 && h < 1e6) { expiryMs = rgMs + (long long)(h*3600000.0); how = "rg+h"; }
+                    if (h > 0 && h < 1e6) expiryMs = rgMs + (long long)(h * 3600000.0);
                 } catch (...) {}
             }
             if (expiryMs == 0) {
@@ -659,20 +621,20 @@ Java_com_android_support_SecurityNative_verifyLogin(
                 if (!durD.empty()) {
                     try {
                         double d = std::stod(durD);
-                        if (d > 0 && d < 36500) { expiryMs = rgMs + (long long)(d*86400000.0); how = "rg+d"; }
+                        if (d > 0 && d < 36500) expiryMs = rgMs + (long long)(d * 86400000.0);
                     } catch (...) {}
                 }
             }
         }
     }
 
+    // ---------- Enforce expiry ----------
     if (expiryMs > 0) {
         long long nowMs = (long long)time(nullptr) * 1000LL;
-        SLOGI("verifyLogin: user=%s how=%s diff_h=%.2f",
-              dbUser.c_str(), how, (double)(expiryMs - nowMs) / 3600000.0);
         if (nowMs > expiryMs) return fail("expired");
     }
 
+    // ---------- Generate HMAC-signed session token ----------
     std::string payload = dbUser + "|" + dbPass + "|" +
                           std::to_string(expiryMs) + "|" + dbStatus;
     std::string token = SecSHA::hmacHex(std::string(HMAC_SECRET()), payload);
@@ -718,16 +680,14 @@ Java_com_android_support_SecurityNative_verifySessionToken(
     std::string payload = user + "|" + pass + "|" + expiry + "|true";
     std::string expected = SecSHA::hmacHex(std::string(HMAC_SECRET()), payload);
 
-    if (!constTimeEquals(token, expected)) {
-        SLOGW("Session: token mismatch");
-        return JNI_FALSE;
-    }
+    if (!constTimeEquals(token, expected)) return JNI_FALSE;
 
+    // Also re-check expiry
     try {
         long long expiryMs = std::stoll(expiry);
         if (expiryMs > 0) {
             long long now = (long long)time(nullptr) * 1000LL;
-            if (now > expiryMs) { SLOGW("Session: expired"); return JNI_FALSE; }
+            if (now > expiryMs) return JNI_FALSE;
         }
     } catch (...) {}
 
@@ -735,64 +695,25 @@ Java_com_android_support_SecurityNative_verifySessionToken(
 }
 
 // ================================================================
-// JNI: decryptString
+// JNI: getQueryUrl — native URL building (Firebase URL not in dex)
 // ================================================================
 extern "C" JNIEXPORT jstring JNICALL
-Java_com_android_support_SecurityNative_decryptString(
-        JNIEnv* env, jclass, jstring jEnc, jint key) {
-    if (!jEnc) return env->NewStringUTF("");
-    const char* enc = env->GetStringUTFChars(jEnc, nullptr);
-    if (!enc) return env->NewStringUTF("");
-    size_t n = strlen(enc);
-    std::string out(n, 0);
-    for (size_t i = 0; i < n; i++) {
-        out[i] = (char)((unsigned char)enc[i] ^
-                        (unsigned char)((key + (int)(i * 31)) & 0xFF));
-    }
-    env->ReleaseStringUTFChars(jEnc, enc);
-    return env->NewStringUTF(out.c_str());
+Java_com_android_support_SecurityNative_getQueryUrl(
+        JNIEnv* env, jclass, jstring jUser) {
+    if (!jUser) return env->NewStringUTF("");
+    const char* user = env->GetStringUTFChars(jUser, nullptr);
+    if (!user) return env->NewStringUTF("");
+    std::string u(user);
+    env->ReleaseStringUTFChars(jUser, user);
+    std::string url = buildQueryUrl(u);
+    return env->NewStringUTF(url.c_str());
 }
 
 // ================================================================
-// JNI: getSelfHash
+// JNI: getUpdateUrl
 // ================================================================
 extern "C" JNIEXPORT jstring JNICALL
-Java_com_android_support_SecurityNative_getSelfHash(JNIEnv* env, jclass, jstring jInput) {
-    if (!jInput) return env->NewStringUTF("");
-    const char* in = env->GetStringUTFChars(jInput, nullptr);
-    if (!in) return env->NewStringUTF("");
-    std::string s(in);
-    env->ReleaseStringUTFChars(jInput, in);
-    std::string hash = SecSHA::hashHex(s);
-    return env->NewStringUTF(hash.c_str());
-}
-
-// ================================================================
-// JNI: hmacSign
-// ================================================================
-extern "C" JNIEXPORT jstring JNICALL
-Java_com_android_support_SecurityNative_hmacSign(JNIEnv* env, jclass, jstring jMessage) {
-    if (!jMessage) return env->NewStringUTF("");
-    const char* m = env->GetStringUTFChars(jMessage, nullptr);
-    if (!m) return env->NewStringUTF("");
-    std::string msg(m);
-    env->ReleaseStringUTFChars(jMessage, m);
-    std::string mac = SecSHA::hmacHex(std::string(HMAC_SECRET()), msg);
-    return env->NewStringUTF(mac.c_str());
-}
-
-// ================================================================
-// JNI: isRooted (soft-info)
-// ================================================================
-extern "C" JNIEXPORT jboolean JNICALL
-Java_com_android_support_SecurityNative_isRooted(JNIEnv*, jclass) {
-    return detectRoot() ? JNI_TRUE : JNI_FALSE;
-}
-
-// ================================================================
-// JNI: isVpnActive (stub — VPN check removed, game needs it)
-// ================================================================
-extern "C" JNIEXPORT jboolean JNICALL
-Java_com_android_support_SecurityNative_isVpnActive(JNIEnv*, jclass) {
-    return JNI_FALSE;
+Java_com_android_support_SecurityNative_getUpdateUrl(JNIEnv* env, jclass) {
+    std::string url = buildUpdateUrl();
+    return env->NewStringUTF(url.c_str());
 }
