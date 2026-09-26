@@ -48,13 +48,13 @@
 // ================================================================
 
 static const char* SHA256_PRIMARY() {
-    return OBF_STR("2214862d49d25c4c72b531bbd14d7e53587508035b6b7084b7d6d3f9763a0502");
+    return OBF_STR("8ad4db86f888c47cb3483c93afae4514274e77cb6a62c0ee63d2dcd249c2f89a");
 }
 static const char* SHA256_ALT1() { return OBF_STR(""); }
 static const char* SHA256_ALT2() { return OBF_STR(""); }
 
 static const char* EXPECTED_DEX_HASH() {
-    return OBF_STR("eab7565e3e69c969f39247f9486f717569c5423c8fc2fb81238c83c8256588f5");
+    return OBF_STR("7883d6f03f99f6da3daebbf7f14985dda0c1bda9e7b6f22e48a15caca6e44ade");
 }
 
 static const char* EXPECTED_LIB_HASH() {
