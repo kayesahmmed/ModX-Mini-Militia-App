@@ -63,7 +63,7 @@ static const char* SHA256_ALT2() { return OBF_STR(""); }
 
 // HMAC secret for session tokens — CHANGE THIS
 static const char* HMAC_SECRET() {
-    return OBF_STR("xK9mP2QvLt7Rn5Bs4Wz8YhJ6CgD3FeA1NqU4TrXc");
+    return OBF_STR("vXn20pF6jsVwsYz9akoCaogcvxcICEX3gJEGm1pmfMubVzIoqsKQ5ldnFxcxmMun");
 }
 
 // ================================================================
@@ -73,7 +73,7 @@ static const char* HMAC_SECRET() {
 //  Then compute real hash → paste → rebuild → check active
 // ================================================================
 static const char* EXPECTED_DEX_HASH() {
-    return OBF_STR("0000000000000000000000000000000000000000000000000000000000000000");
+    return OBF_STR("eab7565e3e69c969f39247f9486f717569c5423c8fc2fb81238c83c8256588f5");
 }
 
 // ================================================================
