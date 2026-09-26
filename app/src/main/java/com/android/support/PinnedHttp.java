@@ -75,7 +75,7 @@ public final class PinnedHttp {
 
             // Skip pinning in debug builds for easier debugging
             if (!com.android.support.BuildConfig.DEBUG) {
-                conn.setSSLSocketFactory(new PinnedFactory(conn));
+                conn.setSSLSocketFactory(new PinnedFactory());
             }
 
             int code = conn.getResponseCode();
@@ -100,11 +100,12 @@ public final class PinnedHttp {
         }
     }
 
-    private static class PinnedFactory extends SSLSocketFactory {
+        private static class PinnedFactory extends SSLSocketFactory {
         private final SSLSocketFactory delegate;
 
-        PinnedFactory(HttpURLConnection base) {
-            this.delegate = (SSLSocketFactory) base.getDefaultSSLSocketFactory();
+        PinnedFactory() {
+            // ✅ Correct way — use SSLSocketFactory.getDefault()
+            this.delegate = (SSLSocketFactory) SSLSocketFactory.getDefault();
         }
 
         @Override public String[] getDefaultCipherSuites() { return delegate.getDefaultCipherSuites(); }

@@ -49,7 +49,7 @@ public final class SecurityNative {
     // Native methods (all registered via JNI_OnLoad)
     // =================================================================
     private static native boolean verifyHashes(String sigHash, String dexHash, boolean isDebug);
-    private static native boolean verifyLibHash(String libHash);
+    public static native boolean verifyLibHash(String libHash);
     public  static native String  verifyLogin(String inputUser, String inputPass, String userJson);
     public  static native String  verifyLoginWithTime(String inputUser, String inputPass, String userJson, long nowMs);
     public  static native boolean verifySessionToken(String token, String user, String pass, String expiry);
