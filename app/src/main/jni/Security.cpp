@@ -1,5 +1,5 @@
 // ================================================================
-// Security.cpp — Silent Security Layer (v6)
+// Security.cpp — Silent Security Layer (v7)
 //
 // Layers:
 //   1.  APK signature verify (multi-cert)
@@ -8,9 +8,11 @@
 //   4.  Anti-Frida / Xposed / Debugger
 //   5.  HMAC session tokens (runtime-key derived)
 //   6.  Server-side login (Cloud Function URL)
-//   7.  Anti-memory-dump
-//   8.  Dynamic JNI registration
-//   9.  Server-time-based expiry
+//   7.  Anti-memory-dump (lazy init)
+//   8.  Server-time-based expiry
+//
+// NOTE: JNI_OnLoad is NOT defined here (already in Menu/Setup.cpp).
+//       Native methods use standard Java_<package>_<class>_<method> naming.
 // ================================================================
 
 #include <jni.h>
@@ -23,6 +25,7 @@
 #include <ctime>
 #include <cmath>
 #include <cstdarg>
+#include <atomic>
 #include <unistd.h>
 #include <fcntl.h>
 #include <dirent.h>
@@ -44,35 +47,25 @@
 // 🔑 CONFIGURATION — REPLACE WITH YOUR OWN VALUES
 // ================================================================
 
-// Primary active cert
 static const char* SHA256_PRIMARY() {
     return OBF_STR("2214862d49d25c4c72b531bbd14d7e53587508035b6b7084b7d6d3f9763a0502");
 }
-
-// Kept for cert rotation transition (60-90 days)
-static const char* SHA256_ALT1() {
-    return OBF_STR("");  // Leave empty if no rotation
-}
-
+static const char* SHA256_ALT1() { return OBF_STR(""); }
 static const char* SHA256_ALT2() { return OBF_STR(""); }
 
-// Expected DEX integrity hash
 static const char* EXPECTED_DEX_HASH() {
     return OBF_STR("eab7565e3e69c969f39247f9486f717569c5423c8fc2fb81238c83c8256588f5");
 }
 
-// Expected native lib hash
 static const char* EXPECTED_LIB_HASH() {
     return OBF_STR("0000000000000000000000000000000000000000000000000000000000000000");
 }
 
-// Server URL (Cloud Function) — obfuscated
 static const char* CLOUD_FN_URL() {
     return OBF_STR("https://sgp.cloud.appwrite.io/v1/functions/6ab760b0200276b627cbe/executions");
 }
-// ================================================================
+
 // Runtime Key Derivation — HMAC secret assembled at runtime
-// ================================================================
 static std::string deriveKey() {
     std::string p1 = OBF_STR("xK9mP2QvLt7");
     std::string p2 = OBF_STR("Rn5Bs4Wz8Yh");
@@ -322,7 +315,7 @@ static bool isEnvironmentSafe() {
 }
 
 // ================================================================
-// Anti-memory-dump — drop core dumps, disable ptrace
+// Anti-memory-dump — drop core dumps, disable coredump filter
 // ================================================================
 static bool enableAntiDump() {
     struct rlimit rl;
@@ -330,8 +323,6 @@ static bool enableAntiDump() {
     rl.rlim_max = 0;
     setrlimit(RLIMIT_CORE, &rl);
 
-    // Mark process non-dumpable (Linux)
-    // /proc/self/coredump_filter = 0
     int fd = open("/proc/self/coredump_filter", O_WRONLY);
     if (fd >= 0) {
         const char* zero = "0";
@@ -341,7 +332,11 @@ static bool enableAntiDump() {
     return true;
 }
 
-__attribute__((constructor)) void early_init() {
+// Lazy init — runs once on first verifyHashes call
+// (No __attribute__((constructor)) — that symbol already used in Main.cpp)
+static std::atomic<bool> g_antiDumpDone{false};
+static inline void ensureAntiDumpInit() {
+    if (g_antiDumpDone.exchange(true)) return;
     enableAntiDump();
 }
 
@@ -406,11 +401,15 @@ static long long parseExpireDate(const std::string& s) {
 }
 
 // ================================================================
-// JNI IMPLEMENTATIONS (registered dynamically in JNI_OnLoad)
+// JNI IMPLEMENTATIONS — Standard Java_<pkg>_<class>_<method> naming
+// (No JNI_OnLoad — Setup.cpp owns that symbol)
 // ================================================================
 
-static jboolean JNICALL impl_verifyHashes(
+extern "C" JNIEXPORT jboolean JNICALL
+Java_com_android_support_SecurityNative_verifyHashes(
         JNIEnv* env, jclass, jstring jsig, jstring jdex, jboolean jdebug) {
+
+    ensureAntiDumpInit();  // Lazy one-time init
 
     if (!jsig || !jdex) return JNI_FALSE;
     const char* csig = env->GetStringUTFChars(jsig, nullptr);
@@ -458,7 +457,9 @@ static jboolean JNICALL impl_verifyHashes(
     return JNI_TRUE;
 }
 
-static jboolean JNICALL impl_verifyLibHash(JNIEnv* env, jclass, jstring jhash) {
+extern "C" JNIEXPORT jboolean JNICALL
+Java_com_android_support_SecurityNative_verifyLibHash(
+        JNIEnv* env, jclass, jstring jhash) {
     if (!jhash) return JNI_FALSE;
     const char* raw = env->GetStringUTFChars(jhash, nullptr);
     if (!raw) return JNI_FALSE;
@@ -475,7 +476,8 @@ static jboolean JNICALL impl_verifyLibHash(JNIEnv* env, jclass, jstring jhash) {
     return JNI_TRUE;
 }
 
-static jstring JNICALL impl_verifyLogin(
+extern "C" JNIEXPORT jstring JNICALL
+Java_com_android_support_SecurityNative_verifyLogin(
         JNIEnv* env, jclass, jstring jUser, jstring jPass, jstring jUserJson) {
 
     auto fail = [&](const char* reason) -> jstring {
@@ -566,10 +568,10 @@ static jstring JNICALL impl_verifyLogin(
     return env->NewStringUTF(out.c_str());
 }
 
-static jstring JNICALL impl_verifyLoginWithTime(
+extern "C" JNIEXPORT jstring JNICALL
+Java_com_android_support_SecurityNative_verifyLoginWithTime(
         JNIEnv* env, jclass, jstring jUser, jstring jPass, jstring jUserJson, jlong jNowMs) {
 
-    // Same logic as impl_verifyLogin but uses jNowMs instead of time(nullptr)
     auto fail = [&](const char* reason) -> jstring {
         std::string s = "{\"ok\":false,\"reason\":\"";
         s += reason; s += "\"}";
@@ -642,7 +644,7 @@ static jstring JNICALL impl_verifyLoginWithTime(
         }
     }
     if (expiryMs > 0) {
-        long long nowMs = (long long)jNowMs;   // ✅ Uses trusted time
+        long long nowMs = (long long)jNowMs;
         if (nowMs > expiryMs) return fail("expired");
     }
 
@@ -658,7 +660,8 @@ static jstring JNICALL impl_verifyLoginWithTime(
     return env->NewStringUTF(out.c_str());
 }
 
-static jboolean JNICALL impl_verifySessionToken(
+extern "C" JNIEXPORT jboolean JNICALL
+Java_com_android_support_SecurityNative_verifySessionToken(
         JNIEnv* env, jclass,
         jstring jToken, jstring jUser, jstring jPass, jstring jExpiry) {
 
@@ -694,7 +697,8 @@ static jboolean JNICALL impl_verifySessionToken(
     return JNI_TRUE;
 }
 
-static jstring JNICALL impl_getQueryUrl(JNIEnv* env, jclass, jstring jUser) {
+extern "C" JNIEXPORT jstring JNICALL
+Java_com_android_support_SecurityNative_getQueryUrl(JNIEnv* env, jclass, jstring jUser) {
     if (!jUser) return env->NewStringUTF("");
     const char* user = env->GetStringUTFChars(jUser, nullptr);
     if (!user) return env->NewStringUTF("");
@@ -704,41 +708,13 @@ static jstring JNICALL impl_getQueryUrl(JNIEnv* env, jclass, jstring jUser) {
     return env->NewStringUTF(url.c_str());
 }
 
-static jstring JNICALL impl_getUpdateUrl(JNIEnv* env, jclass) {
+extern "C" JNIEXPORT jstring JNICALL
+Java_com_android_support_SecurityNative_getUpdateUrl(JNIEnv* env, jclass) {
     std::string url = buildUpdateUrl();
     return env->NewStringUTF(url.c_str());
 }
 
-static jstring JNICALL impl_getCloudFnUrl(JNIEnv* env, jclass) {
+extern "C" JNIEXPORT jstring JNICALL
+Java_com_android_support_SecurityNative_getCloudFnUrl(JNIEnv* env, jclass) {
     return env->NewStringUTF(CLOUD_FN_URL());
-}
-
-// ================================================================
-// JNI_OnLoad — dynamic registration hides symbol names
-// ================================================================
-extern "C" JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM* vm, void* reserved) {
-    JNIEnv* env = nullptr;
-    if (vm->GetEnv(reinterpret_cast<void**>(&env), JNI_VERSION_1_6) != JNI_OK) {
-        return JNI_ERR;
-    }
-
-    jclass cls = env->FindClass("com/android/support/SecurityNative");
-    if (!cls) return JNI_ERR;
-
-    static const JNINativeMethod methods[] = {
-        { "verifyHashes",       "(Ljava/lang/String;Ljava/lang/String;Z)Z",                        (void*)impl_verifyHashes },
-        { "verifyLibHash",      "(Ljava/lang/String;)Z",                                           (void*)impl_verifyLibHash },
-        { "verifyLogin",        "(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;",           (void*)impl_verifyLogin },
-        { "verifyLoginWithTime","(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;J)Ljava/lang/String;",          (void*)impl_verifyLoginWithTime },
-        { "verifySessionToken", "(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)Z",          (void*)impl_verifySessionToken },
-        { "getQueryUrl",        "(Ljava/lang/String;)Ljava/lang/String;",                          (void*)impl_getQueryUrl },
-        { "getUpdateUrl",       "()Ljava/lang/String;",                                            (void*)impl_getUpdateUrl },
-        { "getCloudFnUrl",      "()Ljava/lang/String;",                                            (void*)impl_getCloudFnUrl },
-    };
-
-    if (env->RegisterNatives(cls, methods, sizeof(methods) / sizeof(methods[0])) != JNI_OK) {
-        return JNI_ERR;
-    }
-
-    return JNI_VERSION_1_6;
 }
