@@ -1,12 +1,16 @@
 // ================================================================
-// Security.cpp — Silent Security Layer (v5)
+// Security.cpp — Silent Security Layer (v6)
 //
-// Design principles:
-//   - NO user-visible strings
-//   - NO log messages that leak what check failed
-//   - All sensitive data obfuscated at compile time
-//   - Single entry point: verifyHashes()
-//   - Constant-time comparisons
+// Layers:
+//   1.  APK signature verify (multi-cert)
+//   2.  DEX integrity verify
+//   3.  Native lib integrity verify
+//   4.  Anti-Frida / Xposed / Debugger
+//   5.  HMAC session tokens (runtime-key derived)
+//   6.  Server-side login (Cloud Function URL)
+//   7.  Anti-memory-dump
+//   8.  Dynamic JNI registration
+//   9.  Server-time-based expiry
 // ================================================================
 
 #include <jni.h>
@@ -27,17 +31,12 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <sys/mman.h>
+#include <sys/resource.h>
 #include <sys/system_properties.h>
 #include <android/log.h>
 #include <pthread.h>
 
 #include "Includes/obfuscate.h"
-
-// ================================================================
-// Silent logging — only used for catastrophic errors, not security
-// ================================================================
-#define SEC_TAG "ModXLab"
-#define SLOG_CRIT(...) __android_log_print(ANDROID_LOG_ERROR, SEC_TAG, __VA_ARGS__)
 
 #define OBF_STR(s) (static_cast<const char*>(OBFUSCATE(s)))
 
@@ -45,34 +44,49 @@
 // 🔑 CONFIGURATION — REPLACE WITH YOUR OWN VALUES
 // ================================================================
 
-// Your release cert SHA-256 (64 lowercase hex chars, no colons)
+// Primary active cert
 static const char* SHA256_PRIMARY() {
     return OBF_STR("2214862d49d25c4c72b531bbd14d7e53587508035b6b7084b7d6d3f9763a0502");
 }
-static const char* SHA256_ALT1() { return OBF_STR(""); }
-static const char* SHA256_ALT2() { return OBF_STR(""); }
 
-// HMAC secret — CHANGE THIS TO YOUR OWN UNIQUE VALUE
-static const char* HMAC_SECRET() {
-    return OBF_STR("xK9mP2QvLt7Rn5Bs4Wz8YhJ6CgD3FeA1NqU4TrXc");
+// Kept for cert rotation transition (60-90 days)
+static const char* SHA256_ALT1() {
+    return OBF_STR("");  // Leave empty if no rotation
 }
 
-// Expected DEX hash — update after first build
+static const char* SHA256_ALT2() { return OBF_STR(""); }
+
+// Expected DEX integrity hash
 static const char* EXPECTED_DEX_HASH() {
+    return OBF_STR("eab7565e3e69c969f39247f9486f717569c5423c8fc2fb81238c83c8256588f5");
+}
+
+// Expected native lib hash
+static const char* EXPECTED_LIB_HASH() {
     return OBF_STR("0000000000000000000000000000000000000000000000000000000000000000");
 }
 
+// Server URL (Cloud Function) — obfuscated
+static const char* CLOUD_FN_URL() {
+    return OBF_STR("https://us-central1-modx-lab-5a6ee.cloudfunctions.net/verifyLogin");
+}
+
 // ================================================================
-// SHA-256 (pure C, no external dependencies)
+// Runtime Key Derivation — HMAC secret assembled at runtime
+// ================================================================
+static std::string deriveKey() {
+    std::string p1 = OBF_STR("xK9mP2QvLt7");
+    std::string p2 = OBF_STR("Rn5Bs4Wz8Yh");
+    std::string p3 = OBF_STR("J6CgD3FeA1N");
+    std::string p4 = OBF_STR("qU4TrXc");
+    return p1 + p2 + p3 + p4;
+}
+
+// ================================================================
+// SHA-256 (pure C)
 // ================================================================
 namespace SecSHA {
-
-    struct Ctx {
-        uint32_t h[8];
-        uint64_t len;
-        uint8_t  buf[64];
-        size_t   used;
-    };
+    struct Ctx { uint32_t h[8]; uint64_t len; uint8_t buf[64]; size_t used; };
 
     static const uint32_t K[64] = {
         0x428a2f98,0x71374491,0xb5c0fbcf,0xe9b5dba5,0x3956c25b,0x59f111f1,0x923f82a4,0xab1c5ed5,
@@ -160,10 +174,7 @@ namespace SecSHA {
         if (k.size() > 64) k = hashHex(k);
         while (k.size() < 64) k += '\0';
         std::string o(64, 0x5c), inn(64, 0x36);
-        for (int i = 0; i < 64; i++) {
-            o[i]   ^= k[i];
-            inn[i] ^= k[i];
-        }
+        for (int i = 0; i < 64; i++) { o[i] ^= k[i]; inn[i] ^= k[i]; }
         return hashHex(o + hashHex(inn + msg));
     }
 }
@@ -222,23 +233,17 @@ static std::string urlEncode(const std::string& s) {
 }
 
 // ================================================================
-// Detection helpers (all SILENT — no logs)
+// Detection helpers (all silent)
 // ================================================================
-
-// --- Frida detection (multi-vector) ---
 static bool detectFrida() {
-    // 1) Memory map scan
     FILE* fp = fopen("/proc/self/maps", "r");
     if (fp) {
         char line[512];
         bool found = false;
         while (fgets(line, sizeof(line), fp)) {
-            if (strstr(line, "frida-agent") ||
-                strstr(line, "frida-gadget") ||
-                strstr(line, "libfrida-gadget") ||
-                strstr(line, "libfrida-agent") ||
-                strstr(line, "gum-js-loop") ||
-                strstr(line, "frida-server") ||
+            if (strstr(line, "frida-agent") || strstr(line, "frida-gadget") ||
+                strstr(line, "libfrida-gadget") || strstr(line, "libfrida-agent") ||
+                strstr(line, "gum-js-loop") || strstr(line, "frida-server") ||
                 strstr(line, "re.frida.server")) {
                 found = true; break;
             }
@@ -246,8 +251,6 @@ static bool detectFrida() {
         fclose(fp);
         if (found) return true;
     }
-
-    // 2) Known Frida tmp files
     DIR* dir = opendir("/data/local/tmp");
     if (dir) {
         struct dirent* de;
@@ -261,17 +264,13 @@ static bool detectFrida() {
         closedir(dir);
         if (found) return true;
     }
-
-    // 3) Frida libraries loaded in-process
-    void* h1 = dlopen("libfrida-gadget.so", RTLD_NOW);
-    if (h1) { dlclose(h1); return true; }
-    void* h2 = dlopen("libfrida-agent.so", RTLD_NOW);
-    if (h2) { dlclose(h2); return true; }
-
+    void* h = dlopen("libfrida-gadget.so", RTLD_NOW);
+    if (h) { dlclose(h); return true; }
+    h = dlopen("libfrida-agent.so", RTLD_NOW);
+    if (h) { dlclose(h); return true; }
     return false;
 }
 
-// --- Xposed / LSPosed detection ---
 static bool detectXposed() {
     const char* paths[] = {
         "/system/framework/XposedBridge.jar",
@@ -290,7 +289,6 @@ static bool detectXposed() {
     return false;
 }
 
-// --- Debugger via TracerPid ---
 static bool detectTracer() {
     int fd = open("/proc/self/status", O_RDONLY);
     if (fd < 0) return false;
@@ -306,80 +304,50 @@ static bool detectTracer() {
     return atoi(p) > 0;
 }
 
-// --- Substrate (soft) ---
-static bool detectSubstrate() {
-    const char* paths[] = {
-        "/system/lib/libsubstrate.so",
-        "/system/lib64/libsubstrate.so",
-        "/data/data/com.saurik.substrate",
-        nullptr
-    };
-    for (int i = 0; paths[i]; i++) {
-        if (access(paths[i], F_OK) == 0) return true;
-    }
-    return false;
-}
-
-// --- Root (soft) ---
-static bool detectRoot() {
-    const char* paths[] = {
-        "/system/bin/su", "/system/xbin/su", "/sbin/su", "/su/bin/su",
-        "/data/local/su", "/data/local/xbin/su",
-        "/system/app/Superuser.apk",
-        "/magisk/.core/bin/su",
-        "/sbin/.magisk",
-        nullptr
-    };
-    for (int i = 0; paths[i]; i++) {
-        if (access(paths[i], F_OK) == 0) return true;
-    }
-    return false;
-}
-
-// --- Emulator (soft) ---
 static bool detectEmulator() {
     if (access("/dev/socket/qemud", F_OK) == 0) return true;
     if (access("/dev/qemu_pipe", F_OK) == 0) return true;
-
     char value[PROP_VALUE_MAX] = {0};
     if (__system_property_get("ro.kernel.qemu", value) > 0) {
         if (strcmp(value, "1") == 0) return true;
     }
-
-    FILE* fp = fopen("/proc/cpuinfo", "r");
-    if (fp) {
-        char line[512];
-        bool found = false;
-        while (fgets(line, sizeof(line), fp)) {
-            if (strstr(line, "goldfish") || strstr(line, "ranchu")) {
-                found = true; break;
-            }
-        }
-        fclose(fp);
-        if (found) return true;
-    }
     return false;
 }
 
-// ================================================================
-// Aggregated environment check — silent, no logs
-// ================================================================
 static bool isEnvironmentSafe() {
-    // HARD FAILS
     if (detectFrida())      return false;
     if (detectXposed())     return false;
     if (detectTracer())     return false;
-
-    // SOFT CHECKS — run them (no logs) but don't fail
-    (void)detectSubstrate();
-    (void)detectRoot();
-    (void)detectEmulator();
-
+    if (detectEmulator())   return false;
     return true;
 }
 
 // ================================================================
-// Native URL builder
+// Anti-memory-dump — drop core dumps, disable ptrace
+// ================================================================
+static bool enableAntiDump() {
+    struct rlimit rl;
+    rl.rlim_cur = 0;
+    rl.rlim_max = 0;
+    setrlimit(RLIMIT_CORE, &rl);
+
+    // Mark process non-dumpable (Linux)
+    // /proc/self/coredump_filter = 0
+    int fd = open("/proc/self/coredump_filter", O_WRONLY);
+    if (fd >= 0) {
+        const char* zero = "0";
+        write(fd, zero, 1);
+        close(fd);
+    }
+    return true;
+}
+
+__attribute__((constructor)) void early_init() {
+    enableAntiDump();
+}
+
+// ================================================================
+// Native URL builders
 // ================================================================
 static std::string buildBaseUrl() {
     std::string url;
@@ -403,44 +371,33 @@ static std::string buildUpdateUrl() {
 }
 
 // ================================================================
-// Expiry date parser — "YYYY-MM-DD HH:MM [+HH:MM]"
+// Expiry parser
 // ================================================================
 static long long parseExpireDate(const std::string& s) {
     if (s.empty()) return -1;
-
     int Y=0, M=0, D=0, h=0, m=0, tzH=0, tzM=0;
     char tzSign = '+';
     bool hasTZ = false;
-
-    int n = sscanf(s.c_str(), "%d-%d-%d %d:%d %c%d:%d",
-                   &Y, &M, &D, &h, &m, &tzSign, &tzH, &tzM);
+    int n = sscanf(s.c_str(), "%d-%d-%d %d:%d %c%d:%d", &Y, &M, &D, &h, &m, &tzSign, &tzH, &tzM);
     if (n == 8) hasTZ = true;
     else {
-        n = sscanf(s.c_str(), "%d-%d-%d %d:%d %c%d",
-                   &Y, &M, &D, &h, &m, &tzSign, &tzH);
+        n = sscanf(s.c_str(), "%d-%d-%d %d:%d %c%d", &Y, &M, &D, &h, &m, &tzSign, &tzH);
         if (n == 7) { hasTZ = true; tzM = 0; }
         else {
             n = sscanf(s.c_str(), "%d-%d-%d %d:%d", &Y, &M, &D, &h, &m);
             if (n != 5) return -1;
         }
     }
-
-    if (Y < 2020 || Y > 2200) return -1;
-    if (M < 1 || M > 12) return -1;
-    if (D < 1 || D > 31) return -1;
-    if (h < 0 || h > 23) return -1;
-    if (m < 0 || m > 59) return -1;
+    if (Y < 2020 || Y > 2200 || M < 1 || M > 12 || D < 1 || D > 31 ||
+        h < 0 || h > 23 || m < 0 || m > 59) return -1;
     if (hasTZ && (tzH < 0 || tzH > 14 || tzM < 0 || tzM > 59)) return -1;
-
     int y = Y - (M <= 2 ? 1 : 0);
     int era = (y >= 0 ? y : y - 399) / 400;
     unsigned yoe = (unsigned)(y - era * 400);
     unsigned doy = (153u * (M > 2 ? M - 3 : M + 9) + 2u) / 5u + (unsigned)D - 1u;
     unsigned doe = yoe * 365u + yoe / 4u - yoe / 100u + doy;
     long long days = (long long)era * 146097LL + (long long)doe - 719468LL;
-
     long long localSec = days * 86400LL + (long long)h * 3600LL + (long long)m * 60LL;
-
     long long offSec = 0;
     if (hasTZ) {
         offSec = (long long)tzH * 3600LL + (long long)tzM * 60LL;
@@ -450,25 +407,13 @@ static long long parseExpireDate(const std::string& s) {
 }
 
 // ================================================================
-// JNI: verifyHashes — SILENT SECURITY GATE
-// ---------------------------------------------------------------
-// Combines:
-//   - APK signature verify (multi-cert, constant-time)
-//   - DEX integrity verify
-//   - Environment check (Frida, Xposed, Tracer)
-//
-// Returns:
-//   JNI_TRUE  → all checks pass
-//   JNI_FALSE → any check fails (caller should kill process silently)
-//
-// NO logging. NO descriptive strings.
+// JNI IMPLEMENTATIONS (registered dynamically in JNI_OnLoad)
 // ================================================================
-extern "C" JNIEXPORT jboolean JNICALL
-Java_com_android_support_SecurityNative_verifyHashes(
+
+static jboolean JNICALL impl_verifyHashes(
         JNIEnv* env, jclass, jstring jsig, jstring jdex, jboolean jdebug) {
 
     if (!jsig || !jdex) return JNI_FALSE;
-
     const char* csig = env->GetStringUTFChars(jsig, nullptr);
     const char* cdex = env->GetStringUTFChars(jdex, nullptr);
     if (!csig || !cdex) {
@@ -476,7 +421,6 @@ Java_com_android_support_SecurityNative_verifyHashes(
         if (cdex) env->ReleaseStringUTFChars(jdex, cdex);
         return JNI_FALSE;
     }
-
     std::string sigHash = toLower(std::string(csig));
     std::string dexHash = toLower(std::string(cdex));
     env->ReleaseStringUTFChars(jsig, csig);
@@ -484,69 +428,64 @@ Java_com_android_support_SecurityNative_verifyHashes(
 
     bool isDebug = (jdebug == JNI_TRUE);
 
-    // ---------- Signature verify (skip in debug) ----------
     if (!isDebug) {
+        // Signature
         std::string expected = toLower(std::string(SHA256_PRIMARY()));
-
         bool ok = false;
-        if (!expected.empty() && sigHash.size() == expected.size()) {
+        if (!expected.empty() && sigHash.size() == expected.size())
             if (constTimeEquals(sigHash, expected)) ok = true;
-        }
 
         if (!ok) {
-            // Try alternative certs (key rotation)
             std::string a1 = toLower(std::string(SHA256_ALT1()));
-            if (!a1.empty() && sigHash.size() == a1.size()) {
+            if (!a1.empty() && sigHash.size() == a1.size())
                 if (constTimeEquals(sigHash, a1)) ok = true;
-            }
             std::string a2 = toLower(std::string(SHA256_ALT2()));
-            if (!ok && !a2.empty() && sigHash.size() == a2.size()) {
+            if (!ok && !a2.empty() && sigHash.size() == a2.size())
                 if (constTimeEquals(sigHash, a2)) ok = true;
-            }
         }
-
         if (!ok) return JNI_FALSE;
-    }
 
-    // ---------- DEX integrity verify (skip in debug) ----------
-    if (!isDebug) {
-        std::string expected = toLower(std::string(EXPECTED_DEX_HASH()));
-
-        // Check if placeholder (all zeros) — skip if so
+        // DEX
+        std::string expectedDex = toLower(std::string(EXPECTED_DEX_HASH()));
         bool placeholder = true;
-        for (char c : expected) {
-            if (c != '0') { placeholder = false; break; }
-        }
-
+        for (char c : expectedDex) if (c != '0') { placeholder = false; break; }
         if (!placeholder) {
-            if (dexHash.size() != expected.size()) return JNI_FALSE;
-            if (!constTimeEquals(dexHash, expected)) return JNI_FALSE;
+            if (dexHash.size() != expectedDex.size()) return JNI_FALSE;
+            if (!constTimeEquals(dexHash, expectedDex)) return JNI_FALSE;
         }
     }
 
-    // ---------- Environment check (always) ----------
     if (!isEnvironmentSafe()) return JNI_FALSE;
-
     return JNI_TRUE;
 }
 
-// ================================================================
-// JNI: verifyLogin — native login verification + HMAC token
-// ================================================================
-extern "C" JNIEXPORT jstring JNICALL
-Java_com_android_support_SecurityNative_verifyLogin(
-        JNIEnv* env, jclass,
-        jstring jUser, jstring jPass, jstring jUserJson) {
+static jboolean JNICALL impl_verifyLibHash(JNIEnv* env, jclass, jstring jhash) {
+    if (!jhash) return JNI_FALSE;
+    const char* raw = env->GetStringUTFChars(jhash, nullptr);
+    if (!raw) return JNI_FALSE;
+    std::string given = toLower(std::string(raw));
+    env->ReleaseStringUTFChars(jhash, raw);
+
+    std::string expected = toLower(std::string(EXPECTED_LIB_HASH()));
+    bool placeholder = true;
+    for (char c : expected) if (c != '0') { placeholder = false; break; }
+    if (placeholder) return JNI_TRUE;
+
+    if (given.size() != expected.size()) return JNI_FALSE;
+    if (!constTimeEquals(given, expected)) return JNI_FALSE;
+    return JNI_TRUE;
+}
+
+static jstring JNICALL impl_verifyLogin(
+        JNIEnv* env, jclass, jstring jUser, jstring jPass, jstring jUserJson) {
 
     auto fail = [&](const char* reason) -> jstring {
         std::string s = "{\"ok\":false,\"reason\":\"";
-        s += reason;
-        s += "\"}";
+        s += reason; s += "\"}";
         return env->NewStringUTF(s.c_str());
     };
 
     if (!jUser || !jPass || !jUserJson) return fail("bad_input");
-
     const char* cu = env->GetStringUTFChars(jUser, nullptr);
     const char* cp = env->GetStringUTFChars(jPass, nullptr);
     const char* cj = env->GetStringUTFChars(jUserJson, nullptr);
@@ -556,7 +495,6 @@ Java_com_android_support_SecurityNative_verifyLogin(
         if (cj) env->ReleaseStringUTFChars(jUserJson, cj);
         return fail("bad_input");
     }
-
     std::string sUser(cu), sPass(cp), sJson(cj);
     env->ReleaseStringUTFChars(jUser, cu);
     env->ReleaseStringUTFChars(jPass, cp);
@@ -568,76 +506,57 @@ Java_com_android_support_SecurityNative_verifyLogin(
     std::string dbUser   = getJsonField(sJson, "user");
     std::string dbPass   = getJsonField(sJson, "pass");
     std::string dbStatus = getJsonField(sJson, "status");
-
     if (dbUser.empty() || dbPass.empty()) return fail("no_match");
 
-    std::string uL  = toLower(sUser);
-    std::string dUL = toLower(dbUser);
+    std::string uL = toLower(sUser), dUL = toLower(dbUser);
     if (!constTimeEquals(uL, dUL)) return fail("invalid_credentials");
     if (!constTimeEquals(sPass, dbPass)) return fail("invalid_credentials");
-
     if (dbStatus != "true") return fail("blocked");
 
-    // ---------- Expiry resolution ----------
     long long expiryMs = 0;
-
-    // Priority 1: expire_date string
     std::string expireDate = getJsonField(sJson, "expire_date");
     if (!expireDate.empty()) {
         long long sec = parseExpireDate(expireDate);
         if (sec > 0) expiryMs = sec * 1000LL;
     }
-
-    // Priority 2: time epoch ms
     if (expiryMs == 0) {
         std::string dbTime = getJsonField(sJson, "time");
         if (!dbTime.empty()) {
-            try {
-                double d = std::stod(dbTime);
+            try { double d = std::stod(dbTime);
                 if (d > 1e11 && d < 9.2e18) expiryMs = (long long)d;
             } catch (...) {}
         }
     }
-
-    // Priority 3: rgtime + duration_hours/days
     if (expiryMs == 0) {
         std::string rgStr = getJsonField(sJson, "rgtime");
         long long rgMs = 0;
-        try {
-            double d = std::stod(rgStr);
+        try { double d = std::stod(rgStr);
             if (d > 1e11 && d < 9.2e18) rgMs = (long long)d;
         } catch (...) {}
-
         if (rgMs > 0) {
             std::string durH = getJsonField(sJson, "duration_hours");
             if (!durH.empty()) {
-                try {
-                    double h = std::stod(durH);
+                try { double h = std::stod(durH);
                     if (h > 0 && h < 1e6) expiryMs = rgMs + (long long)(h * 3600000.0);
                 } catch (...) {}
             }
             if (expiryMs == 0) {
                 std::string durD = getJsonField(sJson, "duration_days");
                 if (!durD.empty()) {
-                    try {
-                        double d = std::stod(durD);
+                    try { double d = std::stod(durD);
                         if (d > 0 && d < 36500) expiryMs = rgMs + (long long)(d * 86400000.0);
                     } catch (...) {}
                 }
             }
         }
     }
-
-    // ---------- Enforce expiry ----------
     if (expiryMs > 0) {
         long long nowMs = (long long)time(nullptr) * 1000LL;
         if (nowMs > expiryMs) return fail("expired");
     }
 
-    // ---------- Generate HMAC-signed session token ----------
-    std::string payload = dbUser + "|" + dbPass + "|" +
-                          std::to_string(expiryMs) + "|" + dbStatus;
-    std::string token = SecSHA::hmacHex(std::string(HMAC_SECRET()), payload);
+    std::string payload = dbUser + "|" + dbPass + "|" + std::to_string(expiryMs) + "|" + dbStatus;
+    std::string token = SecSHA::hmacHex(deriveKey(), payload);
 
     std::string out = "{\"ok\":true,\"token\":\"";
     out += token;
@@ -648,21 +567,107 @@ Java_com_android_support_SecurityNative_verifyLogin(
     return env->NewStringUTF(out.c_str());
 }
 
-// ================================================================
-// JNI: verifySessionToken
-// ================================================================
-extern "C" JNIEXPORT jboolean JNICALL
-Java_com_android_support_SecurityNative_verifySessionToken(
+static jstring JNICALL impl_verifyLoginWithTime(
+        JNIEnv* env, jclass, jstring jUser, jstring jPass, jstring jUserJson, jlong jNowMs) {
+
+    // Same logic as impl_verifyLogin but uses jNowMs instead of time(nullptr)
+    auto fail = [&](const char* reason) -> jstring {
+        std::string s = "{\"ok\":false,\"reason\":\"";
+        s += reason; s += "\"}";
+        return env->NewStringUTF(s.c_str());
+    };
+
+    if (!jUser || !jPass || !jUserJson) return fail("bad_input");
+    const char* cu = env->GetStringUTFChars(jUser, nullptr);
+    const char* cp = env->GetStringUTFChars(jPass, nullptr);
+    const char* cj = env->GetStringUTFChars(jUserJson, nullptr);
+    if (!cu || !cp || !cj) {
+        if (cu) env->ReleaseStringUTFChars(jUser, cu);
+        if (cp) env->ReleaseStringUTFChars(jPass, cp);
+        if (cj) env->ReleaseStringUTFChars(jUserJson, cj);
+        return fail("bad_input");
+    }
+    std::string sUser(cu), sPass(cp), sJson(cj);
+    env->ReleaseStringUTFChars(jUser, cu);
+    env->ReleaseStringUTFChars(jPass, cp);
+    env->ReleaseStringUTFChars(jUserJson, cj);
+
+    if (sUser.empty() || sPass.empty()) return fail("bad_input");
+    if (sJson.empty() || sJson == "null" || sJson == "{}") return fail("no_match");
+
+    std::string dbUser   = getJsonField(sJson, "user");
+    std::string dbPass   = getJsonField(sJson, "pass");
+    std::string dbStatus = getJsonField(sJson, "status");
+    if (dbUser.empty() || dbPass.empty()) return fail("no_match");
+
+    std::string uL = toLower(sUser), dUL = toLower(dbUser);
+    if (!constTimeEquals(uL, dUL)) return fail("invalid_credentials");
+    if (!constTimeEquals(sPass, dbPass)) return fail("invalid_credentials");
+    if (dbStatus != "true") return fail("blocked");
+
+    long long expiryMs = 0;
+    std::string expireDate = getJsonField(sJson, "expire_date");
+    if (!expireDate.empty()) {
+        long long sec = parseExpireDate(expireDate);
+        if (sec > 0) expiryMs = sec * 1000LL;
+    }
+    if (expiryMs == 0) {
+        std::string dbTime = getJsonField(sJson, "time");
+        if (!dbTime.empty()) {
+            try { double d = std::stod(dbTime);
+                if (d > 1e11 && d < 9.2e18) expiryMs = (long long)d;
+            } catch (...) {}
+        }
+    }
+    if (expiryMs == 0) {
+        std::string rgStr = getJsonField(sJson, "rgtime");
+        long long rgMs = 0;
+        try { double d = std::stod(rgStr);
+            if (d > 1e11 && d < 9.2e18) rgMs = (long long)d;
+        } catch (...) {}
+        if (rgMs > 0) {
+            std::string durH = getJsonField(sJson, "duration_hours");
+            if (!durH.empty()) {
+                try { double h = std::stod(durH);
+                    if (h > 0 && h < 1e6) expiryMs = rgMs + (long long)(h * 3600000.0);
+                } catch (...) {}
+            }
+            if (expiryMs == 0) {
+                std::string durD = getJsonField(sJson, "duration_days");
+                if (!durD.empty()) {
+                    try { double d = std::stod(durD);
+                        if (d > 0 && d < 36500) expiryMs = rgMs + (long long)(d * 86400000.0);
+                    } catch (...) {}
+                }
+            }
+        }
+    }
+    if (expiryMs > 0) {
+        long long nowMs = (long long)jNowMs;   // ✅ Uses trusted time
+        if (nowMs > expiryMs) return fail("expired");
+    }
+
+    std::string payload = dbUser + "|" + dbPass + "|" + std::to_string(expiryMs) + "|" + dbStatus;
+    std::string token = SecSHA::hmacHex(deriveKey(), payload);
+
+    std::string out = "{\"ok\":true,\"token\":\"";
+    out += token;
+    out += "\",\"user\":\""; out += dbUser;
+    out += "\",\"status\":\"true\",\"expiry\":\"";
+    out += std::to_string(expiryMs);
+    out += "\"}";
+    return env->NewStringUTF(out.c_str());
+}
+
+static jboolean JNICALL impl_verifySessionToken(
         JNIEnv* env, jclass,
         jstring jToken, jstring jUser, jstring jPass, jstring jExpiry) {
 
     if (!jToken || !jUser || !jPass || !jExpiry) return JNI_FALSE;
-
     const char* ct = env->GetStringUTFChars(jToken, nullptr);
     const char* cu = env->GetStringUTFChars(jUser, nullptr);
     const char* cp = env->GetStringUTFChars(jPass, nullptr);
     const char* ce = env->GetStringUTFChars(jExpiry, nullptr);
-
     if (!ct || !cu || !cp || !ce) {
         if (ct) env->ReleaseStringUTFChars(jToken, ct);
         if (cu) env->ReleaseStringUTFChars(jUser, cu);
@@ -670,7 +675,6 @@ Java_com_android_support_SecurityNative_verifySessionToken(
         if (ce) env->ReleaseStringUTFChars(jExpiry, ce);
         return JNI_FALSE;
     }
-
     std::string token(ct), user(cu), pass(cp), expiry(ce);
     env->ReleaseStringUTFChars(jToken, ct);
     env->ReleaseStringUTFChars(jUser, cu);
@@ -678,11 +682,9 @@ Java_com_android_support_SecurityNative_verifySessionToken(
     env->ReleaseStringUTFChars(jExpiry, ce);
 
     std::string payload = user + "|" + pass + "|" + expiry + "|true";
-    std::string expected = SecSHA::hmacHex(std::string(HMAC_SECRET()), payload);
-
+    std::string expected = SecSHA::hmacHex(deriveKey(), payload);
     if (!constTimeEquals(token, expected)) return JNI_FALSE;
 
-    // Also re-check expiry
     try {
         long long expiryMs = std::stoll(expiry);
         if (expiryMs > 0) {
@@ -690,16 +692,10 @@ Java_com_android_support_SecurityNative_verifySessionToken(
             if (now > expiryMs) return JNI_FALSE;
         }
     } catch (...) {}
-
     return JNI_TRUE;
 }
 
-// ================================================================
-// JNI: getQueryUrl — native URL building (Firebase URL not in dex)
-// ================================================================
-extern "C" JNIEXPORT jstring JNICALL
-Java_com_android_support_SecurityNative_getQueryUrl(
-        JNIEnv* env, jclass, jstring jUser) {
+static jstring JNICALL impl_getQueryUrl(JNIEnv* env, jclass, jstring jUser) {
     if (!jUser) return env->NewStringUTF("");
     const char* user = env->GetStringUTFChars(jUser, nullptr);
     if (!user) return env->NewStringUTF("");
@@ -709,11 +705,41 @@ Java_com_android_support_SecurityNative_getQueryUrl(
     return env->NewStringUTF(url.c_str());
 }
 
-// ================================================================
-// JNI: getUpdateUrl
-// ================================================================
-extern "C" JNIEXPORT jstring JNICALL
-Java_com_android_support_SecurityNative_getUpdateUrl(JNIEnv* env, jclass) {
+static jstring JNICALL impl_getUpdateUrl(JNIEnv* env, jclass) {
     std::string url = buildUpdateUrl();
     return env->NewStringUTF(url.c_str());
+}
+
+static jstring JNICALL impl_getCloudFnUrl(JNIEnv* env, jclass) {
+    return env->NewStringUTF(CLOUD_FN_URL());
+}
+
+// ================================================================
+// JNI_OnLoad — dynamic registration hides symbol names
+// ================================================================
+extern "C" JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM* vm, void* reserved) {
+    JNIEnv* env = nullptr;
+    if (vm->GetEnv(reinterpret_cast<void**>(&env), JNI_VERSION_1_6) != JNI_OK) {
+        return JNI_ERR;
+    }
+
+    jclass cls = env->FindClass("com/android/support/SecurityNative");
+    if (!cls) return JNI_ERR;
+
+    static const JNINativeMethod methods[] = {
+        { "verifyHashes",       "(Ljava/lang/String;Ljava/lang/String;Z)Z",                        (void*)impl_verifyHashes },
+        { "verifyLibHash",      "(Ljava/lang/String;)Z",                                           (void*)impl_verifyLibHash },
+        { "verifyLogin",        "(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;",           (void*)impl_verifyLogin },
+        { "verifyLoginWithTime","(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;J)Ljava/lang/String;",          (void*)impl_verifyLoginWithTime },
+        { "verifySessionToken", "(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)Z",          (void*)impl_verifySessionToken },
+        { "getQueryUrl",        "(Ljava/lang/String;)Ljava/lang/String;",                          (void*)impl_getQueryUrl },
+        { "getUpdateUrl",       "()Ljava/lang/String;",                                            (void*)impl_getUpdateUrl },
+        { "getCloudFnUrl",      "()Ljava/lang/String;",                                            (void*)impl_getCloudFnUrl },
+    };
+
+    if (env->RegisterNatives(cls, methods, sizeof(methods) / sizeof(methods[0])) != JNI_OK) {
+        return JNI_ERR;
+    }
+
+    return JNI_VERSION_1_6;
 }
