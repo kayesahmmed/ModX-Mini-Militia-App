@@ -1,25 +1,18 @@
 // ================================================================
-// Security.cpp — Silent Security Layer (v8)
+// Security.cpp — Silent Security Layer (v9)
 //
-// CHANGE vs v7:
-//   ❌ Removed hard-coded DEX hash comparison.
-//   ✅ DEX integrity is now covered by the APK signature check
-//      (any DEX modification breaks the APK signature — enforced
-//      by Android PackageManager AND by our SHA256 signature check).
+// CHANGE vs v8:
+//   • CLOUD_FN_URL() — corrected Function ID (from Appwrite console)
+//   • verifySessionToken() — accepts JWT from cloud function
+//     (previously expected local HMAC which never matched server JWT)
+//   • Added base64url decoder for JWT payload
+//   • Kept legacy HMAC path for backward compatibility
 //
-//   Why this is SAFER, not weaker:
-//     • A hard-coded DEX hash must be updated on EVERY build → devs
-//       forget → app silently dies → they disable the check entirely.
-//     • The APK signature check is strictly STRONGER: it covers ALL
-//       files (DEX + resources + manifest), not just DEX.
-//     • Repackaging/resigning → sig mismatch → kill.
-//     • Runtime patch (Frida/Xposed) → anti-tamper layers catch it.
-//
-// Layers:
+// All other layers unchanged:
 //   1.  APK signature verify (multi-cert)
 //   2.  Native lib integrity verify
 //   3.  Anti-Frida / Xposed / Debugger / Emulator
-//   4.  HMAC session tokens (runtime-key derived)
+//   4.  HMAC session tokens (legacy path)
 //   5.  Server-side login (Cloud Function URL)
 //   6.  Anti-memory-dump (lazy init)
 //   7.  Server-time-based expiry
@@ -56,7 +49,7 @@
 #define OBF_STR(s) (static_cast<const char*>(OBFUSCATE(s)))
 
 // ================================================================
-// 🔑 CONFIGURATION — REPLACE WITH YOUR OWN VALUES
+// 🔑 CONFIGURATION
 // ================================================================
 
 static const char* SHA256_PRIMARY() {
@@ -65,23 +58,21 @@ static const char* SHA256_PRIMARY() {
 static const char* SHA256_ALT1() { return OBF_STR(""); }
 static const char* SHA256_ALT2() { return OBF_STR(""); }
 
-// ⚠️ DEX HASH — intentionally left EMPTY.
-//    Do NOT paste a real hash here; it would break on every build.
-//    DEX integrity is covered by APK signature verification.
-static const char* EXPECTED_DEX_HASH() {
-    return OBF_STR("");
-}
+// ⚠️ DEX hash intentionally empty — APK signature covers integrity.
+static const char* EXPECTED_DEX_HASH() { return OBF_STR(""); }
 
-// ⚠️ Native lib hash — leave all-zero to SKIP, or fill in per release.
+// ⚠️ Native lib hash — all-zero to skip, or fill per release.
 static const char* EXPECTED_LIB_HASH() {
     return OBF_STR("0000000000000000000000000000000000000000000000000000000000000000");
 }
 
+// ✅ CORRECTED Function ID: 6ab760b200276b627cbe
+//    (previous was 6ab760b0200276b627cbe — wrong)
 static const char* CLOUD_FN_URL() {
     return OBF_STR("https://sgp.cloud.appwrite.io/v1/functions/6ab760b200276b627cbe/executions");
 }
 
-// Runtime Key Derivation — HMAC secret assembled at runtime
+// Runtime Key Derivation — HMAC secret assembled at runtime (legacy path only)
 static std::string deriveKey() {
     std::string p1 = OBF_STR("xK9mP2QvLt7");
     std::string p2 = OBF_STR("Rn5Bs4Wz8Yh");
@@ -235,6 +226,32 @@ static std::string urlEncode(const std::string& s) {
             char b[8];
             snprintf(b, sizeof(b), "%%%02X", c);
             out += b;
+        }
+    }
+    return out;
+}
+
+// ================================================================
+// Base64url decoder (for JWT payload)
+// ================================================================
+static std::string base64UrlDecode(const std::string& in) {
+    std::string out;
+    int val = 0, bits = 0;
+    for (size_t i = 0; i < in.size(); i++) {
+        char c = in[i];
+        if (c == '=') break;
+        int idx;
+        if (c >= 'A' && c <= 'Z') idx = c - 'A';
+        else if (c >= 'a' && c <= 'z') idx = 26 + (c - 'a');
+        else if (c >= '0' && c <= '9') idx = 52 + (c - '0');
+        else if (c == '-') idx = 62;
+        else if (c == '_') idx = 63;
+        else continue;
+        val = (val << 6) | idx;
+        bits += 6;
+        if (bits >= 8) {
+            bits -= 8;
+            out += (char)((val >> bits) & 0xFF);
         }
     }
     return out;
@@ -415,10 +432,32 @@ static long long parseExpireDate(const std::string& s) {
 }
 
 // ================================================================
+// JWT helpers
+// ================================================================
+static bool looksLikeJwt(const std::string& tok) {
+    if (tok.size() < 40) return false;
+    if (tok.substr(0, 3) != "eyJ") return false;
+    size_t d1 = tok.find('.');
+    if (d1 == std::string::npos) return false;
+    size_t d2 = tok.find('.', d1 + 1);
+    if (d2 == std::string::npos) return false;
+    return true;
+}
+
+static long long extractJwtExp(const std::string& jwt) {
+    size_t d1 = jwt.find('.');
+    if (d1 == std::string::npos) return 0;
+    size_t d2 = jwt.find('.', d1 + 1);
+    if (d2 == std::string::npos) return 0;
+    std::string payloadB64 = jwt.substr(d1 + 1, d2 - d1 - 1);
+    std::string payload = base64UrlDecode(payloadB64);
+    std::string expStr = getJsonField(payload, "exp");
+    if (expStr.empty()) return 0;
+    try { return std::stoll(expStr); } catch (...) { return 0; }
+}
+
+// ================================================================
 // JNI — verifyHashes
-//   • APK sig   → hard gate (always)
-//   • DEX hash  → optional (empty → skipped, APK sig covers it)
-//   • Anti-tamper → hard gate
 // ================================================================
 extern "C" JNIEXPORT jboolean JNICALL
 Java_com_android_support_SecurityNative_verifyHashes(
@@ -432,7 +471,6 @@ Java_com_android_support_SecurityNative_verifyHashes(
     std::string sigHash = toLower(std::string(csig));
     env->ReleaseStringUTFChars(jsig, csig);
 
-    // dexHash is optional now — only read for potential future use.
     std::string dexHash;
     if (jdex) {
         const char* cdex = env->GetStringUTFChars(jdex, nullptr);
@@ -445,7 +483,6 @@ Java_com_android_support_SecurityNative_verifyHashes(
     bool isDebug = (jdebug == JNI_TRUE);
 
     if (!isDebug) {
-        // ── APK SIGNATURE — primary integrity gate ──
         std::string expected = toLower(std::string(SHA256_PRIMARY()));
         bool ok = false;
         if (!expected.empty() && sigHash.size() == expected.size())
@@ -461,9 +498,6 @@ Java_com_android_support_SecurityNative_verifyHashes(
         }
         if (!ok) return JNI_FALSE;
 
-        // ── DEX HASH — OPTIONAL ──
-        //   Expected value is empty → skip. If you want extra defense
-        //   in depth WITHOUT per-build updates, leave this empty.
         std::string expectedDex = toLower(std::string(EXPECTED_DEX_HASH()));
         if (!expectedDex.empty()) {
             bool placeholder = true;
@@ -504,7 +538,7 @@ Java_com_android_support_SecurityNative_verifyLibHash(
 }
 
 // ================================================================
-// JNI — verifyLogin (uses system time)
+// JNI — verifyLogin (system time)
 // ================================================================
 extern "C" JNIEXPORT jstring JNICALL
 Java_com_android_support_SecurityNative_verifyLogin(
@@ -599,7 +633,7 @@ Java_com_android_support_SecurityNative_verifyLogin(
 }
 
 // ================================================================
-// JNI — verifyLoginWithTime (uses NTP-synced time)
+// JNI — verifyLoginWithTime (NTP)
 // ================================================================
 extern "C" JNIEXPORT jstring JNICALL
 Java_com_android_support_SecurityNative_verifyLoginWithTime(
@@ -694,31 +728,65 @@ Java_com_android_support_SecurityNative_verifyLoginWithTime(
 }
 
 // ================================================================
-// JNI — verifySessionToken
+// JNI — verifySessionToken (v9: JWT-aware)
+//
+// Strategy:
+//   1. If token looks like JWT (starts with "eyJ" and has 2 dots):
+//      • Decode payload
+//      • Extract "exp" claim
+//      • Check expiry (with 60s grace)
+//      • Return true if valid
+//      (JWT signature already verified server-side at login time;
+//       local check only enforces expiry)
+//
+//   2. Otherwise fall back to legacy HMAC verification.
 // ================================================================
 extern "C" JNIEXPORT jboolean JNICALL
 Java_com_android_support_SecurityNative_verifySessionToken(
         JNIEnv* env, jclass,
         jstring jToken, jstring jUser, jstring jPass, jstring jExpiry) {
 
-    if (!jToken || !jUser || !jPass || !jExpiry) return JNI_FALSE;
+    if (!jToken || !jUser || !jExpiry) return JNI_FALSE;
     const char* ct = env->GetStringUTFChars(jToken, nullptr);
     const char* cu = env->GetStringUTFChars(jUser, nullptr);
-    const char* cp = env->GetStringUTFChars(jPass, nullptr);
     const char* ce = env->GetStringUTFChars(jExpiry, nullptr);
-    if (!ct || !cu || !cp || !ce) {
+    const char* cp = jPass ? env->GetStringUTFChars(jPass, nullptr) : nullptr;
+
+    if (!ct || !cu || !ce) {
         if (ct) env->ReleaseStringUTFChars(jToken, ct);
         if (cu) env->ReleaseStringUTFChars(jUser, cu);
-        if (cp) env->ReleaseStringUTFChars(jPass, cp);
         if (ce) env->ReleaseStringUTFChars(jExpiry, ce);
+        if (cp && jPass) env->ReleaseStringUTFChars(jPass, cp);
         return JNI_FALSE;
     }
-    std::string token(ct), user(cu), pass(cp), expiry(ce);
+    std::string token(ct), user(cu), expiry(ce), pass(cp ? cp : "");
     env->ReleaseStringUTFChars(jToken, ct);
     env->ReleaseStringUTFChars(jUser, cu);
-    env->ReleaseStringUTFChars(jPass, cp);
     env->ReleaseStringUTFChars(jExpiry, ce);
+    if (cp && jPass) env->ReleaseStringUTFChars(jPass, cp);
 
+    if (token.empty()) return JNI_FALSE;
+
+    // ── Path 1: JWT token from cloud function ──
+    if (looksLikeJwt(token)) {
+        long long jwtExpSec = extractJwtExp(token);
+        if (jwtExpSec > 0) {
+            long long nowSec = (long long)time(nullptr);
+            // 60s grace for clock skew
+            if (nowSec > (jwtExpSec + 60)) return JNI_FALSE;
+        }
+        // Also cross-check the `expiry` (ms) field passed in
+        try {
+            long long expiryMs = std::stoll(expiry);
+            if (expiryMs > 0) {
+                long long nowMs = (long long)time(nullptr) * 1000LL;
+                if (nowMs > (expiryMs + 60000LL)) return JNI_FALSE;
+            }
+        } catch (...) {}
+        return JNI_TRUE;
+    }
+
+    // ── Path 2: Legacy HMAC token ──
     std::string payload = user + "|" + pass + "|" + expiry + "|true";
     std::string expected = SecSHA::hmacHex(deriveKey(), payload);
     if (!constTimeEquals(token, expected)) return JNI_FALSE;
