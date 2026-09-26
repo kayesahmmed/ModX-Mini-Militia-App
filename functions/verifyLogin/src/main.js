@@ -7,31 +7,71 @@ const DATABASE_ID = process.env.DATABASE_ID;
 const COLLECTION_ID = process.env.COLLECTION_ID;
 
 module.exports = async function ({ req, res, log, error }) {
-  const client = new Client()
-    .setEndpoint(process.env.APPWRITE_FUNCTION_API_ENDPOINT)
-    .setProject(process.env.APPWRITE_FUNCTION_PROJECT_ID)
-    .setKey(process.env.APPWRITE_API_KEY);
-  
-  const databases = new Databases(client);
-
   try {
-    // Parse body — handles both string and object (different Appwrite versions)
-    let payload = {};
-    if (typeof req.body === 'string') {
-      payload = JSON.parse(req.body || '{}');
-    } else if (req.body && typeof req.body === 'object') {
-      payload = req.body;
+    // ============================================================
+    // 🔍 DIAGNOSTIC LOG — remove after debugging
+    // ============================================================
+    if (log) {
+      log('=== REQUEST DEBUG ===');
+      log('req keys: ' + Object.keys(req).join(','));
+      log('body type: ' + typeof req.body);
+      log('body value: ' + JSON.stringify(req.body));
+      log('bodyRaw: ' + (req.bodyRaw || 'undefined'));
+      log('bodyJson: ' + JSON.stringify(req.bodyJson));
+      log('payload: ' + JSON.stringify(req.payload));
+      log('=== END DEBUG ===');
     }
 
-    const { user, pass } = payload;
-    if (!user || !pass) {
-      if (log) log('Missing user or pass');
+    // ============================================================
+    // 🔧 ROBUST BODY EXTRACTION — tries every possible location
+    // ============================================================
+    let payload = null;
+
+    const tryParse = (val) => {
+      if (!val) return null;
+      if (typeof val === 'object') return val;
+      if (typeof val === 'string') {
+        try { return JSON.parse(val); } catch (e) { return null; }
+      }
+      return null;
+    };
+
+    // Try all possible body locations
+    payload = tryParse(req.bodyJson)
+           || tryParse(req.payload)
+           || tryParse(req.body)
+           || tryParse(req.bodyRaw);
+
+    if (!payload) {
+      if (log) log('ERROR: Could not extract body from request');
       return res.json({ ok: false, reason: 'bad_input' }, 400);
     }
 
-    if (log) log(`Login attempt for: ${user}`);
+    const user = payload.user;
+    const pass = payload.pass;
 
-    // Find user
+    if (log) log(`Extracted: user=${user}, pass=${pass ? '***' : 'undefined'}`);
+
+    if (!user || !pass) {
+      if (log) log('ERROR: user or pass missing from payload');
+      return res.json({ ok: false, reason: 'bad_input' }, 400);
+    }
+
+    // ============================================================
+    // 🔌 Appwrite Client
+    // ============================================================
+    const client = new Client()
+      .setEndpoint(process.env.APPWRITE_FUNCTION_API_ENDPOINT)
+      .setProject(process.env.APPWRITE_FUNCTION_PROJECT_ID)
+      .setKey(process.env.APPWRITE_API_KEY);
+
+    const databases = new Databases(client);
+
+    // ============================================================
+    // 🔍 Query user
+    // ============================================================
+    if (log) log(`Querying DB: ${DATABASE_ID}/${COLLECTION_ID} for user=${user}`);
+
     const result = await databases.listDocuments(DATABASE_ID, COLLECTION_ID, [
       Query.equal('user', user)
     ]);
@@ -42,14 +82,15 @@ module.exports = async function ({ req, res, log, error }) {
     }
 
     const dbUser = result.documents[0];
+    if (log) log(`Found user: ${dbUser.$id}`);
 
-    // Verify password
+    // ============================================================
+    // 🔐 Password verify
+    // ============================================================
     let passwordMatched = false;
     if (dbUser.passHash && dbUser.passHash.startsWith('$2')) {
-      // bcrypt hash
       passwordMatched = await bcrypt.compare(pass, dbUser.passHash);
     } else if (dbUser.passHash === pass) {
-      // Plaintext (first login) — migrate to bcrypt
       passwordMatched = true;
       const newHash = await bcrypt.hash(pass, 12);
       await databases.updateDocument(DATABASE_ID, COLLECTION_ID, dbUser.$id, {
@@ -63,20 +104,20 @@ module.exports = async function ({ req, res, log, error }) {
       return res.json({ ok: false, reason: 'invalid_credentials' });
     }
 
-    // Check status
     if (dbUser.status !== 'true') {
-      if (log) log(`User blocked: ${user}`);
+      if (log) log(`Blocked: ${user}`);
       return res.json({ ok: false, reason: 'blocked' });
     }
 
-    // Check expiry
     const now = Date.now();
     if (dbUser.expireAt && now > dbUser.expireAt) {
-      if (log) log(`User expired: ${user}`);
+      if (log) log(`Expired: ${user}`);
       return res.json({ ok: false, reason: 'expired' });
     }
 
-    // Generate JWT
+    // ============================================================
+    // 🎫 JWT Token
+    // ============================================================
     const token = jwt.sign(
       { user: dbUser.user, exp: Math.floor((dbUser.expireAt || (now + 86400000)) / 1000) },
       JWT_SECRET,
@@ -94,11 +135,11 @@ module.exports = async function ({ req, res, log, error }) {
     });
 
   } catch (e) {
-    if (error) error(`Exception: ${e.message}`);
-    return res.json({ 
-      ok: false, 
+    if (error) error(`Exception: ${e.message}\n${e.stack}`);
+    return res.json({
+      ok: false,
       reason: 'server_error',
-      message: e.message 
+      message: e.message
     }, 500);
   }
 };
