@@ -1,65 +1,88 @@
-const { Client, Databases, Query } = require('node-appwrite');
+const { Client, Databases, ID, Query } = require('node-appwrite');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
+const crypto = require('crypto');
+
+// ================================================================
+// 🔑 Environment Variables (set in Appwrite Function Settings)
+// ================================================================
+//   JWT_SECRET              — signs the JWT returned to client
+//   NATIVE_SHARED_KEY       — HMAC key shared with Android native code
+//                             MUST match deriveNativeKey() in Security.cpp
+//   ALLOWED_APK_SIGS        — comma-separated list of allowed APK signature SHA-256
+//   DATABASE_ID             — Appwrite database ID
+//   COLLECTION_ID           — Users collection ID
+//   ATTEMPTS_COLLECTION_ID  — login_attempts collection ID (create this!)
+//   APPWRITE_API_KEY        — server API key
+// ================================================================
 
 const JWT_SECRET = process.env.JWT_SECRET;
+const NATIVE_SHARED_KEY = process.env.NATIVE_SHARED_KEY;
 const DATABASE_ID = process.env.DATABASE_ID;
 const COLLECTION_ID = process.env.COLLECTION_ID;
+const ATTEMPTS_COLLECTION_ID = process.env.ATTEMPTS_COLLECTION_ID;
 
+const ALLOWED_APK_SIGS = (process.env.ALLOWED_APK_SIGS || '')
+  .split(',')
+  .map(s => s.trim().toLowerCase())
+  .filter(s => s.length > 0);
+
+const RATE_LIMIT_WINDOW_MS = 5 * 60 * 1000;   // 5 minutes
+const RATE_LIMIT_MAX        = 5;              // max attempts per window
+
+// ================================================================
+// Helpers
+// ================================================================
+function hmacNative(payload) {
+  return crypto.createHmac('sha256', NATIVE_SHARED_KEY).update(payload).digest('hex');
+}
+
+function hmacLogin(user, pass) {
+  return crypto.createHmac('sha256', NATIVE_SHARED_KEY).update(user + '|' + pass).digest('hex');
+}
+
+function tryParse(val) {
+  if (!val) return null;
+  if (typeof val === 'object') return val;
+  if (typeof val === 'string') {
+    try { return JSON.parse(val); } catch (e) { return null; }
+  }
+  return null;
+}
+
+// ================================================================
+// MAIN HANDLER
+// ================================================================
 module.exports = async function ({ req, res, log, error }) {
   try {
-    // ============================================================
-    // 🔍 DIAGNOSTIC LOG — remove after debugging
-    // ============================================================
-    if (log) {
-      log('=== REQUEST DEBUG ===');
-      log('req keys: ' + Object.keys(req).join(','));
-      log('body type: ' + typeof req.body);
-      log('body value: ' + JSON.stringify(req.body));
-      log('bodyRaw: ' + (req.bodyRaw || 'undefined'));
-      log('bodyJson: ' + JSON.stringify(req.bodyJson));
-      log('payload: ' + JSON.stringify(req.payload));
-      log('=== END DEBUG ===');
-    }
-
-    // ============================================================
-    // 🔧 ROBUST BODY EXTRACTION — tries every possible location
-    // ============================================================
-    let payload = null;
-
-    const tryParse = (val) => {
-      if (!val) return null;
-      if (typeof val === 'object') return val;
-      if (typeof val === 'string') {
-        try { return JSON.parse(val); } catch (e) { return null; }
-      }
-      return null;
-    };
-
-    // Try all possible body locations
-    payload = tryParse(req.bodyJson)
-           || tryParse(req.payload)
-           || tryParse(req.body)
-           || tryParse(req.bodyRaw);
+    // ── 1) Extract payload ──
+    let payload = tryParse(req.bodyJson)
+              || tryParse(req.payload)
+              || tryParse(req.body)
+              || tryParse(req.bodyRaw);
 
     if (!payload) {
-      if (log) log('ERROR: Could not extract body from request');
       return res.json({ ok: false, reason: 'bad_input' }, 400);
     }
 
-    const user = payload.user;
-    const pass = payload.pass;
-
-    if (log) log(`Extracted: user=${user}, pass=${pass ? '***' : 'undefined'}`);
+    const user = (payload.user || '').toString().toLowerCase().trim();
+    const pass = (payload.pass || '').toString();
+    const apkSig = (payload.apkSig || '').toString().toLowerCase().trim();
 
     if (!user || !pass) {
-      if (log) log('ERROR: user or pass missing from payload');
       return res.json({ ok: false, reason: 'bad_input' }, 400);
     }
 
-    // ============================================================
-    // 🔌 Appwrite Client
-    // ============================================================
+    // ── 2) APK signature attestation ──
+    if (ALLOWED_APK_SIGS.length > 0) {
+      if (!apkSig || ALLOWED_APK_SIGS.indexOf(apkSig) === -1) {
+        if (log) log(`APK sig rejected: ${apkSig}`);
+        // Silent fail — don't reveal we're checking
+        return res.json({ ok: false, reason: 'invalid_credentials' });
+      }
+    }
+
+    // ── 3) Appwrite client ──
     const client = new Client()
       .setEndpoint(process.env.APPWRITE_FUNCTION_API_ENDPOINT)
       .setProject(process.env.APPWRITE_FUNCTION_PROJECT_ID)
@@ -67,26 +90,39 @@ module.exports = async function ({ req, res, log, error }) {
 
     const databases = new Databases(client);
 
-    // ============================================================
-    // 🔍 Query user
-    // ============================================================
-    if (log) log(`Querying DB: ${DATABASE_ID}/${COLLECTION_ID} for user=${user}`);
+    // ── 4) Server-side rate limiting ──
+    if (ATTEMPTS_COLLECTION_ID) {
+      try {
+        const windowStart = Date.now() - RATE_LIMIT_WINDOW_MS;
+        const recent = await databases.listDocuments(
+          DATABASE_ID, ATTEMPTS_COLLECTION_ID,
+          [Query.equal('user', user), Query.greaterThan('ts', windowStart)]
+        );
 
+        if (recent.total >= RATE_LIMIT_MAX) {
+          if (log) log(`Rate limited: ${user} (${recent.total} attempts)`);
+          return res.json({ ok: false, reason: 'rate_limited' });
+        }
+      } catch (e) {
+        // Collection may not exist — log and continue
+        if (log) log(`Rate limit check skipped: ${e.message}`);
+      }
+    }
+
+    // ── 5) Query user ──
     const result = await databases.listDocuments(DATABASE_ID, COLLECTION_ID, [
       Query.equal('user', user)
     ]);
 
     if (result.total === 0) {
       if (log) log(`User not found: ${user}`);
+      await recordAttempt(databases, user, false);
       return res.json({ ok: false, reason: 'invalid_credentials' });
     }
 
     const dbUser = result.documents[0];
-    if (log) log(`Found user: ${dbUser.$id}`);
 
-    // ============================================================
-    // 🔐 Password verify
-    // ============================================================
+    // ── 6) Password verify (bcrypt or plaintext migrate) ──
     let passwordMatched = false;
     if (dbUser.passHash && dbUser.passHash.startsWith('$2')) {
       passwordMatched = await bcrypt.compare(pass, dbUser.passHash);
@@ -96,14 +132,16 @@ module.exports = async function ({ req, res, log, error }) {
       await databases.updateDocument(DATABASE_ID, COLLECTION_ID, dbUser.$id, {
         passHash: newHash
       });
-      if (log) log(`Password migrated to bcrypt for: ${user}`);
+      if (log) log(`Migrated password to bcrypt: ${user}`);
     }
 
     if (!passwordMatched) {
-      if (log) log(`Password mismatch for: ${user}`);
+      if (log) log(`Password mismatch: ${user}`);
+      await recordAttempt(databases, user, false);
       return res.json({ ok: false, reason: 'invalid_credentials' });
     }
 
+    // ── 7) Status / expiry ──
     if (dbUser.status !== 'true') {
       if (log) log(`Blocked: ${user}`);
       return res.json({ ok: false, reason: 'blocked' });
@@ -115,23 +153,34 @@ module.exports = async function ({ req, res, log, error }) {
       return res.json({ ok: false, reason: 'expired' });
     }
 
-    // ============================================================
-    // 🎫 JWT Token
-    // ============================================================
+    // ── 8) JWT token ──
     const token = jwt.sign(
-      { user: dbUser.user, exp: Math.floor((dbUser.expireAt || (now + 86400000)) / 1000) },
+      {
+        user: dbUser.user,
+        exp: Math.floor((dbUser.expireAt || (now + 86400000)) / 1000)
+      },
       JWT_SECRET,
       { algorithm: 'HS256' }
     );
+
+    // ── 9) Native HMAC signature ──
+    //    MUST match: deriveNativeKey() in Security.cpp
+    //    Payload format: user|expiry|true
+    const expiry = String(dbUser.expireAt || (now + 86400000));
+    const nativeSig = hmacNative(`${dbUser.user}|${expiry}|true`);
+
+    // Successful attempt — clear rate limit record
+    await recordAttempt(databases, user, true);
 
     if (log) log(`Login success: ${user}`);
 
     return res.json({
       ok: true,
       token: token,
+      nativeSig: nativeSig,
       user: dbUser.user,
       status: 'true',
-      expiry: String(dbUser.expireAt)
+      expiry: expiry
     });
 
   } catch (e) {
@@ -143,3 +192,30 @@ module.exports = async function ({ req, res, log, error }) {
     }, 500);
   }
 };
+
+// ================================================================
+// Rate-limit attempt recorder
+// ================================================================
+async function recordAttempt(databases, user, success) {
+  if (!ATTEMPTS_COLLECTION_ID) return;
+  try {
+    if (success) {
+      // On success, don't record a new failure. Optionally delete recent ones.
+      const windowStart = Date.now() - RATE_LIMIT_WINDOW_MS;
+      const existing = await databases.listDocuments(
+        DATABASE_ID, ATTEMPTS_COLLECTION_ID,
+        [Query.equal('user', user), Query.greaterThan('ts', windowStart)]
+      );
+      for (const doc of existing.documents) {
+        await databases.deleteDocument(DATABASE_ID, ATTEMPTS_COLLECTION_ID, doc.$id);
+      }
+    } else {
+      await databases.createDocument(
+        DATABASE_ID, ATTEMPTS_COLLECTION_ID, ID.unique(),
+        { user: user, ts: Date.now() }
+      );
+    }
+  } catch (e) {
+    // Non-critical — just skip
+  }
+}
