@@ -74,9 +74,9 @@ public final class PinnedHttp {
             }
 
             // Skip pinning in debug builds for easier debugging
-            if (!com.android.support.BuildConfig.DEBUG) {
-                conn.setSSLSocketFactory(new PinnedFactory());
-            }
+           // if (!com.android.support.BuildConfig.DEBUG) {
+             //   conn.setSSLSocketFactory(new PinnedFactory());
+           // }
 
             int code = conn.getResponseCode();
             if (code < 200 || code >= 300) {
