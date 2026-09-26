@@ -43,6 +43,39 @@ public class MainActivity extends Activity {
         }
 
         // ============================================================
+        // 🔒 LAYER 2.5: DEX Integrity Verification
+        //    Detects any modification of classes.dex — even if the
+        //    attacker re-signs with the same key.
+        //    Skipped in DEBUG builds for dev convenience.
+        // ============================================================
+        if (!com.android.support.BuildConfig.DEBUG) {
+            try {
+                String dexHash = SecurityNative.computeDexHash(this);
+                if (dexHash == null || dexHash.isEmpty()) {
+                    Log.e("Mod_security", "DEX hash computation failed — aborting");
+                    finishAffinity();
+                    System.exit(0);
+                    return;
+                }
+                if (!SecurityNative.verifyDexHash(dexHash)) {
+                    Log.e("Mod_security", "DEX integrity check FAILED — APK tampered");
+                    try {
+                        Toast.makeText(this, "Integrity check failed", Toast.LENGTH_LONG).show();
+                    } catch (Throwable ignored) { }
+                    finishAffinity();
+                    System.exit(0);
+                    return;
+                }
+                Log.i("Mod_security", "DEX integrity OK");
+            } catch (Throwable t) {
+                Log.e("Mod_security", "DEX check error: " + t.getMessage());
+                finishAffinity();
+                System.exit(0);
+                return;
+            }
+        }
+
+        // ============================================================
         // 🔒 LAYER 3: Session token validation
         // ============================================================
         try {
@@ -76,17 +109,12 @@ public class MainActivity extends Activity {
         }
 
         // ============================================================
-        // 🚀 Start the mod menu — single call, all other paths
-        //     are handled by the native CheckOverlayPermission callback
+        // 🚀 Start the mod menu (single call — native callback handles rest)
         // ============================================================
         Main.Start(this);
     }
 
-    // NOTE: onResume fallback has been REMOVED.
-    // Reason: it was racing with the native permission callback and
-    // producing TWO Menu instances. The native callback is reliable —
-    // it fires after the user grants permission, calling
-    // Main.StartWithoutPermission() exactly once.
+    // NOTE: onResume fallback removed — caused duplicate Menu instances.
 
     @Override
     protected void onDestroy() {
