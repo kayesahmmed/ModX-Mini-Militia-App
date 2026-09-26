@@ -78,7 +78,7 @@ static const char* EXPECTED_LIB_HASH() {
 }
 
 static const char* CLOUD_FN_URL() {
-    return OBF_STR("https://sgp.cloud.appwrite.io/v1/functions/6ab760b0200276b627cbe/executions");
+    return OBF_STR("https://sgp.cloud.appwrite.io/v1/functions/6ab760b200276b627cbe/executions");
 }
 
 // Runtime Key Derivation — HMAC secret assembled at runtime
