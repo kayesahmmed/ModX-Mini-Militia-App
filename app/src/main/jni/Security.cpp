@@ -1,13 +1,22 @@
 // ================================================================
-// Security.cpp — Professional Grade Security Layer (v3 — Fixed)
+// Security.cpp — Professional Grade Security Layer (v4)
 //
-// Fixes in v3:
-//   - ptraceSelfCheck removed from hard fails (was false-positive)
-//   - "gmain" removed from Frida maps check (too broad)
-//   - "sdk" removed from emulator check (too broad)
-//   - Substrate moved to soft check
-//   - Only REAL Frida/Xposed signatures trigger hard fail
-//   - Extensive logging for diagnostics
+// Layers:
+//  1.  APK signature verification (multi-cert, constant-time)
+//  2.  HMAC-SHA256 session token
+//  3.  Native URL building (no Firebase URL in dex)
+//  4.  Anti-debug (TracerPid)
+//  5.  Anti-Frida (multi-vector)
+//  6.  Anti-Xposed / LSPosed
+//  7.  Anti-Substrate
+//  8.  Anti-Root (soft)
+//  9.  Anti-Emulator (soft)
+//  10. VPN check (REMOVED — game needs VPN)
+//  11. Constant-time comparisons
+//  12. String XOR encryption
+//  13. Compile-time OBFUSCATE()
+//  14. Debug build auto-skip
+//  15. DEX integrity verification  ← NEW in v4
 // ================================================================
 
 #include <jni.h>
@@ -42,16 +51,29 @@
 #define OBF_STR(s) (static_cast<const char*>(OBFUSCATE(s)))
 
 // ================================================================
-// 🔑 REPLACE WITH YOUR OWN VALUES
+// 🔑 CONFIGURATION — REPLACE WITH YOUR OWN VALUES
 // ================================================================
+
+// Your release cert SHA-256 (64 lowercase hex chars, no colons)
 static const char* SHA256_PRIMARY() {
     return OBF_STR("2214862d49d25c4c72b531bbd14d7e53587508035b6b7084b7d6d3f9763a0502");
 }
 static const char* SHA256_ALT1() { return OBF_STR(""); }
 static const char* SHA256_ALT2() { return OBF_STR(""); }
 
+// HMAC secret for session tokens — CHANGE THIS
 static const char* HMAC_SECRET() {
     return OBF_STR("xK9mP2QvLt7Rn5Bs4Wz8YhJ6CgD3FeA1NqU4TrXc");
+}
+
+// ================================================================
+// 🔑 EXPECTED DEX HASH — updated after first build
+// ---------------------------------------------------------------
+//  First build:  leave all-zeros → check skipped (fail-open)
+//  Then compute real hash → paste → rebuild → check active
+// ================================================================
+static const char* EXPECTED_DEX_HASH() {
+    return OBF_STR("0000000000000000000000000000000000000000000000000000000000000000");
 }
 
 // ================================================================
@@ -214,10 +236,9 @@ static std::string urlEncode(const std::string& s) {
 }
 
 // ================================================================
-// ==============  DETECTION HELPERS  ==============================
+// DETECTION HELPERS
 // ================================================================
 
-// --- Traces via /proc/self/status ---
 static bool hasTracer() {
     int fd = open("/proc/self/status", O_RDONLY);
     if (fd < 0) return false;
@@ -233,15 +254,13 @@ static bool hasTracer() {
     return atoi(p) > 0;
 }
 
-// --- Frida detection (STRICT — only real signatures) ---
 static bool detectFridaHard() {
-    // 1) Memory map — only specific Frida agent paths
+    // 1) Memory map
     FILE* fp = fopen("/proc/self/maps", "r");
     if (fp) {
         char line[512];
         bool found = false;
         while (fgets(line, sizeof(line), fp)) {
-            // These strings are Frida-specific; won't appear in normal apps
             if (strstr(line, "/frida-agent") ||
                 strstr(line, "/frida-gadget") ||
                 strstr(line, "libfrida-gadget") ||
@@ -256,13 +275,12 @@ static bool detectFridaHard() {
         if (found) { SLOGW("Frida: maps match"); return true; }
     }
 
-    // 2) Known Frida default named pipes
+    // 2) Known Frida tmp files
     DIR* dir = opendir("/data/local/tmp");
     if (dir) {
         struct dirent* de;
         bool found = false;
         while ((de = readdir(dir)) != nullptr) {
-            // Frida-server creates files like "re.frida.server" or specific hashes
             if (strstr(de->d_name, "re.frida.server") ||
                 strstr(de->d_name, "frida-server")) {
                 found = true; break;
@@ -272,7 +290,7 @@ static bool detectFridaHard() {
         if (found) { SLOGW("Frida: tmp file"); return true; }
     }
 
-    // 3) Frida library loaded in our process
+    // 3) Frida libraries loaded in-process
     void* h1 = dlopen("libfrida-gadget.so", RTLD_NOW);
     if (h1) { dlclose(h1); SLOGW("Frida: gadget loaded"); return true; }
     void* h2 = dlopen("libfrida-agent.so", RTLD_NOW);
@@ -281,7 +299,6 @@ static bool detectFridaHard() {
     return false;
 }
 
-// --- Xposed detection (STRICT) ---
 static bool detectXposedHard() {
     const char* paths[] = {
         "/system/framework/XposedBridge.jar",
@@ -303,7 +320,6 @@ static bool detectXposedHard() {
     return false;
 }
 
-// --- Substrate (soft) ---
 static bool detectSubstrate() {
     const char* paths[] = {
         "/system/lib/libsubstrate.so",
@@ -317,7 +333,6 @@ static bool detectSubstrate() {
     return false;
 }
 
-// --- Root (soft) ---
 static bool detectRoot() {
     const char* paths[] = {
         "/system/bin/su", "/system/xbin/su", "/sbin/su", "/su/bin/su",
@@ -333,19 +348,15 @@ static bool detectRoot() {
     return false;
 }
 
-// --- Emulator (STRICT — only definite emulator markers) ---
 static bool detectEmulator() {
-    // QEMU-specific files — will never exist on real devices
     if (access("/dev/socket/qemud", F_OK) == 0) return true;
     if (access("/dev/qemu_pipe", F_OK) == 0) return true;
 
-    // QEMU kernel property
     char value[PROP_VALUE_MAX] = {0};
     if (__system_property_get("ro.kernel.qemu", value) > 0) {
         if (strcmp(value, "1") == 0) return true;
     }
 
-    // CPU info goldfish/ranchu (emulator-specific)
     FILE* fp = fopen("/proc/cpuinfo", "r");
     if (fp) {
         char line[512];
@@ -361,60 +372,21 @@ static bool detectEmulator() {
     return false;
 }
 
-// --- VPN (soft) ---
-static bool detectVpn() {
-    DIR* dir = opendir("/sys/class/net");
-    if (!dir) return false;
-    struct dirent* de;
-    bool found = false;
-    while ((de = readdir(dir)) != nullptr) {
-        if (strncmp(de->d_name, "tun", 3) == 0 ||
-            strncmp(de->d_name, "ppp", 3) == 0 ||
-            strcmp(de->d_name, "wg0") == 0) {
-            found = true; break;
-        }
-    }
-    closedir(dir);
-    return found;
-}
-
 // ================================================================
-// ============  AGGREGATED ENVIRONMENT CHECK  ====================
+// Aggregated environment check
 // ================================================================
-//
-// HARD FAILS (real attacks only):
-//   - Frida (specific library/socket/maps signatures)
-//   - Xposed/LSPosed (specific framework paths)
-//
-// SOFT (log only — never fail):
-//   - Tracer, Substrate, Root, Emulator, VPN
-//
-// This eliminates false positives on real devices.
-// ================================================================
-
-// ================================================================
-// VPN check REMOVED — game requires VPN
-// ================================================================
-
 static bool isEnvironmentSafe() {
     SLOGI("── env check start ──");
 
-    // -------- HARD FAILS (real attacks only) --------
-    if (detectFridaHard()) {
-        SLOGE("ENV: FRIDA DETECTED — abort");
-        return false;
-    }
-    if (detectXposedHard()) {
-        SLOGE("ENV: XPOSED DETECTED — abort");
-        return false;
-    }
+    // HARD FAILS
+    if (detectFridaHard()) { SLOGE("ENV: FRIDA DETECTED");  return false; }
+    if (detectXposedHard()){ SLOGE("ENV: XPOSED DETECTED"); return false; }
 
-    // -------- SOFT CHECKS (info only, NEVER fail) --------
-    if (hasTracer())        SLOGW("ENV: tracer (soft)");
+    // SOFT (info only — VPN check removed, game needs it)
+    if (hasTracer())        SLOGW("ENV: tracer attached (soft)");
     if (detectSubstrate())  SLOGW("ENV: substrate (soft)");
-    if (detectRoot())       SLOGW("ENV: rooted (soft)");
-    if (detectEmulator())   SLOGW("ENV: emulator (soft)");
-    // VPN check REMOVED — game needs VPN
+    if (detectRoot())       SLOGW("ENV: rooted device (soft)");
+    if (detectEmulator())   SLOGW("ENV: emulator signature (soft)");
 
     SLOGI("── env check OK ──");
     return true;
@@ -528,6 +500,51 @@ Java_com_android_support_SecurityNative_checkSignatureHash(
 extern "C" JNIEXPORT jboolean JNICALL
 Java_com_android_support_SecurityNative_isEnvironmentValid(JNIEnv*, jclass) {
     return isEnvironmentSafe() ? JNI_TRUE : JNI_FALSE;
+}
+
+// ================================================================
+// JNI: verifyDexHash — NEW in v4
+// ================================================================
+extern "C" JNIEXPORT jboolean JNICALL
+Java_com_android_support_SecurityNative_verifyDexHash(
+        JNIEnv* env, jclass, jstring jhash) {
+
+    if (!jhash) {
+        SLOGE("DexHash: null input");
+        return JNI_FALSE;
+    }
+
+    const char* raw = env->GetStringUTFChars(jhash, nullptr);
+    if (!raw) return JNI_FALSE;
+
+    std::string given = toLower(std::string(raw));
+    env->ReleaseStringUTFChars(jhash, raw);
+
+    std::string expected = toLower(std::string(EXPECTED_DEX_HASH()));
+
+    // Skip if placeholder (first build)
+    bool placeholder = true;
+    for (char c : expected) {
+        if (c != '0') { placeholder = false; break; }
+    }
+    if (placeholder) {
+        SLOGW("DexHash: expected hash not set — skipping check");
+        return JNI_TRUE;
+    }
+
+    if (given.empty() || given.size() != expected.size()) {
+        SLOGE("DexHash: size mismatch (given=%zu expected=%zu)",
+              given.size(), expected.size());
+        return JNI_FALSE;
+    }
+
+    if (!constTimeEquals(given, expected)) {
+        SLOGE("DexHash: MISMATCH — APK tampered");
+        return JNI_FALSE;
+    }
+
+    SLOGI("DexHash: OK");
+    return JNI_TRUE;
 }
 
 // ================================================================
@@ -773,9 +790,9 @@ Java_com_android_support_SecurityNative_isRooted(JNIEnv*, jclass) {
 }
 
 // ================================================================
-// JNI: isVpnActive (soft-info)
+// JNI: isVpnActive (stub — VPN check removed, game needs it)
 // ================================================================
 extern "C" JNIEXPORT jboolean JNICALL
 Java_com_android_support_SecurityNative_isVpnActive(JNIEnv*, jclass) {
-    return detectVpn() ? JNI_TRUE : JNI_FALSE;
+    return JNI_FALSE;
 }
