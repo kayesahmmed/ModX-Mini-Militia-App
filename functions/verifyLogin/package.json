@@ -1,6 +1,6 @@
 {
   "name": "verifyLogin",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "main": "src/main.js",
   "dependencies": {
     "node-appwrite": "^14.0.0",
