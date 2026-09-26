@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "main": "src/main.js",
   "dependencies": {
-    "node-appwrite": "^11.0.0",
+    "node-appwrite": "^14.0.0",
     "bcryptjs": "^2.4.3",
     "jsonwebtoken": "^9.0.0"
   }
