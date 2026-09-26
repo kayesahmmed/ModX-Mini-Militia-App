@@ -68,9 +68,8 @@ static const char* EXPECTED_LIB_HASH() {
 
 // Server URL (Cloud Function) — obfuscated
 static const char* CLOUD_FN_URL() {
-    return OBF_STR("https://us-central1-modx-lab-5a6ee.cloudfunctions.net/verifyLogin");
+    return OBF_STR("https://sgp.cloud.appwrite.io/v1/functions/6ab760b0200276b627cbe/executions");
 }
-
 // ================================================================
 // Runtime Key Derivation — HMAC secret assembled at runtime
 // ================================================================
