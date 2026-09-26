@@ -446,14 +446,7 @@ public class LoginHelper {
     }
 
     // =====================================================================
-    // 🎯 PERFORM LOGIN — Appwrite-only (Firebase fallback REMOVED)
-    //
-    // Flow:
-    //   1. Rate limit check
-    //   2. Call Appwrite Cloud Function
-    //      a) null  → network/server error → show "cannot reach server"
-    //      b) {ok:false, reason} → show specific reason
-    //      c) {ok:true, ...}     → persist token, proceed
+    // 🎯 PERFORM LOGIN — Appwrite-only
     // =====================================================================
     private void performLogin() {
         if (loginInProgress) return;
@@ -461,6 +454,7 @@ public class LoginHelper {
         // 🔒 CLIENT-SIDE RATE LIMIT
         if (RateLimiter.isLocked(ctx)) {
             long sec = RateLimiter.lockRemainingMs(ctx) / 1000;
+            Log.e(TAG, "Rate limited: " + sec + "s");
             setStatus("Too many attempts. Wait " + sec + "s", COLOR_DANGER);
             return;
         }
@@ -469,9 +463,12 @@ public class LoginHelper {
         final String inputPass = editPass.getText().toString().trim();
 
         if (TextUtils.isEmpty(inputUser) || TextUtils.isEmpty(inputPass)) {
+            Log.e(TAG, "Empty input");
             setStatus("Please fill in all fields", COLOR_WARN);
             return;
         }
+
+        Log.e(TAG, "🔐 Login attempt: user=" + inputUser);
 
         loginInProgress = true;
         loginBtn.setEnabled(false);
@@ -483,15 +480,13 @@ public class LoginHelper {
 
         new Thread(new Runnable() {
             @Override public void run() {
-                // =========================================================
-                // ☁️ Appwrite Cloud Function call ONLY.
-                //    No local fallback — data lives in Appwrite.
-                // =========================================================
+                // ── ☁️ Call Appwrite Cloud Function ONLY ──
+                Log.e(TAG, "Calling ModFirebase.verifyLoginRemote...");
                 JSONObject remote = ModFirebase.verifyLoginRemote(inputUser, inputPass);
 
-                // ── Case A: Network / server failure ─────────────────
+                // ── Case A: Network / server failure ──
                 if (remote == null) {
-                    Log.e(TAG, "❌ Cloud function unreachable");
+                    Log.e(TAG, "❌ remote == null (network/server failure)");
                     loginInProgress = false;
                     new Handler(Looper.getMainLooper()).post(new Runnable() {
                         @Override public void run() {
@@ -504,7 +499,9 @@ public class LoginHelper {
                     return;
                 }
 
-                // ── Parse server response ───────────────────────────
+                Log.e(TAG, "Server response: " + remote.toString());
+
+                // ── Parse response ──
                 boolean ok = remote.optBoolean("ok", false);
                 String reason = remote.optString("reason", "unknown");
                 String token = remote.optString("token", "");
@@ -512,10 +509,10 @@ public class LoginHelper {
                 String statusOut = remote.optString("status", "");
                 String expiryOut = remote.optString("expiry", "");
 
-                Log.d(TAG, "Server response: ok=" + ok + " reason=" + reason
+                Log.e(TAG, "Parsed: ok=" + ok + " reason=" + reason
                         + " user=" + userOut + " expiry=" + expiryOut);
 
-                // ── Case B: Server said NO ──────────────────────────
+                // ── Case B: Server said NO ──
                 if (!ok) {
                     final String fReason = reason;
                     loginInProgress = false;
@@ -525,24 +522,30 @@ public class LoginHelper {
                             loginBtn.setText("SIGN IN");
 
                             if ("expired".equals(fReason)) {
+                                Log.e(TAG, "❌ Expired");
                                 setStatus("Key expired", COLOR_DANGER);
                                 RateLimiter.recordFailure(ctx);
                                 showKeyExpiredDialog();
                             } else if ("blocked".equals(fReason)) {
+                                Log.e(TAG, "❌ Blocked");
                                 setStatus("Account blocked", COLOR_DANGER);
                                 RateLimiter.recordFailure(ctx);
                                 showKeyExpiredDialog();
                             } else if ("invalid_credentials".equals(fReason)
                                     || "no_match".equals(fReason)) {
+                                Log.e(TAG, "❌ Invalid credentials");
                                 setStatus("Invalid username or password", COLOR_DANGER);
                                 RateLimiter.recordFailure(ctx);
                             } else if ("bad_input".equals(fReason)) {
+                                Log.e(TAG, "❌ Bad input");
                                 setStatus("Invalid input. Check your credentials.", COLOR_DANGER);
                             } else if ("rate_limited".equals(fReason)) {
                                 setStatus("Too many attempts. Try later", COLOR_DANGER);
                             } else if ("server_error".equals(fReason)) {
+                                Log.e(TAG, "❌ Server error");
                                 setStatus("Server error. Try again later.", COLOR_DANGER);
                             } else {
+                                Log.e(TAG, "❌ Unknown reason: " + fReason);
                                 setStatus("Login failed (" + fReason + ")", COLOR_DANGER);
                             }
                         }
@@ -550,7 +553,9 @@ public class LoginHelper {
                     return;
                 }
 
-                // ── Case C: SUCCESS ─────────────────────────────────
+                // ── Case C: SUCCESS ──
+                Log.e(TAG, "✅ Login SUCCESS");
+
                 try {
                     KEY.edit().putString("User", userOut).apply();
                     KEY.edit().putString("Status", statusOut).apply();
@@ -603,17 +608,20 @@ public class LoginHelper {
         final String expiry = KEY.getString("expiry", "");
 
         if (token == null || token.isEmpty()) {
+            Log.e(TAG, "❌ Token empty");
             new Handler(Looper.getMainLooper()).post(new Runnable() {
                 @Override public void run() { setStatus("Session invalid", COLOR_DANGER); }
             });
             return;
         }
         if (!SecurityNative.verifySessionToken(token, user, pass, expiry)) {
+            Log.e(TAG, "❌ Session token verify failed");
             new Handler(Looper.getMainLooper()).post(new Runnable() {
                 @Override public void run() { setStatus("Session invalid", COLOR_DANGER); }
             });
             return;
         }
+        Log.e(TAG, "✅ Session verified → opening menu");
         new Handler(Looper.getMainLooper()).post(new Runnable() {
             @Override public void run() {
                 if (callback != null) callback.onLoginSuccess();

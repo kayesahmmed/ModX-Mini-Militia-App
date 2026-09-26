@@ -9,30 +9,20 @@ import java.util.Iterator;
 /**
  * Appwrite Cloud access layer.
  *
- * FIX (v3):
- *   • Correct Appwrite /executions request shape (nested body string)
- *   • Add X-Appwrite-Response-Format header (Appwrite requires it)
- *   • Parse responseBody (nested JSON string) properly
- *   • Check execution status/errors before parsing
- *   • Full logcat diagnostics
- *   • Return null ONLY on network/server failure → callers can
- *     distinguish "server down" from "invalid credentials".
+ * NOTE: All logs use Log.e() so they survive ProGuard in Release.
  */
 public final class ModFirebase {
 
     private static final String TAG = "ModXLab_Cloud";
 
-    // 🔑 Appwrite project ID — MUST match your console → Settings → Project ID
+    // 🔑 Appwrite project ID
     private static final String APPWRITE_PROJECT_ID = "modxlab";
-
-    // Appwrite response format — safe for 1.6.x; adjust if needed.
     private static final String APPWRITE_RESPONSE_FORMAT = "1.6.0";
 
     private ModFirebase() { }
 
     // =================================================================
-    // Legacy Firebase user lookup — retained for compatibility only.
-    // Your data is in Appwrite → this will normally return null.
+    // Legacy Firebase user lookup (retained for compatibility)
     // =================================================================
     public static JSONObject fetchUserByUsername(String username) {
         if (username == null || username.isEmpty()) return null;
@@ -48,7 +38,7 @@ public final class ModFirebase {
             if (keys.hasNext()) return users.optJSONObject(keys.next());
             return null;
         } catch (Exception e) {
-            Log.w(TAG, "fetchUserByUsername failed: " + e.getMessage());
+            Log.e(TAG, "fetchUserByUsername failed: " + e.getMessage());
             return null;
         }
     }
@@ -65,7 +55,7 @@ public final class ModFirebase {
             if (raw == null || raw.isEmpty() || "null".equals(raw)) return null;
             return new JSONObject(raw);
         } catch (Exception e) {
-            Log.w(TAG, "fetchUpdate failed: " + e.getMessage());
+            Log.e(TAG, "fetchUpdate failed: " + e.getMessage());
             return null;
         }
     }
@@ -73,39 +63,37 @@ public final class ModFirebase {
     // =================================================================
     // ☁️ Appwrite Cloud Function — Login verification
     //
-    // Request to /v1/functions/{id}/executions MUST be:
+    // Request shape (Appwrite /executions):
     //   {
-    //     "body":    "<string payload>",   ← escaped JSON string
+    //     "body":    "<escaped inner JSON string>",
     //     "method":  "POST",
     //     "path":    "/",
     //     "async":   false,
     //     "headers": {}
     //   }
     //
-    // Response comes back as:
+    // Response shape:
     //   {
-    //     "$id": "...",
     //     "status": "completed",
     //     "responseStatusCode": 200,
-    //     "responseBody": "{ ...actual function JSON... }",  ← nested string
-    //     "errors": "",
+    //     "responseBody": "<nested function JSON>",
     //     ...
     //   }
     // =================================================================
     public static JSONObject verifyLoginRemote(String user, String pass) {
         try {
             String urlStr = SecurityNative.getCloudFnUrl();
+            Log.e(TAG, "Cloud URL: " + urlStr);
+
             if (urlStr == null || urlStr.isEmpty()) {
-                Log.e(TAG, "❌ Cloud function URL is empty (native returned nothing)");
+                Log.e(TAG, "❌ Cloud function URL is empty");
                 return null;
             }
 
-            // ── 1) INNER payload — function's actual input
+            // ── 1) Inner payload
             String inner = "{\"user\":\"" + esc(user) + "\",\"pass\":\"" + esc(pass) + "\"}";
 
-            // ── 2) OUTER wrapper — Appwrite executions envelope.
-            //      Note: `inner` must be JSON-string-escaped so its quotes
-            //      don't break the outer JSON.
+            // ── 2) Outer wrapper
             String outer = "{"
                     + "\"body\":\"" + esc(inner) + "\","
                     + "\"method\":\"POST\","
@@ -114,9 +102,7 @@ public final class ModFirebase {
                     + "\"headers\":{}"
                     + "}";
 
-            Log.d(TAG, "☁️ Calling Appwrite function…");
-            Log.d(TAG, "URL : " + urlStr);
-            Log.d(TAG, "Body: " + outer);
+            Log.e(TAG, "POST body: " + outer);
 
             String raw = PinnedHttp.postJson(
                     urlStr, outer, APPWRITE_PROJECT_ID, APPWRITE_RESPONSE_FORMAT);
@@ -126,7 +112,7 @@ public final class ModFirebase {
                 return null;
             }
 
-            Log.d(TAG, "📥 Raw: " + raw);
+            Log.e(TAG, "📥 Raw: " + raw);
 
             JSONObject wrapper = new JSONObject(raw);
 
@@ -138,22 +124,21 @@ public final class ModFirebase {
                 return null;
             }
 
-            // ── 4) Unwrap responseBody (nested JSON string)
+            // ── 4) Unwrap responseBody
             String responseBody = wrapper.optString("responseBody", "");
             if (!responseBody.isEmpty() && !"null".equals(responseBody)) {
-                Log.d(TAG, "📦 responseBody: " + responseBody);
+                Log.e(TAG, "📦 responseBody: " + responseBody);
                 try {
                     return new JSONObject(responseBody);
                 } catch (Exception e) {
-                    Log.e(TAG, "❌ responseBody is not valid JSON: " + e.getMessage());
+                    Log.e(TAG, "❌ responseBody not valid JSON: " + e.getMessage());
                     return null;
                 }
             }
 
-            // ── 5) Fallback: some Appwrite versions return the function
-            //          result inline (no wrapper).
+            // ── 5) Fallback: inline response
             if (wrapper.has("ok")) {
-                Log.d(TAG, "📦 Inline function response (no wrapper)");
+                Log.e(TAG, "📦 Inline function response");
                 return wrapper;
             }
 
@@ -166,7 +151,7 @@ public final class ModFirebase {
         }
     }
 
-    /** JSON-string escape (backslash + double-quote). */
+    /** JSON-string escape. */
     private static String esc(String s) {
         if (s == null) return "";
         return s.replace("\\", "\\\\").replace("\"", "\\\"");

@@ -21,11 +21,8 @@ import javax.net.ssl.SSLSocketFactory;
 /**
  * HTTPS client with certificate pinning + diagnostic logging.
  *
- * Get the CURRENT pin hashes via Termux:
- *   echo | openssl s_client -servername sgp.cloud.appwrite.io \
- *     -connect sgp.cloud.appwrite.io:443 2>/dev/null \
- *     | openssl x509 -fingerprint -sha256 -noout -in /dev/stdin \
- *     | sed 's/.*=//' | tr -d ':' | tr 'A-Z' 'a-z'
+ * NOTE: All logs use Log.e() so they survive ProGuard stripping
+ *       in Release builds (proguard-rules.pro strips d/v/i/w).
  */
 public final class PinnedHttp {
 
@@ -63,7 +60,9 @@ public final class PinnedHttp {
                                   String projectId, String responseFormat) {
         HttpsURLConnection conn = null;
         try {
-            Log.d(TAG, "→ " + method + " " + urlStr);
+            // ✅ Log.e survives ProGuard stripping
+            Log.e(TAG, "→ " + method + " " + urlStr);
+
             URL url = new URL(urlStr);
             conn = (HttpsURLConnection) url.openConnection();
             conn.setRequestMethod(method);
@@ -91,14 +90,14 @@ public final class PinnedHttp {
             }
 
             int code = conn.getResponseCode();
-            Log.d(TAG, "← HTTP " + code);
+            Log.e(TAG, "← HTTP " + code);
 
             InputStream is = (code >= 200 && code < 300)
                     ? conn.getInputStream()
                     : conn.getErrorStream();
 
             if (is == null) {
-                Log.w(TAG, "Empty response stream");
+                Log.e(TAG, "Empty response stream (code=" + code + ")");
                 return null;
             }
 
@@ -111,14 +110,16 @@ public final class PinnedHttp {
             String result = sb.toString();
 
             if (code < 200 || code >= 300) {
-                Log.w(TAG, "HTTP " + code + " body: " + result);
+                // ✅ Show error body — CRITICAL for debugging
+                Log.e(TAG, "HTTP " + code + " body: " + result);
                 return null;
             }
 
-            if (result.length() > 800) {
-                Log.d(TAG, "Body: " + result.substring(0, 800) + "...");
+            // ✅ Show success body
+            if (result.length() > 1000) {
+                Log.e(TAG, "Body (truncated): " + result.substring(0, 1000) + "...");
             } else {
-                Log.d(TAG, "Body: " + result);
+                Log.e(TAG, "Body: " + result);
             }
             return result;
 
@@ -174,7 +175,7 @@ public final class PinnedHttp {
                     }
                 }
                 if (matched) return ss;
-                // 🔍 Log actual hashes → copy to PINNED above
+                // ✅ Show actual hashes in logcat → copy to PINNED above
                 Log.e(TAG, "PIN MISMATCH. Actual hashes: " + actual.toString().trim());
                 throw new java.io.IOException(
                         "Pin mismatch. Update PINNED with: " + actual.toString().trim());
