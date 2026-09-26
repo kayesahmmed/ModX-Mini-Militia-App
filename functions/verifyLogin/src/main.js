@@ -4,7 +4,7 @@ const jwt = require('jsonwebtoken');
 
 const JWT_SECRET = process.env.JWT_SECRET;
 const DATABASE_ID = process.env.DATABASE_ID;
-const COLLECTION_ID = 'Users';
+const COLLECTION_ID = process.env.COLLECTION_ID;
 
 module.exports = async function (req, res) {
   const client = new Client()
