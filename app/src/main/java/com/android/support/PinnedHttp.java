@@ -19,9 +19,9 @@ import javax.net.ssl.SSLSocket;
 import javax.net.ssl.SSLSocketFactory;
 
 /**
- * HTTPS client with certificate pinning.
+ * HTTPS client with certificate pinning + diagnostic logging.
  *
- * Pinned certs are extracted via Termux:
+ * Get the CURRENT pin hashes via Termux:
  *   echo | openssl s_client -servername sgp.cloud.appwrite.io \
  *     -connect sgp.cloud.appwrite.io:443 2>/dev/null \
  *     | openssl x509 -fingerprint -sha256 -noout -in /dev/stdin \
@@ -29,15 +29,15 @@ import javax.net.ssl.SSLSocketFactory;
  */
 public final class PinnedHttp {
 
-    private static final String TAG = "ModXLab_Pin";
+    private static final String TAG = "ModXLab_HTTP";
 
-    // ⚠️ REPLACE THESE with actual hashes from Termux command above
+    // ⚠️ Update these if pin mismatch occurs (logcat shows actual hash).
     private static final Set<String> PINNED = new HashSet<>(Arrays.asList(
-        // Appwrite Singapore - leaf cert
+        // Appwrite Singapore — leaf cert
         "6bd255ea86d4cf05e8aed3d6e071895b8c29736ba83908dbcf409817aa8b03ed",
-        // Google Trust Services - intermediate (same for all GCP properties)
+        // Google Trust Services — intermediate
         "fec41e32ca75c295a6240fa639d3abe3bfb5cb131d6690e2331a176bed2e5bd2",
-        // Firebase - still needed for update checks
+        // Firebase
         "170b2def1e9c89c59970f25c62ffe64c0fba73989cd29a098dc0a2d405d87ed7"
     ));
 
@@ -45,26 +45,38 @@ public final class PinnedHttp {
 
     /** GET request with cert pinning. */
     public static String get(String urlStr) {
-        return request(urlStr, "GET", null, null);
+        return request(urlStr, "GET", null, null, null);
     }
 
-    /** POST request with Appwrite project header. */
+    /** POST request with Appwrite project header (legacy signature). */
     public static String post(String urlStr, String body, String projectId) {
-        return request(urlStr, "POST", body, projectId);
+        return request(urlStr, "POST", body, projectId, null);
     }
 
-    private static String request(String urlStr, String method, String body, String projectId) {
+    /** POST with explicit response format header (recommended for Appwrite). */
+    public static String postJson(String urlStr, String body,
+                                  String projectId, String responseFormat) {
+        return request(urlStr, "POST", body, projectId, responseFormat);
+    }
+
+    private static String request(String urlStr, String method, String body,
+                                  String projectId, String responseFormat) {
         HttpsURLConnection conn = null;
         try {
+            Log.d(TAG, "→ " + method + " " + urlStr);
             URL url = new URL(urlStr);
             conn = (HttpsURLConnection) url.openConnection();
             conn.setRequestMethod(method);
             conn.setConnectTimeout(15000);
-            conn.setReadTimeout(15000);
+            conn.setReadTimeout(20000);
             conn.setRequestProperty("Accept", "application/json");
+            conn.setRequestProperty("User-Agent", "ModXLab/1.0");
 
             if (projectId != null && !projectId.isEmpty()) {
                 conn.setRequestProperty("X-Appwrite-Project", projectId);
+            }
+            if (responseFormat != null && !responseFormat.isEmpty()) {
+                conn.setRequestProperty("X-Appwrite-Response-Format", responseFormat);
             }
 
             if ("POST".equals(method) && body != null) {
@@ -73,38 +85,56 @@ public final class PinnedHttp {
                 conn.getOutputStream().write(body.getBytes("UTF-8"));
             }
 
-            // Skip pinning in debug builds for easier debugging
-           // if (!com.android.support.BuildConfig.DEBUG) {
-             //   conn.setSSLSocketFactory(new PinnedFactory());
-           // }
+            // Skip pinning in debug builds
+            if (!com.android.support.BuildConfig.DEBUG) {
+                conn.setSSLSocketFactory(new PinnedFactory());
+            }
 
             int code = conn.getResponseCode();
-            if (code < 200 || code >= 300) {
-                Log.w(TAG, method + " returned HTTP " + code);
+            Log.d(TAG, "← HTTP " + code);
+
+            InputStream is = (code >= 200 && code < 300)
+                    ? conn.getInputStream()
+                    : conn.getErrorStream();
+
+            if (is == null) {
+                Log.w(TAG, "Empty response stream");
                 return null;
             }
 
-            InputStream is = conn.getInputStream();
             BufferedReader br = new BufferedReader(new InputStreamReader(is, "UTF-8"));
             StringBuilder sb = new StringBuilder();
             String line;
             while ((line = br.readLine()) != null) sb.append(line);
             br.close();
-            return sb.toString();
+
+            String result = sb.toString();
+
+            if (code < 200 || code >= 300) {
+                Log.w(TAG, "HTTP " + code + " body: " + result);
+                return null;
+            }
+
+            if (result.length() > 800) {
+                Log.d(TAG, "Body: " + result.substring(0, 800) + "...");
+            } else {
+                Log.d(TAG, "Body: " + result);
+            }
+            return result;
 
         } catch (Throwable t) {
-            Log.e(TAG, method + " failed: " + t.getMessage());
+            Log.e(TAG, method + " failed: "
+                    + t.getClass().getSimpleName() + " — " + t.getMessage(), t);
             return null;
         } finally {
             if (conn != null) try { conn.disconnect(); } catch (Throwable ignored) { }
         }
     }
 
-        private static class PinnedFactory extends SSLSocketFactory {
+    private static class PinnedFactory extends SSLSocketFactory {
         private final SSLSocketFactory delegate;
 
         PinnedFactory() {
-            // ✅ Correct way — use SSLSocketFactory.getDefault()
             this.delegate = (SSLSocketFactory) SSLSocketFactory.getDefault();
         }
 
@@ -134,13 +164,20 @@ public final class PinnedHttp {
                 if (certs == null || certs.length == 0) {
                     throw new java.io.IOException("No certs");
                 }
+                boolean matched = false;
+                StringBuilder actual = new StringBuilder();
                 for (Certificate c : certs) {
                     if (c instanceof X509Certificate) {
                         String hash = sha256Hex(((X509Certificate) c).getEncoded());
-                        if (PINNED.contains(hash)) return ss;
+                        actual.append(hash).append(" ");
+                        if (PINNED.contains(hash)) matched = true;
                     }
                 }
-                throw new java.io.IOException("Pin mismatch");
+                if (matched) return ss;
+                // 🔍 Log actual hashes → copy to PINNED above
+                Log.e(TAG, "PIN MISMATCH. Actual hashes: " + actual.toString().trim());
+                throw new java.io.IOException(
+                        "Pin mismatch. Update PINNED with: " + actual.toString().trim());
             } catch (javax.net.ssl.SSLException e) {
                 throw e;
             } catch (Throwable t) {

@@ -446,7 +446,14 @@ public class LoginHelper {
     }
 
     // =====================================================================
-    // PERFORM LOGIN — server-side (Cloud Function) with fallback
+    // 🎯 PERFORM LOGIN — Appwrite-only (Firebase fallback REMOVED)
+    //
+    // Flow:
+    //   1. Rate limit check
+    //   2. Call Appwrite Cloud Function
+    //      a) null  → network/server error → show "cannot reach server"
+    //      b) {ok:false, reason} → show specific reason
+    //      c) {ok:true, ...}     → persist token, proceed
     // =====================================================================
     private void performLogin() {
         if (loginInProgress) return;
@@ -477,40 +484,38 @@ public class LoginHelper {
         new Thread(new Runnable() {
             @Override public void run() {
                 // =========================================================
-                // 1) Try server-side verification first (Cloud Function)
+                // ☁️ Appwrite Cloud Function call ONLY.
+                //    No local fallback — data lives in Appwrite.
                 // =========================================================
                 JSONObject remote = ModFirebase.verifyLoginRemote(inputUser, inputPass);
-                String resultJson = null;
 
-                if (remote != null) {
-                    resultJson = remote.toString();
-                } else {
-                    // =====================================================
-                    // 2) Fallback: local native verification
-                    // =====================================================
-                    JSONObject matched = ModFirebase.fetchUserByUsername(inputUser);
-                    String userJson = (matched == null) ? "" : matched.toString();
-                    long nowMs = NtpTime.now(ctx);
-                    resultJson = SecurityNative.verifyLoginWithTime(inputUser, inputPass, userJson, nowMs);
+                // ── Case A: Network / server failure ─────────────────
+                if (remote == null) {
+                    Log.e(TAG, "❌ Cloud function unreachable");
+                    loginInProgress = false;
+                    new Handler(Looper.getMainLooper()).post(new Runnable() {
+                        @Override public void run() {
+                            loginBtn.setEnabled(true);
+                            loginBtn.setText("SIGN IN");
+                            setStatus("Cannot reach server. Check connection.",
+                                    COLOR_DANGER);
+                        }
+                    });
+                    return;
                 }
 
-                boolean ok = false;
-                String reason = "network";
-                String token = "", userOut = "", statusOut = "", expiryOut = "";
+                // ── Parse server response ───────────────────────────
+                boolean ok = remote.optBoolean("ok", false);
+                String reason = remote.optString("reason", "unknown");
+                String token = remote.optString("token", "");
+                String userOut = remote.optString("user", "");
+                String statusOut = remote.optString("status", "");
+                String expiryOut = remote.optString("expiry", "");
 
-                try {
-                    JSONObject r = new JSONObject(resultJson);
-                    ok = r.optBoolean("ok", false);
-                    reason = r.optString("reason", "unknown");
-                    token = r.optString("token", "");
-                    userOut = r.optString("user", "");
-                    statusOut = r.optString("status", "");
-                    expiryOut = r.optString("expiry", "");
-                } catch (Exception e) {
-                    ok = false;
-                    reason = "network";
-                }
+                Log.d(TAG, "Server response: ok=" + ok + " reason=" + reason
+                        + " user=" + userOut + " expiry=" + expiryOut);
 
+                // ── Case B: Server said NO ──────────────────────────
                 if (!ok) {
                     final String fReason = reason;
                     loginInProgress = false;
@@ -518,6 +523,7 @@ public class LoginHelper {
                         @Override public void run() {
                             loginBtn.setEnabled(true);
                             loginBtn.setText("SIGN IN");
+
                             if ("expired".equals(fReason)) {
                                 setStatus("Key expired", COLOR_DANGER);
                                 RateLimiter.recordFailure(ctx);
@@ -526,22 +532,25 @@ public class LoginHelper {
                                 setStatus("Account blocked", COLOR_DANGER);
                                 RateLimiter.recordFailure(ctx);
                                 showKeyExpiredDialog();
-                            } else if ("no_match".equals(fReason) || "invalid_credentials".equals(fReason)) {
+                            } else if ("invalid_credentials".equals(fReason)
+                                    || "no_match".equals(fReason)) {
                                 setStatus("Invalid username or password", COLOR_DANGER);
                                 RateLimiter.recordFailure(ctx);
+                            } else if ("bad_input".equals(fReason)) {
+                                setStatus("Invalid input. Check your credentials.", COLOR_DANGER);
                             } else if ("rate_limited".equals(fReason)) {
                                 setStatus("Too many attempts. Try later", COLOR_DANGER);
+                            } else if ("server_error".equals(fReason)) {
+                                setStatus("Server error. Try again later.", COLOR_DANGER);
                             } else {
-                                setStatus("Login failed", COLOR_DANGER);
+                                setStatus("Login failed (" + fReason + ")", COLOR_DANGER);
                             }
                         }
                     });
                     return;
                 }
 
-                // =========================================================
-                // Success — persist
-                // =========================================================
+                // ── Case C: SUCCESS ─────────────────────────────────
                 try {
                     KEY.edit().putString("User", userOut).apply();
                     KEY.edit().putString("Status", statusOut).apply();
@@ -549,7 +558,6 @@ public class LoginHelper {
                     KEY.edit().putString("token", token).apply();
                 } catch (Exception ignored) { }
 
-                // Reset rate limit on success
                 RateLimiter.reset(ctx);
 
                 loginInProgress = false;
