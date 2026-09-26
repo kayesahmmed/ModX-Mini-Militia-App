@@ -1,18 +1,30 @@
 // ================================================================
-// Security.cpp — Silent Security Layer (v7)
+// Security.cpp — Silent Security Layer (v8)
+//
+// CHANGE vs v7:
+//   ❌ Removed hard-coded DEX hash comparison.
+//   ✅ DEX integrity is now covered by the APK signature check
+//      (any DEX modification breaks the APK signature — enforced
+//      by Android PackageManager AND by our SHA256 signature check).
+//
+//   Why this is SAFER, not weaker:
+//     • A hard-coded DEX hash must be updated on EVERY build → devs
+//       forget → app silently dies → they disable the check entirely.
+//     • The APK signature check is strictly STRONGER: it covers ALL
+//       files (DEX + resources + manifest), not just DEX.
+//     • Repackaging/resigning → sig mismatch → kill.
+//     • Runtime patch (Frida/Xposed) → anti-tamper layers catch it.
 //
 // Layers:
 //   1.  APK signature verify (multi-cert)
-//   2.  DEX integrity verify
-//   3.  Native lib integrity verify
-//   4.  Anti-Frida / Xposed / Debugger
-//   5.  HMAC session tokens (runtime-key derived)
-//   6.  Server-side login (Cloud Function URL)
-//   7.  Anti-memory-dump (lazy init)
-//   8.  Server-time-based expiry
+//   2.  Native lib integrity verify
+//   3.  Anti-Frida / Xposed / Debugger / Emulator
+//   4.  HMAC session tokens (runtime-key derived)
+//   5.  Server-side login (Cloud Function URL)
+//   6.  Anti-memory-dump (lazy init)
+//   7.  Server-time-based expiry
 //
-// NOTE: JNI_OnLoad is NOT defined here (already in Menu/Setup.cpp).
-//       Native methods use standard Java_<package>_<class>_<method> naming.
+// NOTE: JNI_OnLoad is defined in Setup.cpp — do NOT add it here.
 // ================================================================
 
 #include <jni.h>
@@ -53,10 +65,14 @@ static const char* SHA256_PRIMARY() {
 static const char* SHA256_ALT1() { return OBF_STR(""); }
 static const char* SHA256_ALT2() { return OBF_STR(""); }
 
+// ⚠️ DEX HASH — intentionally left EMPTY.
+//    Do NOT paste a real hash here; it would break on every build.
+//    DEX integrity is covered by APK signature verification.
 static const char* EXPECTED_DEX_HASH() {
-    return OBF_STR("7883d6f03f99f6da3daebbf7f14985dda0c1bda9e7b6f22e48a15caca6e44ade");
+    return OBF_STR("");
 }
 
+// ⚠️ Native lib hash — leave all-zero to SKIP, or fill in per release.
 static const char* EXPECTED_LIB_HASH() {
     return OBF_STR("0000000000000000000000000000000000000000000000000000000000000000");
 }
@@ -75,7 +91,7 @@ static std::string deriveKey() {
 }
 
 // ================================================================
-// SHA-256 (pure C)
+// SHA-256 + HMAC (pure C)
 // ================================================================
 namespace SecSHA {
     struct Ctx { uint32_t h[8]; uint64_t len; uint8_t buf[64]; size_t used; };
@@ -225,7 +241,7 @@ static std::string urlEncode(const std::string& s) {
 }
 
 // ================================================================
-// Detection helpers (all silent)
+// Anti-tamper detectors (all silent)
 // ================================================================
 static bool detectFrida() {
     FILE* fp = fopen("/proc/self/maps", "r");
@@ -315,7 +331,7 @@ static bool isEnvironmentSafe() {
 }
 
 // ================================================================
-// Anti-memory-dump — drop core dumps, disable coredump filter
+// Anti-memory-dump
 // ================================================================
 static bool enableAntiDump() {
     struct rlimit rl;
@@ -332,8 +348,6 @@ static bool enableAntiDump() {
     return true;
 }
 
-// Lazy init — runs once on first verifyHashes call
-// (No __attribute__((constructor)) — that symbol already used in Main.cpp)
 static std::atomic<bool> g_antiDumpDone{false};
 static inline void ensureAntiDumpInit() {
     if (g_antiDumpDone.exchange(true)) return;
@@ -401,33 +415,37 @@ static long long parseExpireDate(const std::string& s) {
 }
 
 // ================================================================
-// JNI IMPLEMENTATIONS — Standard Java_<pkg>_<class>_<method> naming
-// (No JNI_OnLoad — Setup.cpp owns that symbol)
+// JNI — verifyHashes
+//   • APK sig   → hard gate (always)
+//   • DEX hash  → optional (empty → skipped, APK sig covers it)
+//   • Anti-tamper → hard gate
 // ================================================================
-
 extern "C" JNIEXPORT jboolean JNICALL
 Java_com_android_support_SecurityNative_verifyHashes(
         JNIEnv* env, jclass, jstring jsig, jstring jdex, jboolean jdebug) {
 
-    ensureAntiDumpInit();  // Lazy one-time init
+    ensureAntiDumpInit();
 
-    if (!jsig || !jdex) return JNI_FALSE;
+    if (!jsig) return JNI_FALSE;
     const char* csig = env->GetStringUTFChars(jsig, nullptr);
-    const char* cdex = env->GetStringUTFChars(jdex, nullptr);
-    if (!csig || !cdex) {
-        if (csig) env->ReleaseStringUTFChars(jsig, csig);
-        if (cdex) env->ReleaseStringUTFChars(jdex, cdex);
-        return JNI_FALSE;
-    }
+    if (!csig) return JNI_FALSE;
     std::string sigHash = toLower(std::string(csig));
-    std::string dexHash = toLower(std::string(cdex));
     env->ReleaseStringUTFChars(jsig, csig);
-    env->ReleaseStringUTFChars(jdex, cdex);
+
+    // dexHash is optional now — only read for potential future use.
+    std::string dexHash;
+    if (jdex) {
+        const char* cdex = env->GetStringUTFChars(jdex, nullptr);
+        if (cdex) {
+            dexHash = toLower(std::string(cdex));
+            env->ReleaseStringUTFChars(jdex, cdex);
+        }
+    }
 
     bool isDebug = (jdebug == JNI_TRUE);
 
     if (!isDebug) {
-        // Signature
+        // ── APK SIGNATURE — primary integrity gate ──
         std::string expected = toLower(std::string(SHA256_PRIMARY()));
         bool ok = false;
         if (!expected.empty() && sigHash.size() == expected.size())
@@ -443,13 +461,19 @@ Java_com_android_support_SecurityNative_verifyHashes(
         }
         if (!ok) return JNI_FALSE;
 
-        // DEX
+        // ── DEX HASH — OPTIONAL ──
+        //   Expected value is empty → skip. If you want extra defense
+        //   in depth WITHOUT per-build updates, leave this empty.
         std::string expectedDex = toLower(std::string(EXPECTED_DEX_HASH()));
-        bool placeholder = true;
-        for (char c : expectedDex) if (c != '0') { placeholder = false; break; }
-        if (!placeholder) {
-            if (dexHash.size() != expectedDex.size()) return JNI_FALSE;
-            if (!constTimeEquals(dexHash, expectedDex)) return JNI_FALSE;
+        if (!expectedDex.empty()) {
+            bool placeholder = true;
+            for (char c : expectedDex) if (c != '0') { placeholder = false; break; }
+            if (!placeholder) {
+                if (dexHash.empty() || dexHash.size() != expectedDex.size())
+                    return JNI_FALSE;
+                if (!constTimeEquals(dexHash, expectedDex))
+                    return JNI_FALSE;
+            }
         }
     }
 
@@ -457,6 +481,9 @@ Java_com_android_support_SecurityNative_verifyHashes(
     return JNI_TRUE;
 }
 
+// ================================================================
+// JNI — verifyLibHash
+// ================================================================
 extern "C" JNIEXPORT jboolean JNICALL
 Java_com_android_support_SecurityNative_verifyLibHash(
         JNIEnv* env, jclass, jstring jhash) {
@@ -476,6 +503,9 @@ Java_com_android_support_SecurityNative_verifyLibHash(
     return JNI_TRUE;
 }
 
+// ================================================================
+// JNI — verifyLogin (uses system time)
+// ================================================================
 extern "C" JNIEXPORT jstring JNICALL
 Java_com_android_support_SecurityNative_verifyLogin(
         JNIEnv* env, jclass, jstring jUser, jstring jPass, jstring jUserJson) {
@@ -568,6 +598,9 @@ Java_com_android_support_SecurityNative_verifyLogin(
     return env->NewStringUTF(out.c_str());
 }
 
+// ================================================================
+// JNI — verifyLoginWithTime (uses NTP-synced time)
+// ================================================================
 extern "C" JNIEXPORT jstring JNICALL
 Java_com_android_support_SecurityNative_verifyLoginWithTime(
         JNIEnv* env, jclass, jstring jUser, jstring jPass, jstring jUserJson, jlong jNowMs) {
@@ -660,6 +693,9 @@ Java_com_android_support_SecurityNative_verifyLoginWithTime(
     return env->NewStringUTF(out.c_str());
 }
 
+// ================================================================
+// JNI — verifySessionToken
+// ================================================================
 extern "C" JNIEXPORT jboolean JNICALL
 Java_com_android_support_SecurityNative_verifySessionToken(
         JNIEnv* env, jclass,
@@ -697,6 +733,9 @@ Java_com_android_support_SecurityNative_verifySessionToken(
     return JNI_TRUE;
 }
 
+// ================================================================
+// JNI — URL builders
+// ================================================================
 extern "C" JNIEXPORT jstring JNICALL
 Java_com_android_support_SecurityNative_getQueryUrl(JNIEnv* env, jclass, jstring jUser) {
     if (!jUser) return env->NewStringUTF("");
