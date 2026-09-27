@@ -5,9 +5,6 @@ import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
 import android.content.pm.Signature;
 
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.InputStream;
 import java.security.MessageDigest;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -17,67 +14,63 @@ import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
 
 /**
- * SecurityNative — silent security layer (v10).
+ * SecurityNative — silent security bridge to libModXLab.so
  *
- * NEW in v10:
- *   • getProjectId()          — project ID moved to native (OBFUSCATED)
- *   • verifyCertPin(hash)     — cert pin hashes moved to native
- *   • verifyNativeSig(...)    — HMAC verify of server response
- *   • getApkSigHash(ctx)      — expose APK sig for server-side attestation
- *   • getApkSigHashNoCache()  — recompute (for tamper detection)
+ * Design:
+ *   - Single entry point: preload(ctx, isDebug)
+ *   - No descriptive strings anywhere
+ *   - No user-visible messages
+ *   - Returns boolean only
  */
 public final class SecurityNative {
 
     static {
-        try { System.loadLibrary("ModXLab"); } catch (Throwable ignored) { }
+        try {
+            System.loadLibrary("ModXLab");
+        } catch (Throwable ignored) {
+        }
     }
 
     // =================================================================
     // SILENT ENTRY POINT
     // =================================================================
+
+    /**
+     * Compute signature + DEX hashes in Java, then pass them to native
+     * for constant-time comparison against embedded expected values.
+     *
+     * Returns true only if all checks pass.
+     */
     public static boolean preload(Context ctx, boolean isDebug) {
         try {
             String s = sigHash(ctx);
             String d = dexHash(ctx);
-            if (s == null || s.isEmpty() || d == null || d.isEmpty()) return false;
+            if (s == null || s.isEmpty()) return false;
+            if (d == null || d.isEmpty()) return false;
             return verifyHashes(s, d, isDebug);
         } catch (Throwable t) {
             return false;
         }
     }
 
-    // =================================================================
-    // Native methods (all registered via standard Java_<pkg>_<class>_<m>)
-    // =================================================================
-    private static native boolean verifyHashes(String sigHash, String dexHash, boolean isDebug);
-    public  static native boolean verifyLibHash(String libHash);
-    public  static native String  verifyLogin(String inputUser, String inputPass, String userJson);
-    public  static native String  verifyLoginWithTime(String inputUser, String inputPass, String userJson, long nowMs);
-    public  static native boolean verifySessionToken(String token, String user, String pass, String expiry);
-    public  static native String  getQueryUrl(String username);
-    public  static native String  getUpdateUrl();
-    public  static native String  getCloudFnUrl();
-
-    // ── NEW native methods ──
-    public  static native String  getProjectId();
-    public  static native boolean verifyCertPin(String hash);
-    public  static native boolean verifyNativeSig(String user, String expiry, String sig);
-    public  static native boolean verifyLoginSig(String user, String pass, String sig);
+    /** Native: verify signature + dex hashes + environment. */
+    private static native boolean verifyHashes(String sigHash,
+                                               String dexHash,
+                                               boolean isDebug);
 
     // =================================================================
-    // APK signature hash (SHA-256 hex)
+    // HASH COMPUTATION (Java side)
     // =================================================================
-    public static String getApkSigHash(Context ctx) {
-        return sigHash(ctx);
-    }
 
     private static String sigHash(Context ctx) {
         try {
             PackageManager pm = ctx.getPackageManager();
             String pkg = ctx.getPackageName();
             PackageInfo pi;
+
             if (android.os.Build.VERSION.SDK_INT >= 28) {
-                pi = pm.getPackageInfo(pkg, PackageManager.GET_SIGNING_CERTIFICATES);
+                pi = pm.getPackageInfo(pkg,
+                        PackageManager.GET_SIGNING_CERTIFICATES);
                 if (pi == null || pi.signingInfo == null) return null;
                 Signature[] sigs = pi.signingInfo.hasMultipleSigners()
                         ? pi.signingInfo.getApkContentsSigners()
@@ -85,8 +78,10 @@ public final class SecurityNative {
                 if (sigs == null || sigs.length == 0) return null;
                 return h(sigs[0].toByteArray());
             } else {
-                pi = pm.getPackageInfo(pkg, PackageManager.GET_SIGNATURES);
-                if (pi == null || pi.signatures == null || pi.signatures.length == 0) return null;
+                pi = pm.getPackageInfo(pkg,
+                        PackageManager.GET_SIGNATURES);
+                if (pi == null || pi.signatures == null
+                        || pi.signatures.length == 0) return null;
                 return h(pi.signatures[0].toByteArray());
             }
         } catch (Throwable t) {
@@ -94,16 +89,16 @@ public final class SecurityNative {
         }
     }
 
-    // =================================================================
-    // DEX integrity hash
-    // =================================================================
     private static String dexHash(Context ctx) {
         ZipFile z = null;
-        InputStream is = null;
+        java.io.InputStream is = null;
         try {
             String apk = ctx.getApplicationInfo().sourceDir;
             z = new ZipFile(apk);
+
             MessageDigest md = MessageDigest.getInstance("SHA-256");
+
+            // Collect .dex names, sort for deterministic order
             List<String> names = new ArrayList<>();
             Enumeration<? extends ZipEntry> en = z.entries();
             while (en.hasMoreElements()) {
@@ -112,6 +107,8 @@ public final class SecurityNative {
             }
             Collections.sort(names);
             if (names.isEmpty()) return null;
+
+            // Hash each dex in sorted order
             byte[] buf = new byte[16384];
             for (String n : names) {
                 ZipEntry e = z.getEntry(n);
@@ -122,10 +119,12 @@ public final class SecurityNative {
                 is.close();
                 is = null;
             }
+
             byte[] hh = md.digest();
             StringBuilder sb = new StringBuilder(hh.length * 2);
             for (byte x : hh) sb.append(String.format("%02x", x));
             return sb.toString();
+
         } catch (Throwable t) {
             return null;
         } finally {
@@ -134,34 +133,6 @@ public final class SecurityNative {
         }
     }
 
-    // =================================================================
-    // Native library integrity hash
-    // =================================================================
-    public static String computeNativeLibHash(Context ctx) {
-        FileInputStream fis = null;
-        try {
-            File libDir = new File(ctx.getApplicationInfo().nativeLibraryDir);
-            File libFile = new File(libDir, "libModXLab.so");
-            if (!libFile.exists()) return "";
-
-            MessageDigest md = MessageDigest.getInstance("SHA-256");
-            fis = new FileInputStream(libFile);
-            byte[] buf = new byte[16384];
-            int n;
-            while ((n = fis.read(buf)) > 0) md.update(buf, 0, n);
-
-            byte[] hh = md.digest();
-            StringBuilder sb = new StringBuilder(hh.length * 2);
-            for (byte b : hh) sb.append(String.format("%02x", b));
-            return sb.toString();
-        } catch (Throwable t) {
-            return "";
-        } finally {
-            try { if (fis != null) fis.close(); } catch (Throwable ignored) { }
-        }
-    }
-
-    // =================================================================
     private static String h(byte[] data) {
         try {
             MessageDigest md = MessageDigest.getInstance("SHA-256");
@@ -169,8 +140,23 @@ public final class SecurityNative {
             StringBuilder sb = new StringBuilder(hh.length * 2);
             for (byte b : hh) sb.append(String.format("%02x", b));
             return sb.toString();
-        } catch (Throwable t) { return null; }
+        } catch (Throwable t) {
+            return null;
+        }
     }
+
+    // =================================================================
+    // Login APIs (used by LoginHelper / ModFirebase)
+    // =================================================================
+    public static native String  verifyLogin(String inputUser,
+                                             String inputPass,
+                                             String userJson);
+    public static native boolean verifySessionToken(String token,
+                                                    String user,
+                                                    String pass,
+                                                    String expiry);
+    public static native String  getQueryUrl(String username);
+    public static native String  getUpdateUrl();
 
     private SecurityNative() { }
 }
