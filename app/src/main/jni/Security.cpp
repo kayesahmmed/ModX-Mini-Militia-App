@@ -1,27 +1,12 @@
 // ================================================================
-// Security.cpp — Silent Security Layer (v10 — Hardened)
+// Security.cpp — Silent Security Layer (v5)
 //
-// CHANGES vs v9:
-//   ✅ Project ID moved to native (OBFUSCATED)
-//   ✅ Cert pins moved to native (OBFUSCATED)
-//   ✅ HMAC-native-signature verify (verifyNativeSig)
-//   ✅ verifyLoginSig — HMAC verify of login payload
-//   ✅ Anti-Frida: syscall-based + thread-name detection
-//   ✅ Anti-Xposed: syscall-based file access
-//   ✅ Removed Firebase query URL builders
-//   ✅ All strings OBFUSCATED via OBF_STR
-//
-// Preserved:
-//   • APK signature verify
-//   • DEX hash check (optional)
-//   • Native lib hash check
-//   • Anti-debug / anti-emulator
-//   • Anti-memory-dump
-//   • HMAC session tokens
-//   • JWT decode for session
-//   • Cloud Function URL
-//
-// NOTE: JNI_OnLoad defined in Setup.cpp — do NOT add here.
+// Design:
+//   - NO user-visible strings
+//   - NO descriptive log messages
+//   - Single entry point: verifyHashes()
+//   - Constant-time comparisons
+//   - All sensitive data obfuscated at compile time
 // ================================================================
 
 #include <jni.h>
@@ -34,7 +19,6 @@
 #include <ctime>
 #include <cmath>
 #include <cstdarg>
-#include <atomic>
 #include <unistd.h>
 #include <fcntl.h>
 #include <dirent.h>
@@ -43,8 +27,6 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <sys/mman.h>
-#include <sys/resource.h>
-#include <sys/syscall.h>
 #include <sys/system_properties.h>
 #include <android/log.h>
 #include <pthread.h>
@@ -57,53 +39,34 @@
 // 🔑 CONFIGURATION
 // ================================================================
 
+// APK signing cert SHA-256 (64 lowercase hex, no colons)
 static const char* SHA256_PRIMARY() {
-    return OBF_STR("8ad4db86f888c47cb3483c93afae4514274e77cb6a62c0ee63d2dcd249c2f89a");
+    return OBF_STR("2214862d49d25c4c72b531bbd14d7e53587508035b6b7084b7d6d3f9763a0502");
 }
 static const char* SHA256_ALT1() { return OBF_STR(""); }
 static const char* SHA256_ALT2() { return OBF_STR(""); }
 
-static const char* EXPECTED_DEX_HASH() { return OBF_STR(""); }
-static const char* EXPECTED_LIB_HASH() {
-    return OBF_STR("0000000000000000000000000000000000000000000000000000000000000000");
+// HMAC secret for session tokens — CHANGE THIS TO YOUR UNIQUE VALUE
+static const char* HMAC_SECRET() {
+    return OBF_STR("xK9mP2QvLt7Rn5Bs4Wz8YhJ6CgD3FeA1NqU4TrXc");
 }
 
-// ✅ Project ID moved from Java → native OBFUSCATED
-static const char* APPWRITE_PROJECT_ID() {
-    return OBF_STR("modxlab");
-}
-
-// ✅ Function URL (corrected ID)
-static const char* CLOUD_FN_URL() {
-    return OBF_STR("https://sgp.cloud.appwrite.io/v1/functions/6ab760b200276b627cbe/executions");
-}
-
-// ────────────────────────────────────────────────────────────────
-// 🔐 NATIVE_SHARED_KEY — must match server env var NATIVE_SHARED_KEY
-// ────────────────────────────────────────────────────────────────
-static std::string deriveNativeKey() {
-    std::string p1 = OBF_STR("Nx7KpQ2m9vT");
-    std::string p2 = OBF_STR("bL4Rs8Wz3Yh");
-    std::string p3 = OBF_STR("Jc6FgD9Ae1N");
-    std::string p4 = OBF_STR("qU5TrXc");
-    std::string p5 = OBF_STR("PzB3MwL0Kv");
-    return p1 + p2 + p3 + p4 + p5;
-}
-
-// Legacy HMAC key (for verifyLoginWithTime fallback)
-static std::string deriveKey() {
-    std::string p1 = OBF_STR("xK9mP2QvLt7");
-    std::string p2 = OBF_STR("Rn5Bs4Wz8Yh");
-    std::string p3 = OBF_STR("J6CgD3FeA1N");
-    std::string p4 = OBF_STR("qU4TrXc");
-    return p1 + p2 + p3 + p4;
+// DEX integrity hash — update after first release build
+static const char* EXPECTED_DEX_HASH() {
+    return OBF_STR("eab7565e3e69c969f39247f9486f717569c5423c8fc2fb81238c83c8256588f5");
 }
 
 // ================================================================
-// SHA-256 + HMAC
+// SHA-256 (pure C)
 // ================================================================
 namespace SecSHA {
-    struct Ctx { uint32_t h[8]; uint64_t len; uint8_t buf[64]; size_t used; };
+
+    struct Ctx {
+        uint32_t h[8];
+        uint64_t len;
+        uint8_t  buf[64];
+        size_t   used;
+    };
 
     static const uint32_t K[64] = {
         0x428a2f98,0x71374491,0xb5c0fbcf,0xe9b5dba5,0x3956c25b,0x59f111f1,0x923f82a4,0xab1c5ed5,
@@ -191,7 +154,10 @@ namespace SecSHA {
         if (k.size() > 64) k = hashHex(k);
         while (k.size() < 64) k += '\0';
         std::string o(64, 0x5c), inn(64, 0x36);
-        for (int i = 0; i < 64; i++) { o[i] ^= k[i]; inn[i] ^= k[i]; }
+        for (int i = 0; i < 64; i++) {
+            o[i]   ^= k[i];
+            inn[i] ^= k[i];
+        }
         return hashHex(o + hashHex(inn + msg));
     }
 }
@@ -249,128 +215,49 @@ static std::string urlEncode(const std::string& s) {
     return out;
 }
 
-static std::string base64UrlDecode(const std::string& in) {
-    std::string out;
-    int val = 0, bits = 0;
-    for (size_t i = 0; i < in.size(); i++) {
-        char c = in[i];
-        if (c == '=') break;
-        int idx;
-        if (c >= 'A' && c <= 'Z') idx = c - 'A';
-        else if (c >= 'a' && c <= 'z') idx = 26 + (c - 'a');
-        else if (c >= '0' && c <= '9') idx = 52 + (c - '0');
-        else if (c == '-') idx = 62;
-        else if (c == '_') idx = 63;
-        else continue;
-        val = (val << 6) | idx;
-        bits += 6;
-        if (bits >= 8) {
-            bits -= 8;
-            out += (char)((val >> bits) & 0xFF);
-        }
-    }
-    return out;
-}
-
 // ================================================================
-// Anti-tamper detectors — SYSCALL-based (bypass libc hooks)
+// Detection helpers — all SILENT
 // ================================================================
-
-// Raw read of /proc/self/maps via syscall
-static bool detectFridaMaps() {
-    int fd = (int)syscall(SYS_openat, AT_FDCWD, "/proc/self/maps", O_RDONLY, 0);
-    if (fd < 0) return false;
-
-    char buf[8192];
-    ssize_t n;
-    std::string data;
-    while ((n = syscall(SYS_read, fd, buf, sizeof(buf))) > 0) {
-        data.append(buf, (size_t)n);
-        if (data.size() > 512 * 1024) break;
-    }
-    syscall(SYS_close, fd);
-
-    const char* patterns[] = {
-        "frida-agent", "frida-gadget", "libfrida-gadget",
-        "libfrida-agent", "gum-js-loop", "frida-server",
-        "re.frida.server", "frida_agent", "linjector",
-        nullptr
-    };
-    for (int i = 0; patterns[i]; i++) {
-        if (data.find(patterns[i]) != std::string::npos) return true;
-    }
-    return false;
-}
-
-// Thread name check — frida/gum injects threads
-static bool detectFridaThreads() {
-    DIR* dir = opendir("/proc/self/task");
-    if (!dir) return false;
-    struct dirent* de;
-    bool found = false;
-    while ((de = readdir(dir)) != nullptr) {
-        if (de->d_name[0] == '.') continue;
-
-        std::string commPath = "/proc/self/task/";
-        commPath += de->d_name;
-        commPath += "/comm";
-
-        int fd = (int)syscall(SYS_openat, AT_FDCWD, commPath.c_str(), O_RDONLY, 0);
-        if (fd < 0) continue;
-
-        char nbuf[64] = {0};
-        ssize_t r = syscall(SYS_read, fd, nbuf, sizeof(nbuf) - 1);
-        syscall(SYS_close, fd);
-        if (r <= 0) continue;
-
-        std::string comm(nbuf);
-        if (comm.find("gmain") != std::string::npos ||
-            comm.find("gum-js") != std::string::npos ||
-            comm.find("gdbus") != std::string::npos ||
-            comm.find("frida") != std::string::npos ||
-            comm.find("pool-frida") != std::string::npos) {
-            found = true;
-            break;
-        }
-    }
-    closedir(dir);
-    return found;
-}
-
-// Frida default port 27042
-static bool detectFridaPort() {
-    const char* paths[] = {
-        "/proc/net/tcp", "/proc/net/tcp6", nullptr
-    };
-    for (int i = 0; paths[i]; i++) {
-        int fd = (int)syscall(SYS_openat, AT_FDCWD, paths[i], O_RDONLY, 0);
-        if (fd < 0) continue;
-        char buf[16384];
-        ssize_t n = syscall(SYS_read, fd, buf, sizeof(buf) - 1);
-        syscall(SYS_close, fd);
-        if (n <= 0) continue;
-        buf[n] = 0;
-        std::string s(buf);
-        // 27042 = 0x69A2 → in /proc/net/tcp format "69A2"
-        if (s.find(":69A2") != std::string::npos) return true;
-    }
-    return false;
-}
 
 static bool detectFrida() {
-    if (detectFridaMaps())    return true;
-    if (detectFridaThreads()) return true;
-    if (detectFridaPort())    return true;
-    return false;
-}
-
-// Syscall-based file existence check
-static bool sysExists(const char* path) {
-    int fd = (int)syscall(SYS_openat, AT_FDCWD, path, O_RDONLY, 0);
-    if (fd >= 0) {
-        syscall(SYS_close, fd);
-        return true;
+    FILE* fp = fopen("/proc/self/maps", "r");
+    if (fp) {
+        char line[512];
+        bool found = false;
+        while (fgets(line, sizeof(line), fp)) {
+            if (strstr(line, "frida-agent") ||
+                strstr(line, "frida-gadget") ||
+                strstr(line, "libfrida-gadget") ||
+                strstr(line, "libfrida-agent") ||
+                strstr(line, "gum-js-loop") ||
+                strstr(line, "frida-server") ||
+                strstr(line, "re.frida.server")) {
+                found = true; break;
+            }
+        }
+        fclose(fp);
+        if (found) return true;
     }
+
+    DIR* dir = opendir("/data/local/tmp");
+    if (dir) {
+        struct dirent* de;
+        bool found = false;
+        while ((de = readdir(dir)) != nullptr) {
+            if (strstr(de->d_name, "re.frida.server") ||
+                strstr(de->d_name, "frida-server")) {
+                found = true; break;
+            }
+        }
+        closedir(dir);
+        if (found) return true;
+    }
+
+    void* h1 = dlopen("libfrida-gadget.so", RTLD_NOW);
+    if (h1) { dlclose(h1); return true; }
+    void* h2 = dlopen("libfrida-agent.so", RTLD_NOW);
+    if (h2) { dlclose(h2); return true; }
+
     return false;
 }
 
@@ -387,19 +274,19 @@ static bool detectXposed() {
         nullptr
     };
     for (int i = 0; paths[i]; i++) {
-        if (sysExists(paths[i])) return true;
+        if (access(paths[i], F_OK) == 0) return true;
     }
     return false;
 }
 
 static bool detectTracer() {
-    int fd = (int)syscall(SYS_openat, AT_FDCWD, "/proc/self/status", O_RDONLY, 0);
+    int fd = open("/proc/self/status", O_RDONLY);
     if (fd < 0) return false;
     char buf[4096];
-    ssize_t n = syscall(SYS_read, fd, buf, sizeof(buf) - 1);
-    syscall(SYS_close, fd);
+    ssize_t n = read(fd, buf, sizeof(buf) - 1);
+    close(fd);
     if (n <= 0) return false;
-    buf[n] = 0;
+    buf[n] = '\0';
     const char* p = strstr(buf, "TracerPid:");
     if (!p) return false;
     p += 10;
@@ -407,178 +294,164 @@ static bool detectTracer() {
     return atoi(p) > 0;
 }
 
-static bool detectEmulator() {
-    if (sysExists("/dev/socket/qemud")) return true;
-    if (sysExists("/dev/qemu_pipe")) return true;
-    char value[PROP_VALUE_MAX] = {0};
-    if (__system_property_get("ro.kernel.qemu", value) > 0) {
-        if (strcmp(value, "1") == 0) return true;
-    }
-    return false;
-}
-
 static bool isEnvironmentSafe() {
-    if (detectFrida())    return false;
-    if (detectXposed())   return false;
-    if (detectTracer())   return false;
-    if (detectEmulator()) return false;
+    if (detectFrida())  return false;
+    if (detectXposed()) return false;
+    if (detectTracer()) return false;
     return true;
 }
 
 // ================================================================
-// Anti-memory-dump
+// Native URL builder
 // ================================================================
-static bool enableAntiDump() {
-    struct rlimit rl;
-    rl.rlim_cur = 0;
-    rl.rlim_max = 0;
-    setrlimit(RLIMIT_CORE, &rl);
+static std::string buildBaseUrl() {
+    std::string url;
+    url += OBF_STR("https://modx-lab-5a6ee");
+    url += OBF_STR("-default-rtdb.firebaseio.com");
+    return url;
+}
 
-    int fd = open("/proc/self/coredump_filter", O_WRONLY);
-    if (fd >= 0) {
-        const char* zero = "0";
-        write(fd, zero, 1);
-        close(fd);
+static std::string buildQueryUrl(const std::string& username) {
+    std::string url = buildBaseUrl();
+    url += OBF_STR("/User.json?orderBy=%22user%22&equalTo=%22");
+    url += urlEncode(username);
+    url += OBF_STR("%22");
+    return url;
+}
+
+static std::string buildUpdateUrl() {
+    std::string url = buildBaseUrl();
+    url += OBF_STR("/update.json");
+    return url;
+}
+
+// ================================================================
+// Expiry parser — "YYYY-MM-DD HH:MM [+HH:MM]"
+// ================================================================
+static long long parseExpireDate(const std::string& s) {
+    if (s.empty()) return -1;
+
+    int Y=0, M=0, D=0, h=0, m=0, tzH=0, tzM=0;
+    char tzSign = '+';
+    bool hasTZ = false;
+
+    int n = sscanf(s.c_str(), "%d-%d-%d %d:%d %c%d:%d",
+                   &Y, &M, &D, &h, &m, &tzSign, &tzH, &tzM);
+    if (n == 8) hasTZ = true;
+    else {
+        n = sscanf(s.c_str(), "%d-%d-%d %d:%d %c%d",
+                   &Y, &M, &D, &h, &m, &tzSign, &tzH);
+        if (n == 7) { hasTZ = true; tzM = 0; }
+        else {
+            n = sscanf(s.c_str(), "%d-%d-%d %d:%d", &Y, &M, &D, &h, &m);
+            if (n != 5) return -1;
+        }
     }
-    return true;
-}
 
-static std::atomic<bool> g_antiDumpDone{false};
-static inline void ensureAntiDumpInit() {
-    if (g_antiDumpDone.exchange(true)) return;
-    enableAntiDump();
-}
+    if (Y < 2020 || Y > 2200) return -1;
+    if (M < 1 || M > 12) return -1;
+    if (D < 1 || D > 31) return -1;
+    if (h < 0 || h > 23) return -1;
+    if (m < 0 || m > 59) return -1;
+    if (hasTZ && (tzH < 0 || tzH > 14 || tzM < 0 || tzM > 59)) return -1;
 
-// ================================================================
-// JWT helpers
-// ================================================================
-static bool looksLikeJwt(const std::string& tok) {
-    if (tok.size() < 40) return false;
-    if (tok.substr(0, 3) != "eyJ") return false;
-    size_t d1 = tok.find('.');
-    if (d1 == std::string::npos) return false;
-    size_t d2 = tok.find('.', d1 + 1);
-    if (d2 == std::string::npos) return false;
-    return true;
-}
+    int y = Y - (M <= 2 ? 1 : 0);
+    int era = (y >= 0 ? y : y - 399) / 400;
+    unsigned yoe = (unsigned)(y - era * 400);
+    unsigned doy = (153u * (M > 2 ? M - 3 : M + 9) + 2u) / 5u + (unsigned)D - 1u;
+    unsigned doe = yoe * 365u + yoe / 4u - yoe / 100u + doy;
+    long long days = (long long)era * 146097LL + (long long)doe - 719468LL;
 
-static long long extractJwtExp(const std::string& jwt) {
-    size_t d1 = jwt.find('.');
-    if (d1 == std::string::npos) return 0;
-    size_t d2 = jwt.find('.', d1 + 1);
-    if (d2 == std::string::npos) return 0;
-    std::string payloadB64 = jwt.substr(d1 + 1, d2 - d1 - 1);
-    std::string payload = base64UrlDecode(payloadB64);
-    std::string expStr = getJsonField(payload, "exp");
-    if (expStr.empty()) return 0;
-    try { return std::stoll(expStr); } catch (...) { return 0; }
+    long long localSec = days * 86400LL + (long long)h * 3600LL + (long long)m * 60LL;
+
+    long long offSec = 0;
+    if (hasTZ) {
+        offSec = (long long)tzH * 3600LL + (long long)tzM * 60LL;
+        if (tzSign == '-') offSec = -offSec;
+    }
+    return localSec - offSec;
 }
 
 // ================================================================
-// Cert pin compare — OBFUSCATED inline
-// ================================================================
-static bool isPinnedHash(const std::string& h) {
-    if (h == OBF_STR("6bd255ea86d4cf05e8aed3d6e071895b8c29736ba83908dbcf409817aa8b03ed")) return true;
-    if (h == OBF_STR("fec41e32ca75c295a6240fa639d3abe3bfb5cb131d6690e2331a176bed2e5bd2")) return true;
-    if (h == OBF_STR("170b2def1e9c89c59970f25c62ffe64c0fba73989cd29a098dc0a2d405d87ed7")) return true;
-    return false;
-}
-
-// ================================================================
-// JNI — verifyHashes
+// JNI: verifyHashes — SILENT SECURITY GATE
 // ================================================================
 extern "C" JNIEXPORT jboolean JNICALL
 Java_com_android_support_SecurityNative_verifyHashes(
         JNIEnv* env, jclass, jstring jsig, jstring jdex, jboolean jdebug) {
 
-    ensureAntiDumpInit();
+    if (!jsig || !jdex) return JNI_FALSE;
 
-    if (!jsig) return JNI_FALSE;
     const char* csig = env->GetStringUTFChars(jsig, nullptr);
-    if (!csig) return JNI_FALSE;
-    std::string sigHash = toLower(std::string(csig));
-    env->ReleaseStringUTFChars(jsig, csig);
-
-    std::string dexHash;
-    if (jdex) {
-        const char* cdex = env->GetStringUTFChars(jdex, nullptr);
-        if (cdex) {
-            dexHash = toLower(std::string(cdex));
-            env->ReleaseStringUTFChars(jdex, cdex);
-        }
+    const char* cdex = env->GetStringUTFChars(jdex, nullptr);
+    if (!csig || !cdex) {
+        if (csig) env->ReleaseStringUTFChars(jsig, csig);
+        if (cdex) env->ReleaseStringUTFChars(jdex, cdex);
+        return JNI_FALSE;
     }
+
+    std::string sigHash = toLower(std::string(csig));
+    std::string dexHash = toLower(std::string(cdex));
+    env->ReleaseStringUTFChars(jsig, csig);
+    env->ReleaseStringUTFChars(jdex, cdex);
 
     bool isDebug = (jdebug == JNI_TRUE);
 
+    // Signature verify (skip in debug)
     if (!isDebug) {
         std::string expected = toLower(std::string(SHA256_PRIMARY()));
         bool ok = false;
-        if (!expected.empty() && sigHash.size() == expected.size())
+        if (!expected.empty() && sigHash.size() == expected.size()) {
             if (constTimeEquals(sigHash, expected)) ok = true;
-
+        }
         if (!ok) {
             std::string a1 = toLower(std::string(SHA256_ALT1()));
-            if (!a1.empty() && sigHash.size() == a1.size())
+            if (!a1.empty() && sigHash.size() == a1.size()) {
                 if (constTimeEquals(sigHash, a1)) ok = true;
+            }
             std::string a2 = toLower(std::string(SHA256_ALT2()));
-            if (!ok && !a2.empty() && sigHash.size() == a2.size())
+            if (!ok && !a2.empty() && sigHash.size() == a2.size()) {
                 if (constTimeEquals(sigHash, a2)) ok = true;
+            }
         }
         if (!ok) return JNI_FALSE;
+    }
 
-        std::string expectedDex = toLower(std::string(EXPECTED_DEX_HASH()));
-        if (!expectedDex.empty()) {
-            bool placeholder = true;
-            for (char c : expectedDex) if (c != '0') { placeholder = false; break; }
-            if (!placeholder) {
-                if (dexHash.empty() || dexHash.size() != expectedDex.size())
-                    return JNI_FALSE;
-                if (!constTimeEquals(dexHash, expectedDex))
-                    return JNI_FALSE;
-            }
+    // DEX integrity verify (skip in debug)
+    if (!isDebug) {
+        std::string expected = toLower(std::string(EXPECTED_DEX_HASH()));
+        bool placeholder = true;
+        for (char c : expected) {
+            if (c != '0') { placeholder = false; break; }
+        }
+        if (!placeholder) {
+            if (dexHash.size() != expected.size()) return JNI_FALSE;
+            if (!constTimeEquals(dexHash, expected)) return JNI_FALSE;
         }
     }
 
+    // Environment check (always)
     if (!isEnvironmentSafe()) return JNI_FALSE;
+
     return JNI_TRUE;
 }
 
 // ================================================================
-// JNI — verifyLibHash
-// ================================================================
-extern "C" JNIEXPORT jboolean JNICALL
-Java_com_android_support_SecurityNative_verifyLibHash(
-        JNIEnv* env, jclass, jstring jhash) {
-    if (!jhash) return JNI_FALSE;
-    const char* raw = env->GetStringUTFChars(jhash, nullptr);
-    if (!raw) return JNI_FALSE;
-    std::string given = toLower(std::string(raw));
-    env->ReleaseStringUTFChars(jhash, raw);
-
-    std::string expected = toLower(std::string(EXPECTED_LIB_HASH()));
-    bool placeholder = true;
-    for (char c : expected) if (c != '0') { placeholder = false; break; }
-    if (placeholder) return JNI_TRUE;
-
-    if (given.size() != expected.size()) return JNI_FALSE;
-    if (!constTimeEquals(given, expected)) return JNI_FALSE;
-    return JNI_TRUE;
-}
-
-// ================================================================
-// JNI — verifyLogin (legacy path)
+// JNI: verifyLogin
 // ================================================================
 extern "C" JNIEXPORT jstring JNICALL
 Java_com_android_support_SecurityNative_verifyLogin(
-        JNIEnv* env, jclass, jstring jUser, jstring jPass, jstring jUserJson) {
+        JNIEnv* env, jclass,
+        jstring jUser, jstring jPass, jstring jUserJson) {
 
     auto fail = [&](const char* reason) -> jstring {
         std::string s = "{\"ok\":false,\"reason\":\"";
-        s += reason; s += "\"}";
+        s += reason;
+        s += "\"}";
         return env->NewStringUTF(s.c_str());
     };
 
     if (!jUser || !jPass || !jUserJson) return fail("bad_input");
+
     const char* cu = env->GetStringUTFChars(jUser, nullptr);
     const char* cp = env->GetStringUTFChars(jPass, nullptr);
     const char* cj = env->GetStringUTFChars(jUserJson, nullptr);
@@ -588,6 +461,7 @@ Java_com_android_support_SecurityNative_verifyLogin(
         if (cj) env->ReleaseStringUTFChars(jUserJson, cj);
         return fail("bad_input");
     }
+
     std::string sUser(cu), sPass(cp), sJson(cj);
     env->ReleaseStringUTFChars(jUser, cu);
     env->ReleaseStringUTFChars(jPass, cp);
@@ -599,27 +473,70 @@ Java_com_android_support_SecurityNative_verifyLogin(
     std::string dbUser   = getJsonField(sJson, "user");
     std::string dbPass   = getJsonField(sJson, "pass");
     std::string dbStatus = getJsonField(sJson, "status");
+
     if (dbUser.empty() || dbPass.empty()) return fail("no_match");
 
-    std::string uL = toLower(sUser), dUL = toLower(dbUser);
+    std::string uL  = toLower(sUser);
+    std::string dUL = toLower(dbUser);
     if (!constTimeEquals(uL, dUL)) return fail("invalid_credentials");
     if (!constTimeEquals(sPass, dbPass)) return fail("invalid_credentials");
+
     if (dbStatus != "true") return fail("blocked");
 
     long long expiryMs = 0;
-    std::string dbTime = getJsonField(sJson, "time");
-    if (!dbTime.empty()) {
-        try { double d = std::stod(dbTime);
-            if (d > 1e11 && d < 9.2e18) expiryMs = (long long)d;
-        } catch (...) {}
+
+    std::string expireDate = getJsonField(sJson, "expire_date");
+    if (!expireDate.empty()) {
+        long long sec = parseExpireDate(expireDate);
+        if (sec > 0) expiryMs = sec * 1000LL;
     }
+
+    if (expiryMs == 0) {
+        std::string dbTime = getJsonField(sJson, "time");
+        if (!dbTime.empty()) {
+            try {
+                double d = std::stod(dbTime);
+                if (d > 1e11 && d < 9.2e18) expiryMs = (long long)d;
+            } catch (...) {}
+        }
+    }
+
+    if (expiryMs == 0) {
+        std::string rgStr = getJsonField(sJson, "rgtime");
+        long long rgMs = 0;
+        try {
+            double d = std::stod(rgStr);
+            if (d > 1e11 && d < 9.2e18) rgMs = (long long)d;
+        } catch (...) {}
+
+        if (rgMs > 0) {
+            std::string durH = getJsonField(sJson, "duration_hours");
+            if (!durH.empty()) {
+                try {
+                    double h = std::stod(durH);
+                    if (h > 0 && h < 1e6) expiryMs = rgMs + (long long)(h * 3600000.0);
+                } catch (...) {}
+            }
+            if (expiryMs == 0) {
+                std::string durD = getJsonField(sJson, "duration_days");
+                if (!durD.empty()) {
+                    try {
+                        double d = std::stod(durD);
+                        if (d > 0 && d < 36500) expiryMs = rgMs + (long long)(d * 86400000.0);
+                    } catch (...) {}
+                }
+            }
+        }
+    }
+
     if (expiryMs > 0) {
         long long nowMs = (long long)time(nullptr) * 1000LL;
         if (nowMs > expiryMs) return fail("expired");
     }
 
-    std::string payload = dbUser + "|" + dbPass + "|" + std::to_string(expiryMs) + "|" + dbStatus;
-    std::string token = SecSHA::hmacHex(deriveKey(), payload);
+    std::string payload = dbUser + "|" + dbPass + "|" +
+                          std::to_string(expiryMs) + "|" + dbStatus;
+    std::string token = SecSHA::hmacHex(std::string(HMAC_SECRET()), payload);
 
     std::string out = "{\"ok\":true,\"token\":\"";
     out += token;
@@ -631,118 +548,37 @@ Java_com_android_support_SecurityNative_verifyLogin(
 }
 
 // ================================================================
-// JNI — verifyLoginWithTime
-// ================================================================
-extern "C" JNIEXPORT jstring JNICALL
-Java_com_android_support_SecurityNative_verifyLoginWithTime(
-        JNIEnv* env, jclass, jstring jUser, jstring jPass, jstring jUserJson, jlong jNowMs) {
-
-    auto fail = [&](const char* reason) -> jstring {
-        std::string s = "{\"ok\":false,\"reason\":\"";
-        s += reason; s += "\"}";
-        return env->NewStringUTF(s.c_str());
-    };
-
-    if (!jUser || !jPass || !jUserJson) return fail("bad_input");
-    const char* cu = env->GetStringUTFChars(jUser, nullptr);
-    const char* cp = env->GetStringUTFChars(jPass, nullptr);
-    const char* cj = env->GetStringUTFChars(jUserJson, nullptr);
-    if (!cu || !cp || !cj) {
-        if (cu) env->ReleaseStringUTFChars(jUser, cu);
-        if (cp) env->ReleaseStringUTFChars(jPass, cp);
-        if (cj) env->ReleaseStringUTFChars(jUserJson, cj);
-        return fail("bad_input");
-    }
-    std::string sUser(cu), sPass(cp), sJson(cj);
-    env->ReleaseStringUTFChars(jUser, cu);
-    env->ReleaseStringUTFChars(jPass, cp);
-    env->ReleaseStringUTFChars(jUserJson, cj);
-
-    if (sUser.empty() || sPass.empty()) return fail("bad_input");
-    if (sJson.empty() || sJson == "null" || sJson == "{}") return fail("no_match");
-
-    std::string dbUser   = getJsonField(sJson, "user");
-    std::string dbPass   = getJsonField(sJson, "pass");
-    std::string dbStatus = getJsonField(sJson, "status");
-    if (dbUser.empty() || dbPass.empty()) return fail("no_match");
-
-    std::string uL = toLower(sUser), dUL = toLower(dbUser);
-    if (!constTimeEquals(uL, dUL)) return fail("invalid_credentials");
-    if (!constTimeEquals(sPass, dbPass)) return fail("invalid_credentials");
-    if (dbStatus != "true") return fail("blocked");
-
-    long long expiryMs = 0;
-    std::string dbTime = getJsonField(sJson, "time");
-    if (!dbTime.empty()) {
-        try { double d = std::stod(dbTime);
-            if (d > 1e11 && d < 9.2e18) expiryMs = (long long)d;
-        } catch (...) {}
-    }
-    if (expiryMs > 0) {
-        if ((long long)jNowMs > expiryMs) return fail("expired");
-    }
-
-    std::string payload = dbUser + "|" + dbPass + "|" + std::to_string(expiryMs) + "|" + dbStatus;
-    std::string token = SecSHA::hmacHex(deriveKey(), payload);
-
-    std::string out = "{\"ok\":true,\"token\":\"";
-    out += token;
-    out += "\",\"user\":\""; out += dbUser;
-    out += "\",\"status\":\"true\",\"expiry\":\"";
-    out += std::to_string(expiryMs);
-    out += "\"}";
-    return env->NewStringUTF(out.c_str());
-}
-
-// ================================================================
-// JNI — verifySessionToken (JWT + legacy HMAC)
+// JNI: verifySessionToken
 // ================================================================
 extern "C" JNIEXPORT jboolean JNICALL
 Java_com_android_support_SecurityNative_verifySessionToken(
         JNIEnv* env, jclass,
         jstring jToken, jstring jUser, jstring jPass, jstring jExpiry) {
 
-    if (!jToken || !jUser || !jExpiry) return JNI_FALSE;
+    if (!jToken || !jUser || !jPass || !jExpiry) return JNI_FALSE;
+
     const char* ct = env->GetStringUTFChars(jToken, nullptr);
     const char* cu = env->GetStringUTFChars(jUser, nullptr);
+    const char* cp = env->GetStringUTFChars(jPass, nullptr);
     const char* ce = env->GetStringUTFChars(jExpiry, nullptr);
-    const char* cp = jPass ? env->GetStringUTFChars(jPass, nullptr) : nullptr;
 
-    if (!ct || !cu || !ce) {
+    if (!ct || !cu || !cp || !ce) {
         if (ct) env->ReleaseStringUTFChars(jToken, ct);
         if (cu) env->ReleaseStringUTFChars(jUser, cu);
+        if (cp) env->ReleaseStringUTFChars(jPass, cp);
         if (ce) env->ReleaseStringUTFChars(jExpiry, ce);
-        if (cp && jPass) env->ReleaseStringUTFChars(jPass, cp);
         return JNI_FALSE;
     }
-    std::string token(ct), user(cu), expiry(ce), pass(cp ? cp : "");
+
+    std::string token(ct), user(cu), pass(cp), expiry(ce);
     env->ReleaseStringUTFChars(jToken, ct);
     env->ReleaseStringUTFChars(jUser, cu);
+    env->ReleaseStringUTFChars(jPass, cp);
     env->ReleaseStringUTFChars(jExpiry, ce);
-    if (cp && jPass) env->ReleaseStringUTFChars(jPass, cp);
 
-    if (token.empty()) return JNI_FALSE;
-
-    // JWT path
-    if (looksLikeJwt(token)) {
-        long long jwtExpSec = extractJwtExp(token);
-        if (jwtExpSec > 0) {
-            long long nowSec = (long long)time(nullptr);
-            if (nowSec > (jwtExpSec + 60)) return JNI_FALSE;
-        }
-        try {
-            long long expiryMs = std::stoll(expiry);
-            if (expiryMs > 0) {
-                long long nowMs = (long long)time(nullptr) * 1000LL;
-                if (nowMs > (expiryMs + 60000LL)) return JNI_FALSE;
-            }
-        } catch (...) {}
-        return JNI_TRUE;
-    }
-
-    // Legacy HMAC
     std::string payload = user + "|" + pass + "|" + expiry + "|true";
-    std::string expected = SecSHA::hmacHex(deriveKey(), payload);
+    std::string expected = SecSHA::hmacHex(std::string(HMAC_SECRET()), payload);
+
     if (!constTimeEquals(token, expected)) return JNI_FALSE;
 
     try {
@@ -752,108 +588,30 @@ Java_com_android_support_SecurityNative_verifySessionToken(
             if (now > expiryMs) return JNI_FALSE;
         }
     } catch (...) {}
+
     return JNI_TRUE;
 }
 
 // ================================================================
-// JNI — getProjectId (NEW: from native)
+// JNI: getQueryUrl
 // ================================================================
 extern "C" JNIEXPORT jstring JNICALL
-Java_com_android_support_SecurityNative_getProjectId(JNIEnv* env, jclass) {
-    return env->NewStringUTF(APPWRITE_PROJECT_ID());
-}
-
-// ================================================================
-// JNI — verifyCertPin (NEW: pins in native)
-// ================================================================
-extern "C" JNIEXPORT jboolean JNICALL
-Java_com_android_support_SecurityNative_verifyCertPin(JNIEnv* env, jclass, jstring jHash) {
-    if (!jHash) return JNI_FALSE;
-    const char* raw = env->GetStringUTFChars(jHash, nullptr);
-    if (!raw) return JNI_FALSE;
-    std::string h = toLower(std::string(raw));
-    env->ReleaseStringUTFChars(jHash, raw);
-    return isPinnedHash(h) ? JNI_TRUE : JNI_FALSE;
-}
-
-// ================================================================
-// JNI — verifyNativeSig (NEW: HMAC server response)
-// ================================================================
-extern "C" JNIEXPORT jboolean JNICALL
-Java_com_android_support_SecurityNative_verifyNativeSig(
-        JNIEnv* env, jclass, jstring jUser, jstring jExpiry, jstring jSig) {
-
-    if (!jUser || !jExpiry || !jSig) return JNI_FALSE;
-    const char* cu = env->GetStringUTFChars(jUser, nullptr);
-    const char* ce = env->GetStringUTFChars(jExpiry, nullptr);
-    const char* cs = env->GetStringUTFChars(jSig, nullptr);
-    if (!cu || !ce || !cs) {
-        if (cu) env->ReleaseStringUTFChars(jUser, cu);
-        if (ce) env->ReleaseStringUTFChars(jExpiry, ce);
-        if (cs) env->ReleaseStringUTFChars(jSig, cs);
-        return JNI_FALSE;
-    }
-    std::string user(cu), expiry(ce), given(cs);
-    env->ReleaseStringUTFChars(jUser, cu);
-    env->ReleaseStringUTFChars(jExpiry, ce);
-    env->ReleaseStringUTFChars(jSig, cs);
-
-    // Server payload format: user|expiry|true
-    std::string payload = user + "|" + expiry + "|true";
-    std::string expected = SecSHA::hmacHex(deriveNativeKey(), payload);
-
-    if (given.empty() || given.size() != expected.size()) return JNI_FALSE;
-    return constTimeEquals(given, expected) ? JNI_TRUE : JNI_FALSE;
-}
-
-// ================================================================
-// JNI — verifyLoginSig (NEW: HMAC of login request)
-// ================================================================
-extern "C" JNIEXPORT jboolean JNICALL
-Java_com_android_support_SecurityNative_verifyLoginSig(
-        JNIEnv* env, jclass, jstring jUser, jstring jPass, jstring jSig) {
-
-    if (!jUser || !jPass || !jSig) return JNI_FALSE;
-    const char* cu = env->GetStringUTFChars(jUser, nullptr);
-    const char* cp = env->GetStringUTFChars(jPass, nullptr);
-    const char* cs = env->GetStringUTFChars(jSig, nullptr);
-    if (!cu || !cp || !cs) {
-        if (cu) env->ReleaseStringUTFChars(jUser, cu);
-        if (cp) env->ReleaseStringUTFChars(jPass, cp);
-        if (cs) env->ReleaseStringUTFChars(jSig, cs);
-        return JNI_FALSE;
-    }
-    std::string user(cu), pass(cp), given(cs);
-    env->ReleaseStringUTFChars(jUser, cu);
-    env->ReleaseStringUTFChars(jPass, cp);
-    env->ReleaseStringUTFChars(jSig, cs);
-
-    std::string payload = user + "|" + pass;
-    std::string expected = SecSHA::hmacHex(deriveNativeKey(), payload);
-    if (given.empty() || given.size() != expected.size()) return JNI_FALSE;
-    return constTimeEquals(given, expected) ? JNI_TRUE : JNI_FALSE;
-}
-
-// ================================================================
-// JNI — URL builders
-// ================================================================
-extern "C" JNIEXPORT jstring JNICALL
-Java_com_android_support_SecurityNative_getQueryUrl(JNIEnv* env, jclass, jstring jUser) {
-    // No longer used (Firebase fallback removed), but kept for compat
-    (void)env; (void)jUser;
-    return env->NewStringUTF("");
-}
-
-extern "C" JNIEXPORT jstring JNICALL
-Java_com_android_support_SecurityNative_getUpdateUrl(JNIEnv* env, jclass) {
-    std::string url;
-    url += OBF_STR("https://modx-lab-5a6ee");
-    url += OBF_STR("-default-rtdb.firebaseio.com");
-    url += OBF_STR("/update.json");
+Java_com_android_support_SecurityNative_getQueryUrl(
+        JNIEnv* env, jclass, jstring jUser) {
+    if (!jUser) return env->NewStringUTF("");
+    const char* user = env->GetStringUTFChars(jUser, nullptr);
+    if (!user) return env->NewStringUTF("");
+    std::string u(user);
+    env->ReleaseStringUTFChars(jUser, user);
+    std::string url = buildQueryUrl(u);
     return env->NewStringUTF(url.c_str());
 }
 
+// ================================================================
+// JNI: getUpdateUrl
+// ================================================================
 extern "C" JNIEXPORT jstring JNICALL
-Java_com_android_support_SecurityNative_getCloudFnUrl(JNIEnv* env, jclass) {
-    return env->NewStringUTF(CLOUD_FN_URL());
+Java_com_android_support_SecurityNative_getUpdateUrl(JNIEnv* env, jclass) {
+    std::string url = buildUpdateUrl();
+    return env->NewStringUTF(url.c_str());
 }
