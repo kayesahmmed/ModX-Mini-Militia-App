@@ -53,7 +53,7 @@ static const char* HMAC_SECRET() {
 
 // DEX integrity hash — update after first release build
 static const char* EXPECTED_DEX_HASH() {
-    return OBF_STR("0000000000000000000000000000000000000000000000000000000000000000");
+    return OBF_STR("5c4bfec1f68a6bcf4a6c6beae23204b005edbed6c25df7c78ba20705a89615ea");
 }
 
 // ================================================================
