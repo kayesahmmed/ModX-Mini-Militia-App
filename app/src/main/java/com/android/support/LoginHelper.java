@@ -46,11 +46,17 @@ import org.json.JSONObject;
 
 public class LoginHelper {
 
-    public interface Callback { void onLoginSuccess(); }
-    public interface CheckListener { void onChanged(boolean checked); }
+    public interface Callback {
+        void onLoginSuccess();
+    }
+
+    public interface CheckListener {
+        void onChanged(boolean checked);
+    }
 
     private static final String TAG = "LoginHelper";
 
+    // ---- Palette (Obsidian & Gilt) ----
     private static final int COLOR_BG_1       = Color.parseColor("#0C0E14");
     private static final int COLOR_CARD       = Color.parseColor("#181B24");
     private static final int COLOR_BORDER     = Color.parseColor("#2E313C");
@@ -107,6 +113,9 @@ public class LoginHelper {
                 ctx.getResources().getDisplayMetrics());
     }
 
+    // ================================================================
+    // Build login view
+    // ================================================================
     public View buildView() {
         FrameLayout wrapper = new FrameLayout(ctx);
         wrapper.setBackgroundColor(Color.TRANSPARENT);
@@ -127,6 +136,7 @@ public class LoginHelper {
         card.setBackground(cardBg);
         root.addView(card);
 
+        // ---- USERNAME FIELD ----
         TextView userLabel = makeFieldLabel("USERNAME");
         card.addView(userLabel);
 
@@ -152,6 +162,7 @@ public class LoginHelper {
         userBox.setLayoutParams(uLp);
         card.addView(userBox);
 
+        // ---- PASSWORD FIELD ----
         TextView passLabel = makeFieldLabel("PASSWORD");
         card.addView(passLabel);
 
@@ -178,13 +189,16 @@ public class LoginHelper {
         passBox.setLayoutParams(pLp);
         card.addView(passBox);
 
+        // ---- ATTACH FIELD FOCUS HANDLERS ----
         attachFieldFocus(userBox, editUser, (ImageView) userBox.getChildAt(0));
         attachFieldFocus(passBox, editPass, (ImageView) passBox.getChildAt(0));
 
+        // ---- IME actions ----
         editUser.setOnEditorActionListener(new TextView.OnEditorActionListener() {
-            @Override public boolean onEditorAction(TextView v, int actionId, KeyEvent event) {
+            @Override
+            public boolean onEditorAction(TextView v, int actionId, KeyEvent event) {
                 if (actionId == EditorInfo.IME_ACTION_NEXT
-                 || (event != null && event.getKeyCode() == KeyEvent.KEYCODE_ENTER)) {
+                        || (event != null && event.getKeyCode() == KeyEvent.KEYCODE_ENTER)) {
                     editPass.requestFocus();
                     editPass.setSelection(editPass.getText().length());
                     forceShowKeyboard(editPass);
@@ -195,9 +209,10 @@ public class LoginHelper {
         });
 
         editPass.setOnEditorActionListener(new TextView.OnEditorActionListener() {
-            @Override public boolean onEditorAction(TextView v, int actionId, KeyEvent event) {
+            @Override
+            public boolean onEditorAction(TextView v, int actionId, KeyEvent event) {
                 if (actionId == EditorInfo.IME_ACTION_DONE
-                 || (event != null && event.getKeyCode() == KeyEvent.KEYCODE_ENTER)) {
+                        || (event != null && event.getKeyCode() == KeyEvent.KEYCODE_ENTER)) {
                     hideKeyboard(editPass);
                     performLogin();
                     return true;
@@ -206,6 +221,7 @@ public class LoginHelper {
             }
         });
 
+        // ---- CHECKBOXES ----
         LinearLayout cbRow = new LinearLayout(ctx);
         cbRow.setOrientation(LinearLayout.HORIZONTAL);
         cbRow.setGravity(Gravity.CENTER_VERTICAL);
@@ -216,11 +232,15 @@ public class LoginHelper {
 
         showCb = new CustomCheck("Show", false);
         showCb.setListener(new CheckListener() {
-            @Override public void onChanged(boolean checked) {
+            @Override
+            public void onChanged(boolean checked) {
                 int sel = editPass.getSelectionStart();
-                if (checked) editPass.setTransformationMethod(
-                        android.text.method.HideReturnsTransformationMethod.getInstance());
-                else editPass.setTransformationMethod(PasswordTransformationMethod.getInstance());
+                if (checked) {
+                    editPass.setTransformationMethod(
+                            android.text.method.HideReturnsTransformationMethod.getInstance());
+                } else {
+                    editPass.setTransformationMethod(PasswordTransformationMethod.getInstance());
+                }
                 if (sel >= 0 && sel <= editPass.getText().length()) {
                     editPass.setSelection(sel);
                 }
@@ -228,7 +248,8 @@ public class LoginHelper {
         });
 
         rememberCb.setListener(new CheckListener() {
-            @Override public void onChanged(boolean checked) {
+            @Override
+            public void onChanged(boolean checked) {
                 if (checked) {
                     save.edit().putString("edittext1", editUser.getText().toString()).apply();
                     save.edit().putString("edittext2", editPass.getText().toString()).apply();
@@ -243,6 +264,7 @@ public class LoginHelper {
         cbRow.addView(showCb);
         card.addView(cbRow);
 
+        // ---- LOGIN BUTTON ----
         loginBtn = new Button(ctx);
         loginBtn.setText("SIGN IN");
         loginBtn.setAllCaps(false);
@@ -253,8 +275,9 @@ public class LoginHelper {
             loginBtn.setLetterSpacing(0.14f);
         }
 
-        GradientDrawable lb = new GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT,
-                                                    new int[]{COLOR_ACCENT, Color.parseColor("#C79C56")});
+        GradientDrawable lb = new GradientDrawable(
+                GradientDrawable.Orientation.LEFT_RIGHT,
+                new int[]{COLOR_ACCENT, Color.parseColor("#C79C56")});
         lb.setCornerRadius(dp(12));
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
             RippleDrawable ripple = new RippleDrawable(
@@ -273,6 +296,7 @@ public class LoginHelper {
         loginBtn.setLayoutParams(bLp);
         card.addView(loginBtn);
 
+        // ---- STATUS TEXT ----
         statusTxt = new TextView(ctx);
         statusTxt.setText("");
         statusTxt.setTextColor(COLOR_TEXT_MUTED);
@@ -286,11 +310,14 @@ public class LoginHelper {
         statusTxt.setLayoutParams(sLp);
         card.addView(statusTxt);
 
+        // ---- LOGIN BUTTON LISTENER ----
         loginBtn.setOnClickListener(new View.OnClickListener() {
-            @Override public void onClick(View v) {
+            @Override
+            public void onClick(View v) {
                 v.animate().scaleX(0.975f).scaleY(0.975f).setDuration(100)
                         .withEndAction(new Runnable() {
-                            @Override public void run() {
+                            @Override
+                            public void run() {
                                 loginBtn.animate().scaleX(1f).scaleY(1f)
                                         .setDuration(260)
                                         .setInterpolator(new OvershootInterpolator(1.3f))
@@ -303,6 +330,7 @@ public class LoginHelper {
             }
         });
 
+        // ---- RESTORE REMEMBERED CREDENTIALS ----
         String u = save.getString("edittext1", "");
         String p = save.getString("edittext2", "");
         if (!u.isEmpty() && !p.isEmpty()) {
@@ -315,13 +343,18 @@ public class LoginHelper {
         return wrapper;
     }
 
+    // ================================================================
+    // Field builders
+    // ================================================================
     private TextView makeFieldLabel(String text) {
         TextView tv = new TextView(ctx);
         tv.setText(text);
         tv.setTextColor(COLOR_TEXT_MUTED);
         tv.setTextSize(9f);
         tv.setTypeface(tfMedium);
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) tv.setLetterSpacing(0.12f);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+            tv.setLetterSpacing(0.12f);
+        }
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(WRAP_CONTENT, WRAP_CONTENT);
         lp.setMargins(dp(2), 0, 0, 0);
         tv.setLayoutParams(lp);
@@ -359,38 +392,853 @@ public class LoginHelper {
         return e;
     }
 
+    // ================================================================
+    // Field focus animation + keyboard trigger
+    // ================================================================
     private void attachFieldFocus(final LinearLayout box, final EditText et, final ImageView icon) {
         et.setOnFocusChangeListener(new View.OnFocusChangeListener() {
-            @Override public void onFocusChange(View v, boolean hasFocus) {
+            @Override
+            public void onFocusChange(View v, boolean hasFocus) {
                 final GradientDrawable bg = (GradientDrawable) box.getBackground();
                 int fromColor = hasFocus ? COLOR_FIELD_BORD : COLOR_ACCENT;
                 int toColor   = hasFocus ? COLOR_ACCENT      : COLOR_FIELD_BORD;
+
                 ValueAnimator va = ValueAnimator.ofObject(new ArgbEvaluator(), fromColor, toColor);
                 va.setDuration(200);
                 va.addUpdateListener(new ValueAnimator.AnimatorUpdateListener() {
-                    @Override public void onAnimationUpdate(ValueAnimator a) {
+                    @Override
+                    public void onAnimationUpdate(ValueAnimator a) {
                         bg.setStroke(dp(hasFocus ? 1.5f : 1f), (Integer) a.getAnimatedValue());
                     }
                 });
                 va.start();
+
                 FieldIcon fi = (FieldIcon) icon.getDrawable();
                 if (fi != null) {
                     fi.animateColor(hasFocus ? COLOR_ACCENT_HI : COLOR_TEXT_MUTED, 200);
                 }
             }
         });
+
         et.setOnTouchListener(new View.OnTouchListener() {
-            @Override public boolean onTouch(View v, MotionEvent event) {
+            @Override
+            public boolean onTouch(View v, MotionEvent event) {
                 if (event.getAction() == MotionEvent.ACTION_UP) {
                     v.requestFocus();
                     v.postDelayed(new Runnable() {
-                        @Override public void run() { forceShowKeyboard(et); }
+                        @Override
+                        public void run() {
+                            forceShowKeyboard(et);
+                        }
                     }, 80);
                 }
                 return false;
             }
         });
+
         et.setOnClickListener(new View.OnClickListener() {
-            @Override public void onClick(View v) {
+            @Override
+            public void onClick(View v) {
                 v.postDelayed(new Runnable() {
-                    @Override public void run()
+                    @Override
+                    public void run() {
+                        forceShowKeyboard(et);
+                    }
+                }, 80);
+            }
+        });
+    }
+
+    // ================================================================
+    // Keyboard helpers
+    // ================================================================
+    private void forceShowKeyboard(final EditText et) {
+        if (et == null) return;
+        try {
+            InputMethodManager imm = (InputMethodManager)
+                    ctx.getSystemService(Context.INPUT_METHOD_SERVICE);
+            if (imm == null) return;
+            et.requestFocus();
+            if (et.getText().length() > 0) {
+                et.setSelection(et.getText().length());
+            }
+            boolean shown = imm.showSoftInput(et, InputMethodManager.SHOW_IMPLICIT);
+            if (!shown) imm.showSoftInput(et, InputMethodManager.SHOW_FORCED);
+        } catch (Exception e) {
+            Log.e(TAG, "forceShowKeyboard: " + e);
+        }
+    }
+
+    private void hideKeyboard(EditText et) {
+        try {
+            InputMethodManager imm = (InputMethodManager)
+                    ctx.getSystemService(Context.INPUT_METHOD_SERVICE);
+            if (imm != null && et != null) {
+                imm.hideSoftInputFromWindow(et.getWindowToken(), 0);
+            }
+        } catch (Exception ignored) {
+        }
+    }
+
+    // ================================================================
+    // Status message (with fade animation)
+    // ================================================================
+    private void setStatus(final String msg, final int color) {
+        if (statusTxt == null) return;
+        new Handler(Looper.getMainLooper()).post(new Runnable() {
+            @Override
+            public void run() {
+                statusTxt.animate().cancel();
+                statusTxt.animate().alpha(0f).setDuration(120)
+                        .withEndAction(new Runnable() {
+                            @Override
+                            public void run() {
+                                statusTxt.setText(msg);
+                                statusTxt.setTextColor(color);
+                                statusTxt.animate().alpha(1f).setDuration(220).start();
+                            }
+                        }).start();
+            }
+        });
+    }
+
+    private String getVersionName() {
+        try {
+            android.content.pm.PackageInfo pi = ctx.getPackageManager()
+                    .getPackageInfo(ctx.getPackageName(), 0);
+            return pi.versionName;
+        } catch (Exception e) {
+            return "";
+        }
+    }
+
+    // ================================================================
+    // Login flow
+    // ================================================================
+    private void performLogin() {
+        if (loginInProgress) return;
+
+        final String inputUser = editUser.getText().toString().trim().toLowerCase();
+        final String inputPass = editPass.getText().toString().trim();
+
+        if (TextUtils.isEmpty(inputUser) || TextUtils.isEmpty(inputPass)) {
+            setStatus("Please fill in all fields", COLOR_WARN);
+            return;
+        }
+
+        loginInProgress = true;
+        loginBtn.setEnabled(false);
+        loginBtn.setText("SIGNING IN...");
+        setStatus("Verifying credentials...", COLOR_ACCENT_HI);
+
+        save.edit().putString("edittext1", inputUser).apply();
+        save.edit().putString("edittext2", inputPass).apply();
+
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                JSONObject matched = ModFirebase.fetchUserByUsername(inputUser);
+                final String userJson = (matched == null) ? "" : matched.toString();
+
+                final String resultJson = SecurityNative.verifyLogin(inputUser, inputPass, userJson);
+
+                boolean ok = false;
+                String reason = "network";
+                String token = "", userOut = "", statusOut = "", expiryOut = "";
+                try {
+                    JSONObject r = new JSONObject(resultJson);
+                    ok = r.optBoolean("ok", false);
+                    reason = r.optString("reason", "unknown");
+                    token = r.optString("token", "");
+                    userOut = r.optString("user", "");
+                    statusOut = r.optString("status", "");
+                    expiryOut = r.optString("expiry", "");
+                } catch (Exception e) {
+                    ok = false;
+                    reason = "network";
+                }
+
+                if (!ok) {
+                    final String fReason = reason;
+                    loginInProgress = false;
+                    new Handler(Looper.getMainLooper()).post(new Runnable() {
+                        @Override
+                        public void run() {
+                            loginBtn.setEnabled(true);
+                            loginBtn.setText("SIGN IN");
+                            if ("expired".equals(fReason)) {
+                                setStatus("Key expired", COLOR_DANGER);
+                                showKeyExpiredDialog();
+                            } else if ("blocked".equals(fReason)) {
+                                setStatus("Account blocked", COLOR_DANGER);
+                                showKeyExpiredDialog();
+                            } else if ("no_match".equals(fReason)
+                                    || "invalid_credentials".equals(fReason)) {
+                                setStatus("Invalid username or password", COLOR_DANGER);
+                            } else if ("network".equals(fReason)) {
+                                setStatus("Connection failed", COLOR_DANGER);
+                            } else {
+                                setStatus("Login failed", COLOR_DANGER);
+                            }
+                        }
+                    });
+                    return;
+                }
+
+                try {
+                    KEY.edit().putString("User",     userOut).apply();
+                    KEY.edit().putString("Status",   statusOut).apply();
+                    KEY.edit().putString("expiry",   expiryOut).apply();
+                    KEY.edit().putString("token",    token).apply();
+                } catch (Exception ignored) { }
+
+                loginInProgress = false;
+                new Handler(Looper.getMainLooper()).post(new Runnable() {
+                    @Override
+                    public void run() {
+                        loginBtn.setEnabled(true);
+                        loginBtn.setText("SIGN IN");
+                        setStatus("Welcome back!", COLOR_SUCCESS);
+                        Toast.makeText(ctx, "Login Success", Toast.LENGTH_SHORT).show();
+                        checkUpdateAfterLogin();
+                    }
+                });
+            }
+        }).start();
+    }
+
+    private void checkUpdateAfterLogin() {
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                JSONObject updateJson = ModFirebase.fetchUpdate();
+                if (updateJson == null) {
+                    proceedToMenu();
+                    return;
+                }
+                try {
+                    JSONObject up = updateJson.optJSONObject("up");
+                    if (up == null) {
+                        proceedToMenu();
+                        return;
+                    }
+                    String latest = up.optString("version", "");
+                    String msg = up.optString("message", "");
+                    String current = getVersionName();
+                    if (!TextUtils.isEmpty(latest) && !current.equals(latest)) {
+                        final String fv = latest, fm = msg;
+                        new Handler(Looper.getMainLooper()).post(new Runnable() {
+                            @Override
+                            public void run() {
+                                showUpdateDialog(fv, fm);
+                            }
+                        });
+                    } else {
+                        proceedToMenu();
+                    }
+                } catch (Exception e) {
+                    proceedToMenu();
+                }
+            }
+        }).start();
+    }
+
+    private void proceedToMenu() {
+        final String token = KEY.getString("token", "");
+        final String user = KEY.getString("User", "");
+        final String pass = save.getString("edittext2", "");
+        final String expiry = KEY.getString("expiry", "");
+
+        if (token == null || token.isEmpty()) {
+            new Handler(Looper.getMainLooper()).post(new Runnable() {
+                @Override
+                public void run() {
+                    setStatus("Session invalid", COLOR_DANGER);
+                }
+            });
+            return;
+        }
+        if (!SecurityNative.verifySessionToken(token, user, pass, expiry)) {
+            new Handler(Looper.getMainLooper()).post(new Runnable() {
+                @Override
+                public void run() {
+                    setStatus("Session tampered", COLOR_DANGER);
+                }
+            });
+            return;
+        }
+        new Handler(Looper.getMainLooper()).post(new Runnable() {
+            @Override
+            public void run() {
+                if (callback != null) callback.onLoginSuccess();
+            }
+        });
+    }
+
+    // ================================================================
+    // Update dialog
+    // ================================================================
+    private void showUpdateDialog(String version, String msg) {
+        final android.app.AlertDialog[] ref = new android.app.AlertDialog[1];
+
+        FrameLayout dialogRoot = new FrameLayout(ctx);
+        dialogRoot.setPadding(dp(18), dp(18), dp(18), dp(18));
+
+        LinearLayout card = new LinearLayout(ctx);
+        card.setOrientation(LinearLayout.VERTICAL);
+        card.setPadding(dp(22), dp(24), dp(22), dp(20));
+        card.setGravity(Gravity.CENTER_HORIZONTAL);
+
+        GradientDrawable cardBg = new GradientDrawable();
+        cardBg.setColor(COLOR_DIALOG_BG);
+        cardBg.setCornerRadius(dp(20));
+        cardBg.setStroke(dp(1), COLOR_BORDER);
+        card.setBackground(cardBg);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+            card.setElevation(dp(12));
+        }
+
+        FrameLayout iconHolder = new FrameLayout(ctx);
+        int iconSize = dp(64);
+        LinearLayout.LayoutParams ihLp = new LinearLayout.LayoutParams(iconSize, iconSize);
+        ihLp.setMargins(0, 0, 0, dp(14));
+        iconHolder.setLayoutParams(ihLp);
+
+        GradientDrawable circle = new GradientDrawable();
+        circle.setShape(GradientDrawable.OVAL);
+        circle.setColor(COLOR_CTA);
+        iconHolder.setBackground(circle);
+
+        ImageView icon = new ImageView(ctx);
+        icon.setImageDrawable(new UpdateIcon(COLOR_ON_ACCENT));
+        FrameLayout.LayoutParams icLp = new FrameLayout.LayoutParams(dp(34), dp(34), Gravity.CENTER);
+        icon.setLayoutParams(icLp);
+        iconHolder.addView(icon);
+        card.addView(iconHolder);
+
+        TextView title = new TextView(ctx);
+        title.setText("NEW UPDATE");
+        title.setTextColor(COLOR_DIALOG_TITLE);
+        title.setTextSize(16f);
+        title.setTypeface(tfBold);
+        title.setGravity(Gravity.CENTER);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+            title.setLetterSpacing(0.08f);
+        }
+        card.addView(title);
+
+        TextView versionView = new TextView(ctx);
+        versionView.setText("Version " + version + " is available now");
+        versionView.setTextColor(COLOR_DIALOG_SUB);
+        versionView.setTextSize(12f);
+        versionView.setTypeface(tfRegular);
+        versionView.setGravity(Gravity.CENTER);
+        LinearLayout.LayoutParams vLp = new LinearLayout.LayoutParams(WRAP_CONTENT, WRAP_CONTENT);
+        vLp.setMargins(0, dp(6), 0, 0);
+        versionView.setLayoutParams(vLp);
+        card.addView(versionView);
+
+        TextView currentView = new TextView(ctx);
+        currentView.setText("Your version: " + getVersionName());
+        currentView.setTextColor(COLOR_DIALOG_SUB2);
+        currentView.setTextSize(10.5f);
+        currentView.setTypeface(tfRegular);
+        currentView.setGravity(Gravity.CENTER);
+        LinearLayout.LayoutParams curLp = new LinearLayout.LayoutParams(WRAP_CONTENT, WRAP_CONTENT);
+        curLp.setMargins(0, dp(3), 0, 0);
+        currentView.setLayoutParams(curLp);
+        card.addView(currentView);
+
+        if (msg != null && !msg.trim().isEmpty()) {
+            TextView msgView = new TextView(ctx);
+            msgView.setText(msg);
+            msgView.setTextColor(COLOR_DIALOG_BODY);
+            msgView.setTextSize(11f);
+            msgView.setTypeface(tfRegular);
+            msgView.setGravity(Gravity.CENTER);
+            msgView.setMaxLines(3);
+            msgView.setEllipsize(TextUtils.TruncateAt.END);
+            LinearLayout.LayoutParams mLp = new LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT);
+            mLp.setMargins(0, dp(12), 0, 0);
+            msgView.setLayoutParams(mLp);
+            card.addView(msgView);
+        }
+
+        Button updateBtn = new Button(ctx);
+        updateBtn.setText("UPDATE NOW");
+        updateBtn.setAllCaps(false);
+        updateBtn.setTextColor(COLOR_ON_ACCENT);
+        updateBtn.setTextSize(12.5f);
+        updateBtn.setTypeface(tfBold);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+            updateBtn.setLetterSpacing(0.1f);
+        }
+        GradientDrawable uBg = new GradientDrawable(
+                GradientDrawable.Orientation.LEFT_RIGHT,
+                new int[]{COLOR_CTA, Color.parseColor("#C79C56")});
+        uBg.setCornerRadius(dp(25));
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+            RippleDrawable uRipple = new RippleDrawable(
+                    ColorStateList.valueOf(0x26000000), uBg, null);
+            updateBtn.setBackground(uRipple);
+            updateBtn.setElevation(dp(3));
+        } else {
+            updateBtn.setBackground(uBg);
+        }
+        updateBtn.setMinHeight(0);
+        updateBtn.setMinimumHeight(0);
+        updateBtn.setMinWidth(0);
+        updateBtn.setMinimumWidth(0);
+        updateBtn.setPadding(dp(20), 0, dp(20), 0);
+        LinearLayout.LayoutParams uLp = new LinearLayout.LayoutParams(MATCH_PARENT, dp(48));
+        uLp.setMargins(0, dp(20), 0, 0);
+        updateBtn.setLayoutParams(uLp);
+        card.addView(updateBtn);
+
+        Button continueBtn = new Button(ctx);
+        continueBtn.setText("Continue to game");
+        continueBtn.setAllCaps(false);
+        continueBtn.setTextColor(COLOR_DIALOG_SUB);
+        continueBtn.setTextSize(12f);
+        continueBtn.setTypeface(tfMedium);
+        GradientDrawable cBg = new GradientDrawable();
+        cBg.setColor(Color.TRANSPARENT);
+        cBg.setStroke(dp(1.5f), COLOR_OUTLINE);
+        cBg.setCornerRadius(dp(25));
+        continueBtn.setBackground(cBg);
+        continueBtn.setMinHeight(0);
+        continueBtn.setMinimumHeight(0);
+        continueBtn.setMinWidth(0);
+        continueBtn.setMinimumWidth(0);
+        continueBtn.setPadding(dp(20), 0, dp(20), 0);
+        LinearLayout.LayoutParams cLp = new LinearLayout.LayoutParams(MATCH_PARENT, dp(44));
+        cLp.setMargins(0, dp(8), 0, 0);
+        continueBtn.setLayoutParams(cLp);
+        card.addView(continueBtn);
+
+        dialogRoot.addView(card, new FrameLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT));
+
+        updateBtn.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                try {
+                    Intent i = new Intent(Intent.ACTION_VIEW,
+                            Uri.parse("https://t.me/kayesahmmedpro"));
+                    i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                    ctx.startActivity(i);
+                } catch (Exception e) {
+                }
+            }
+        });
+
+        continueBtn.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                if (ref[0] != null) ref[0].dismiss();
+                proceedToMenu();
+            }
+        });
+
+        android.app.AlertDialog.Builder b = new android.app.AlertDialog.Builder(ctx);
+        b.setView(dialogRoot);
+        android.app.AlertDialog d = b.create();
+        d.setCanceledOnTouchOutside(false);
+        d.setCancelable(false);
+        if (d.getWindow() != null) {
+            d.getWindow().setBackgroundDrawableResource(android.R.color.transparent);
+            if (Build.VERSION.SDK_INT >= 26) d.getWindow().setType(2038);
+            else d.getWindow().setType(2002);
+        }
+        ref[0] = d;
+        d.show();
+    }
+
+    // ================================================================
+    // Key expired dialog
+    // ================================================================
+    private void showKeyExpiredDialog() {
+        if (keyExpiredDialogShowing) return;
+        keyExpiredDialogShowing = true;
+
+        final android.app.AlertDialog[] ref = new android.app.AlertDialog[1];
+
+        FrameLayout dialogRoot = new FrameLayout(ctx);
+        dialogRoot.setPadding(dp(18), dp(18), dp(18), dp(18));
+
+        LinearLayout card = new LinearLayout(ctx);
+        card.setOrientation(LinearLayout.VERTICAL);
+        card.setPadding(dp(22), dp(24), dp(22), dp(20));
+        card.setGravity(Gravity.CENTER_HORIZONTAL);
+
+        GradientDrawable cardBg = new GradientDrawable();
+        cardBg.setColor(COLOR_DIALOG_BG);
+        cardBg.setCornerRadius(dp(20));
+        cardBg.setStroke(dp(1), COLOR_BORDER);
+        card.setBackground(cardBg);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+            card.setElevation(dp(12));
+        }
+
+        FrameLayout iconHolder = new FrameLayout(ctx);
+        int iconSize = dp(64);
+        LinearLayout.LayoutParams ihLp = new LinearLayout.LayoutParams(iconSize, iconSize);
+        ihLp.setMargins(0, 0, 0, dp(14));
+        iconHolder.setLayoutParams(ihLp);
+
+        GradientDrawable circle = new GradientDrawable();
+        circle.setShape(GradientDrawable.OVAL);
+        circle.setColor(COLOR_DANGER);
+        iconHolder.setBackground(circle);
+
+        ImageView icon = new ImageView(ctx);
+        icon.setImageDrawable(new LockIcon(Color.WHITE));
+        FrameLayout.LayoutParams icLp = new FrameLayout.LayoutParams(dp(34), dp(34), Gravity.CENTER);
+        icon.setLayoutParams(icLp);
+        iconHolder.addView(icon);
+        card.addView(iconHolder);
+
+        TextView title = new TextView(ctx);
+        title.setText("ACCESS EXPIRED");
+        title.setTextColor(COLOR_DIALOG_TITLE);
+        title.setTextSize(16f);
+        title.setTypeface(tfBold);
+        title.setGravity(Gravity.CENTER);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+            title.setLetterSpacing(0.08f);
+        }
+        card.addView(title);
+
+        TextView body = new TextView(ctx);
+        body.setText("Your subscription has ended or the account is blocked.\n\nContact the seller to renew access.");
+        body.setTextColor(COLOR_DIALOG_BODY);
+        body.setTextSize(12f);
+        body.setTypeface(tfRegular);
+        body.setGravity(Gravity.CENTER);
+        LinearLayout.LayoutParams bLp = new LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT);
+        bLp.setMargins(0, dp(12), 0, 0);
+        body.setLayoutParams(bLp);
+        card.addView(body);
+
+        Button contact = new Button(ctx);
+        contact.setText("CONTACT SELLER");
+        contact.setAllCaps(false);
+        contact.setTextColor(COLOR_ON_ACCENT);
+        contact.setTextSize(12.5f);
+        contact.setTypeface(tfBold);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+            contact.setLetterSpacing(0.1f);
+        }
+        GradientDrawable cBg = new GradientDrawable(
+                GradientDrawable.Orientation.LEFT_RIGHT,
+                new int[]{COLOR_CTA, Color.parseColor("#C79C56")});
+        cBg.setCornerRadius(dp(25));
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+            RippleDrawable cRipple = new RippleDrawable(
+                    ColorStateList.valueOf(0x26000000), cBg, null);
+            contact.setBackground(cRipple);
+            contact.setElevation(dp(3));
+        } else {
+            contact.setBackground(cBg);
+        }
+        contact.setMinHeight(0);
+        contact.setMinimumHeight(0);
+        contact.setMinWidth(0);
+        contact.setMinimumWidth(0);
+        contact.setPadding(dp(20), 0, dp(20), 0);
+        LinearLayout.LayoutParams cLp = new LinearLayout.LayoutParams(MATCH_PARENT, dp(48));
+        cLp.setMargins(0, dp(20), 0, 0);
+        contact.setLayoutParams(cLp);
+        card.addView(contact);
+
+        dialogRoot.addView(card, new FrameLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT));
+
+        contact.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                keyExpiredDialogShowing = false;
+                if (ref[0] != null) ref[0].dismiss();
+                try {
+                    Intent i = new Intent(Intent.ACTION_VIEW,
+                            Uri.parse("https://t.me/kayesahmmedpro"));
+                    i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                    ctx.startActivity(i);
+                } catch (Exception e) {
+                }
+            }
+        });
+
+        android.app.AlertDialog.Builder b = new android.app.AlertDialog.Builder(ctx);
+        b.setView(dialogRoot);
+        android.app.AlertDialog d = b.create();
+        d.setCanceledOnTouchOutside(false);
+        d.setCancelable(true);
+        d.setOnCancelListener(new android.content.DialogInterface.OnCancelListener() {
+            @Override
+            public void onCancel(android.content.DialogInterface di) {
+                keyExpiredDialogShowing = false;
+            }
+        });
+        if (d.getWindow() != null) {
+            d.getWindow().setBackgroundDrawableResource(android.R.color.transparent);
+            if (Build.VERSION.SDK_INT >= 26) d.getWindow().setType(2038);
+            else d.getWindow().setType(2002);
+        }
+        ref[0] = d;
+        d.show();
+    }
+
+    // ================================================================
+    // CustomCheck — themed checkbox
+    // ================================================================
+    private class CustomCheck extends LinearLayout {
+        private final GradientDrawable boxBg;
+        private final View checkmark;
+        private boolean checked;
+        private CheckListener listener;
+
+        CustomCheck(String label, boolean initial) {
+            super(ctx);
+            this.checked = initial;
+            setOrientation(LinearLayout.HORIZONTAL);
+            setGravity(Gravity.CENTER_VERTICAL);
+            setPadding(0, 0, 0, 0);
+
+            FrameLayout box = new FrameLayout(ctx);
+            LinearLayout.LayoutParams boxLp = new LinearLayout.LayoutParams(dp(16), dp(16));
+            boxLp.setMargins(0, 0, dp(8), 0);
+            box.setLayoutParams(boxLp);
+
+            boxBg = new GradientDrawable();
+            boxBg.setCornerRadius(dp(4));
+            boxBg.setStroke(dp(1.5f), initial ? COLOR_ACCENT : COLOR_FIELD_BORD);
+            boxBg.setColor(initial ? withAlpha(COLOR_ACCENT, 0x22) : Color.TRANSPARENT);
+            box.setBackground(boxBg);
+
+            checkmark = new View(ctx);
+            FrameLayout.LayoutParams cmLp = new FrameLayout.LayoutParams(dp(8), dp(8), Gravity.CENTER);
+            checkmark.setLayoutParams(cmLp);
+            GradientDrawable cmBg = new GradientDrawable();
+            cmBg.setColor(COLOR_ACCENT);
+            cmBg.setCornerRadius(dp(2));
+            checkmark.setBackground(cmBg);
+            checkmark.setVisibility(initial ? View.VISIBLE : View.GONE);
+            box.addView(checkmark);
+
+            TextView labelView = new TextView(ctx);
+            labelView.setText(label);
+            labelView.setTextColor(COLOR_TEXT_MUTED);
+            labelView.setTextSize(10f);
+            labelView.setTypeface(tfRegular);
+
+            addView(box);
+            addView(labelView);
+
+            setOnClickListener(new OnClickListener() {
+                @Override
+                public void onClick(View v) {
+                    toggle();
+                }
+            });
+        }
+
+        void setListener(CheckListener l) {
+            this.listener = l;
+        }
+
+        void setChecked(boolean value) {
+            if (this.checked != value) toggle();
+        }
+
+        boolean isChecked() {
+            return checked;
+        }
+
+        private void toggle() {
+            checked = !checked;
+            checkmark.setVisibility(checked ? View.VISIBLE : View.GONE);
+            boxBg.setStroke(dp(1.5f), checked ? COLOR_ACCENT : COLOR_FIELD_BORD);
+            boxBg.setColor(checked ? withAlpha(COLOR_ACCENT, 0x22) : Color.TRANSPARENT);
+            if (listener != null) listener.onChanged(checked);
+        }
+    }
+
+    // ================================================================
+    // Utility
+    // ================================================================
+    private static int withAlpha(int color, int alpha) {
+        return (color & 0x00FFFFFF) | ((alpha & 0xFF) << 24);
+    }
+
+    // ================================================================
+    // FieldIcon — user / lock icon
+    // ================================================================
+    private static class FieldIcon extends Drawable {
+        static final int USER = 0;
+        static final int LOCK = 1;
+
+        private final int type;
+        private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final Path path = new Path();
+        private final RectF rect = new RectF();
+        private int currentColor;
+
+        FieldIcon(int type, int color) {
+            this.type = type;
+            this.currentColor = color;
+            paint.setColor(color);
+            paint.setStyle(Paint.Style.STROKE);
+            paint.setStrokeCap(Paint.Cap.ROUND);
+            paint.setStrokeJoin(Paint.Join.ROUND);
+        }
+
+        void animateColor(int toColor, int durationMs) {
+            ValueAnimator va = ValueAnimator.ofObject(new ArgbEvaluator(), currentColor, toColor);
+            va.setDuration(durationMs);
+            va.addUpdateListener(new ValueAnimator.AnimatorUpdateListener() {
+                @Override
+                public void onAnimationUpdate(ValueAnimator a) {
+                    currentColor = (Integer) a.getAnimatedValue();
+                    paint.setColor(currentColor);
+                    invalidateSelf();
+                }
+            });
+            va.start();
+        }
+
+        @Override
+        public void draw(Canvas canvas) {
+            android.graphics.Rect b = getBounds();
+            if (b.width() <= 0 || b.height() <= 0) return;
+            float size = Math.min(b.width(), b.height());
+            float s = size / 24f;
+            paint.setStrokeWidth(1.9f * s);
+
+            canvas.save();
+            canvas.translate(b.left + (b.width() - size) / 2f,
+                             b.top + (b.height() - size) / 2f);
+            canvas.scale(s, s);
+            path.reset();
+
+            if (type == USER) {
+                canvas.drawCircle(12f, 8f, 3.8f, paint);
+                path.moveTo(4.5f, 21f);
+                path.cubicTo(4.5f, 15.5f, 8f, 13.8f, 12f, 13.8f);
+                path.cubicTo(16f, 13.8f, 19.5f, 15.5f, 19.5f, 21f);
+                canvas.drawPath(path, paint);
+            } else {
+                rect.set(5f, 10.5f, 19f, 21f);
+                canvas.drawRoundRect(rect, 2f, 2f, paint);
+                path.moveTo(8.5f, 10.5f);
+                path.lineTo(8.5f, 7.5f);
+                path.cubicTo(8.5f, 5.0f, 10.2f, 3f, 12f, 3f);
+                path.cubicTo(13.8f, 3f, 15.5f, 5.0f, 15.5f, 7.5f);
+                path.lineTo(15.5f, 10.5f);
+                canvas.drawPath(path, paint);
+                canvas.drawCircle(12f, 15.5f, 1.2f, paint);
+            }
+            canvas.restore();
+        }
+
+        @Override public void setAlpha(int alpha) { paint.setAlpha(alpha); }
+        @Override public void setColorFilter(ColorFilter cf) { paint.setColorFilter(cf); }
+        @Override public int getOpacity() { return PixelFormat.TRANSLUCENT; }
+    }
+
+    // ================================================================
+    // UpdateIcon — down arrow icon
+    // ================================================================
+    private static class UpdateIcon extends Drawable {
+        private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final Path path = new Path();
+
+        UpdateIcon(int color) {
+            paint.setColor(color);
+            paint.setStyle(Paint.Style.STROKE);
+            paint.setStrokeCap(Paint.Cap.ROUND);
+            paint.setStrokeJoin(Paint.Join.ROUND);
+        }
+
+        @Override
+        public void draw(Canvas canvas) {
+            android.graphics.Rect b = getBounds();
+            if (b.width() <= 0 || b.height() <= 0) return;
+            float size = Math.min(b.width(), b.height());
+            float s = size / 24f;
+            paint.setStrokeWidth(2.2f * s);
+
+            canvas.save();
+            canvas.translate(b.left + (b.width() - size) / 2f,
+                             b.top + (b.height() - size) / 2f);
+            canvas.scale(s, s);
+            path.reset();
+
+            path.moveTo(12f, 3f);
+            path.lineTo(12f, 15f);
+            canvas.drawPath(path, paint);
+
+            path.reset();
+            path.moveTo(6f, 10f);
+            path.lineTo(12f, 16f);
+            path.lineTo(18f, 10f);
+            canvas.drawPath(path, paint);
+
+            path.reset();
+            path.moveTo(4f, 20.5f);
+            path.lineTo(20f, 20.5f);
+            canvas.drawPath(path, paint);
+
+            canvas.restore();
+        }
+
+        @Override public void setAlpha(int alpha) { paint.setAlpha(alpha); }
+        @Override public void setColorFilter(ColorFilter cf) { paint.setColorFilter(cf); }
+        @Override public int getOpacity() { return PixelFormat.TRANSLUCENT; }
+    }
+
+    // ================================================================
+    // LockIcon — lock icon
+    // ================================================================
+    private static class LockIcon extends Drawable {
+        private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final Path path = new Path();
+        private final RectF rect = new RectF();
+
+        LockIcon(int color) {
+            paint.setColor(color);
+            paint.setStyle(Paint.Style.STROKE);
+            paint.setStrokeCap(Paint.Cap.ROUND);
+            paint.setStrokeJoin(Paint.Join.ROUND);
+        }
+
+        @Override
+        public void draw(Canvas canvas) {
+            android.graphics.Rect b = getBounds();
+            if (b.width() <= 0 || b.height() <= 0) return;
+            float size = Math.min(b.width(), b.height());
+            float s = size / 24f;
+            paint.setStrokeWidth(2.2f * s);
+
+            canvas.save();
+            canvas.translate(b.left + (b.width() - size) / 2f,
+                             b.top + (b.height() - size) / 2f);
+            canvas.scale(s, s);
+            path.reset();
+
+            rect.set(5f, 10.5f, 19f, 21f);
+            canvas.drawRoundRect(rect, 2f, 2f, paint);
+            path.moveTo(8.5f, 10.5f);
+            path.lineTo(8.5f, 7.5f);
+            path.cubicTo(8.5f, 5.0f, 10.2f, 3f, 12f, 3f);
+            path.cubicTo(13.8f, 3f, 15.5f, 5.0f, 15.5f, 7.5f);
+            path.lineTo(15.5f, 10.5f);
+            canvas.drawPath(path, paint);
+            canvas.drawCircle(12f, 15.5f, 1.2f, paint);
+
+            canvas.restore();
+        }
+
+        @Override public void setAlpha(int alpha) { paint.setAlpha(alpha); }
+        @Override public void setColorFilter(ColorFilter cf) { paint.setColorFilter(cf); }
+        @Override public int getOpacity() { return PixelFormat.TRANSLUCENT; }
+    }
+}
