@@ -41,19 +41,19 @@
 
 // APK signing cert SHA-256 (64 lowercase hex, no colons)
 static const char* SHA256_PRIMARY() {
-    return OBF_STR("8ad4db86f888c47cb3483c93afae4514274e77cb6a62c0ee63d2dcd249c2f89a");
+    return OBF_STR("41f82251553fd69ca78f54d1d55b3b4feb5278b06c46cf9273f863b292ba8091");
 }
 static const char* SHA256_ALT1() { return OBF_STR(""); }
 static const char* SHA256_ALT2() { return OBF_STR(""); }
 
 // HMAC secret for session tokens — CHANGE THIS TO YOUR UNIQUE VALUE
 static const char* HMAC_SECRET() {
-    return OBF_STR("ZmRjzQtphLMFn7njP53CJ3QnJHiuUttBduaEyzuL4gCHsHqbFqNJoSJFolrq6xla");
+    return OBF_STR("JxCbcbBOLAxbybi9OCBcyvOuJWpem6hhnQtXZNKTvJNo5t1Ge6O2aneVbpc866Kx");
 }
 
 // DEX integrity hash — update after first release build
 static const char* EXPECTED_DEX_HASH() {
-    return OBF_STR("7883d6f03f99f6da3daebbf7f14985dda0c1bda9e7b6f22e48a15caca6e44ade");
+    return OBF_STR("0000000000000000000000000000000000000000000000000000000000000000");
 }
 
 // ================================================================
