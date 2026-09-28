@@ -2033,10 +2033,8 @@ private void showLoginScreen() {
     final View loginView = loginHelper.buildView();
 
     // ================================================================
-    // Drag wrapper — dispatchTouchEvent ব্যবহার করে intercept
-    // কারণ EditText নিজে requestDisallowInterceptTouchEvent(true) কল করে,
-    // যার ফলে onInterceptTouchEvent আর কল হয় না।
-    // dispatchTouchEvent সবসময় কল হয়, তাই এখানে intercept করি।
+    // Drag wrapper — DOWN সর্বদা consume করি (child কে dispatch করার পরে)
+    // এর ফলে background-এ টাচ করলেও আমাদের MOVE/UP আসবে।
     // ================================================================
     FrameLayout dragWrapper = new FrameLayout(Menu.this.getContext) {
         private float downX, downY;
@@ -2048,7 +2046,7 @@ private void showLoginScreen() {
         @Override
         public boolean dispatchTouchEvent(MotionEvent ev) {
             switch (ev.getActionMasked()) {
-                case MotionEvent.ACTION_DOWN:
+                case MotionEvent.ACTION_DOWN: {
                     downX = ev.getRawX();
                     downY = ev.getRawY();
                     if (vmParams != null) {
@@ -2056,7 +2054,11 @@ private void showLoginScreen() {
                         startWindowY = vmParams.y;
                     }
                     dragging = false;
-                    return super.dispatchTouchEvent(ev);
+                    // Let children see DOWN first (so EditText/Button work)
+                    super.dispatchTouchEvent(ev);
+                    // ALWAYS claim DOWN → guarantees we receive MOVE/UP
+                    return true;
+                }
 
                 case MotionEvent.ACTION_MOVE: {
                     float dx = ev.getRawX() - downX;
@@ -2064,7 +2066,7 @@ private void showLoginScreen() {
                     if (!dragging
                             && (Math.abs(dx) > slop || Math.abs(dy) > slop)) {
                         dragging = true;
-                        // Child (EditText/Button) এর gesture cancel করি
+                        // Cancel children's gesture
                         MotionEvent cancel = MotionEvent.obtain(ev);
                         cancel.setAction(MotionEvent.ACTION_CANCEL);
                         super.dispatchTouchEvent(cancel);
@@ -2078,7 +2080,9 @@ private void showLoginScreen() {
                         }
                         return true;
                     }
-                    return super.dispatchTouchEvent(ev);
+                    // Not dragging yet → pass MOVE to children
+                    super.dispatchTouchEvent(ev);
+                    return true;
                 }
 
                 case MotionEvent.ACTION_UP:
@@ -2086,10 +2090,10 @@ private void showLoginScreen() {
                     menuFrame.setAlpha(1f);
                     boolean wasDragging = dragging;
                     dragging = false;
-                    if (wasDragging) {
-                        return true;   // consumed
+                    if (!wasDragging) {
+                        super.dispatchTouchEvent(ev);
                     }
-                    return super.dispatchTouchEvent(ev);
+                    return true;
                 }
             }
             return super.dispatchTouchEvent(ev);

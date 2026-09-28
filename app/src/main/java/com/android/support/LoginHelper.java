@@ -16,6 +16,7 @@ import android.graphics.Path;
 import android.graphics.PixelFormat;
 import android.graphics.RectF;
 import android.graphics.Typeface;
+import android.graphics.drawable.ColorDrawable;
 import android.graphics.drawable.Drawable;
 import android.graphics.drawable.GradientDrawable;
 import android.graphics.drawable.RippleDrawable;
@@ -29,11 +30,8 @@ import android.text.method.PasswordTransformationMethod;
 import android.util.DisplayMetrics;
 import android.util.Log;
 import android.util.TypedValue;
-import android.view.ActionMode;
 import android.view.Gravity;
 import android.view.KeyEvent;
-import android.view.Menu;
-import android.view.MenuItem;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewConfiguration;
@@ -49,6 +47,7 @@ import android.widget.EditText;
 import android.widget.FrameLayout;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
+import android.widget.PopupWindow;
 import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
@@ -89,6 +88,12 @@ public class LoginHelper {
     private static final int COLOR_CTA          = Color.parseColor("#D8B36C");
     private static final int COLOR_OUTLINE      = Color.parseColor("#3A3D49");
 
+    // Native-style floating toolbar colors
+    private static final int COLOR_TOOLBAR_BG     = 0xFF2E2E2E;  // dark gray
+    private static final int COLOR_TOOLBAR_BORDER = 0xFF3D3D3D;
+    private static final int COLOR_TOOLBAR_TEXT   = 0xFFFFFFFF;
+    private static final int COLOR_TOOLBAR_DIV    = 0xFF4A4A4A;
+
     private static final int WRAP_CONTENT = ViewGroup.LayoutParams.WRAP_CONTENT;
     private static final int MATCH_PARENT = ViewGroup.LayoutParams.MATCH_PARENT;
 
@@ -107,6 +112,9 @@ public class LoginHelper {
     private boolean loginInProgress = false;
     private boolean keyExpiredDialogShowing = false;
 
+    // Native-style floating toolbar popup
+    private PopupWindow copyPastePopup;
+
     private Typeface tfRegular, tfMedium, tfBold;
 
     public LoginHelper(Context context, Callback cb) {
@@ -117,7 +125,6 @@ public class LoginHelper {
         this.tfRegular = Typeface.create("sans-serif", Typeface.NORMAL);
         this.tfMedium  = Typeface.create("sans-serif-medium", Typeface.NORMAL);
         this.tfBold    = Typeface.create("sans-serif", Typeface.BOLD);
-        Log.d(DBG, "LoginHelper constructed");
     }
 
     private int dp(float v) {
@@ -125,8 +132,10 @@ public class LoginHelper {
                 ctx.getResources().getDisplayMetrics());
     }
 
+    // ================================================================
+    // BUILD VIEW
+    // ================================================================
     public View buildView() {
-        Log.d(DBG, "buildView: START");
         FrameLayout wrapper = new FrameLayout(ctx);
         wrapper.setBackgroundColor(Color.TRANSPARENT);
 
@@ -143,7 +152,7 @@ public class LoginHelper {
 
         card.addView(makeSimpleHeader());
 
-        // USERNAME
+        // ===== USERNAME FIELD =====
         userBox = makeFieldContainer();
         userChip = makeIconChip(FieldIcon.USER);
         userIconView = (ImageView) userChip.getChildAt(0);
@@ -164,7 +173,7 @@ public class LoginHelper {
         userBox.setLayoutParams(uLp);
         card.addView(userBox);
 
-        // PASSWORD
+        // ===== PASSWORD FIELD =====
         passBox = makeFieldContainer();
         passChip = makeIconChip(FieldIcon.LOCK);
         passIconView = (ImageView) passChip.getChildAt(0);
@@ -189,6 +198,7 @@ public class LoginHelper {
         attachFieldFocus(userBox, editUser, userIconView, userChip, "user");
         attachFieldFocus(passBox, editPass, passIconView, passChip, "pass");
 
+        // IME actions
         editUser.setOnEditorActionListener(new TextView.OnEditorActionListener() {
             @Override
             public boolean onEditorAction(TextView v, int actionId, KeyEvent event) {
@@ -208,6 +218,7 @@ public class LoginHelper {
             public boolean onEditorAction(TextView v, int actionId, KeyEvent event) {
                 if (actionId == EditorInfo.IME_ACTION_DONE
                         || (event != null && event.getKeyCode() == KeyEvent.KEYCODE_ENTER)) {
+                    dismissCopyPastePopup();
                     hideKeyboard(editPass);
                     performLogin();
                     return true;
@@ -306,6 +317,7 @@ public class LoginHelper {
         loginBtn.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
+                dismissCopyPastePopup();
                 v.animate().scaleX(0.975f).scaleY(0.975f).setDuration(100)
                         .withEndAction(new Runnable() {
                             @Override
@@ -425,10 +437,6 @@ public class LoginHelper {
         return e;
     }
 
-    /**
-     * পুরোপুরি native setup। Custom callback, setTextIsSelectable কিছুই নেই।
-     * Manual long-press আমরা attachFieldFocus এ হ্যান্ডল করছি।
-     */
     private void enableRichTextInteraction(final EditText e) {
         e.setLongClickable(true);
         e.setCursorVisible(true);
@@ -503,7 +511,7 @@ public class LoginHelper {
     }
 
     // ================================================================
-    // FIELD FOCUS — Manual long-press + Manual ActionMode
+    // MANUAL LONG-PRESS → Native-style floating toolbar
     // ================================================================
     private void attachFieldFocus(final LinearLayout box, final EditText et,
                                    final ImageView icon, final FrameLayout chip,
@@ -529,18 +537,18 @@ public class LoginHelper {
                 if (fi != null) {
                     fi.animateColor(hasFocus ? COLOR_ACCENT_HI : COLOR_TEXT_MUTED, 200);
                 }
+                if (!hasFocus) dismissCopyPastePopup();
             }
         });
 
-        // ==== MANUAL LONG-PRESS DETECTION ====
-        // Native long-press এই overlay window এ কাজ করছে না, তাই নিজে handle করছি।
         et.setOnTouchListener(new View.OnTouchListener() {
             private final Handler handler = new Handler(Looper.getMainLooper());
             private Runnable longPressRunnable;
             private float downX, downY;
+            private float localX, localY;
             private boolean longPressFired = false;
             private final int slop = ViewConfiguration.get(ctx).getScaledTouchSlop();
-            private static final long LONG_PRESS_MS = 500;
+            private static final long LONG_PRESS_MS = 400;
 
             @Override
             public boolean onTouch(View v, MotionEvent event) {
@@ -548,13 +556,15 @@ public class LoginHelper {
                     case MotionEvent.ACTION_DOWN:
                         downX = event.getRawX();
                         downY = event.getRawY();
+                        localX = event.getX();
+                        localY = event.getY();
                         longPressFired = false;
                         longPressRunnable = new Runnable() {
                             @Override
                             public void run() {
                                 longPressFired = true;
-                                Log.d(DBG, "Manual LONG-PRESS fired for " + tag);
-                                showCopyPasteMenu(et);
+                                Log.d(DBG, "Long-press fired for " + tag);
+                                onLongPress(et, localX, localY);
                             }
                         };
                         handler.postDelayed(longPressRunnable, LONG_PRESS_MS);
@@ -595,109 +605,197 @@ public class LoginHelper {
         });
     }
 
-    /**
-     * Manual ActionMode — Cut / Copy / Paste / Select All সহ।
-     * Native toolbar না আসার কারণে এইটা force show করছি।
-     */
-    private void showCopyPasteMenu(final EditText et) {
+    private void onLongPress(EditText et, float x, float y) {
         try {
             et.requestFocus();
-            // যদি কিছু select করা না থাকে, সব select করি
-            if (et.getText() != null && et.getText().length() > 0
-                    && et.getSelectionStart() == et.getSelectionEnd()) {
-                et.selectAll();
+            // Select word at touch position (native behavior)
+            CharSequence text = et.getText();
+            if (text != null && text.length() > 0) {
+                int offset = et.getOffsetForPosition(x, y);
+                if (offset < 0) offset = 0;
+                if (offset > text.length()) offset = text.length();
+
+                int start = offset;
+                int end = offset;
+                while (start > 0 && !Character.isWhitespace(text.charAt(start - 1))) start--;
+                while (end < text.length() && !Character.isWhitespace(text.charAt(end))) end++;
+
+                if (start != end) {
+                    et.setSelection(start, end);
+                } else {
+                    et.selectAll();
+                }
             }
 
-            ActionMode.Callback cb = new ActionMode.Callback() {
+            // Slight delay so the selection is applied
+            et.post(new Runnable() {
                 @Override
-                public boolean onCreateActionMode(ActionMode mode, Menu menu) {
-                    Log.d(DBG, "ActionMode onCreate");
-                    menu.add(Menu.NONE, android.R.id.selectAll, 0, "Select all")
-                            .setShowAsAction(MenuItem.SHOW_AS_ACTION_IF_ROOM);
-                    menu.add(Menu.NONE, android.R.id.cut, 0, "Cut")
-                            .setShowAsAction(MenuItem.SHOW_AS_ACTION_IF_ROOM);
-                    menu.add(Menu.NONE, android.R.id.copy, 0, "Copy")
-                            .setShowAsAction(MenuItem.SHOW_AS_ACTION_IF_ROOM);
-                    menu.add(Menu.NONE, android.R.id.paste, 0, "Paste")
-                            .setShowAsAction(MenuItem.SHOW_AS_ACTION_IF_ROOM);
-                    return true;
+                public void run() {
+                    showCopyPasteToolbar(et);
                 }
-
-                @Override
-                public boolean onPrepareActionMode(ActionMode mode, Menu menu) {
-                    return false;
-                }
-
-                @Override
-                public boolean onActionItemClicked(ActionMode mode, MenuItem item) {
-                    Log.d(DBG, "ActionMode item=" + item.getTitle());
-                    boolean handled = et.onTextContextMenuItem(item.getItemId());
-                    if (handled) mode.finish();
-                    return handled;
-                }
-
-                @Override
-                public void onDestroyActionMode(ActionMode mode) {
-                    Log.d(DBG, "ActionMode destroyed");
-                }
-            };
-
-            ActionMode mode = et.startActionMode(cb);
-            Log.d(DBG, "startActionMode returned " + (mode != null ? "OK" : "NULL"));
-
-            // Fallback: যদি ActionMode null ফেরত দেয়, AlertDialog দেখাই
-            if (mode == null) {
-                showCopyPasteDialogFallback(et);
-            }
+            });
         } catch (Exception e) {
-            Log.e(DBG, "showCopyPasteMenu error", e);
-            showCopyPasteDialogFallback(et);
+            Log.e(DBG, "onLongPress error", e);
+        }
+    }
+
+    private void dismissCopyPastePopup() {
+        if (copyPastePopup != null) {
+            try { copyPastePopup.dismiss(); } catch (Exception ignored) { }
+            copyPastePopup = null;
         }
     }
 
     /**
-     * Fallback — যদি overlay window তে ActionMode না আসে, simple AlertDialog।
+     * Native-style dark pill toolbar:
+     *  - Rounded background (#2E2E2E)
+     *  - White text items with vertical dividers
+     *  - High elevation, floats above/below the EditText
      */
-    private void showCopyPasteDialogFallback(final EditText et) {
-        final boolean hasText = et.getText() != null && et.getText().length() > 0;
-        final boolean hasClipboard;
+    private void showCopyPasteToolbar(final EditText et) {
+        dismissCopyPastePopup();
+
+        boolean hasText = et.getText() != null && et.getText().length() > 0;
+        boolean hasSelection = et.getSelectionStart() != et.getSelectionEnd();
+        boolean hasClipboard;
         try {
-            ClipboardManager cm = (ClipboardManager)
-                    ctx.getSystemService(Context.CLIPBOARD_SERVICE);
+            ClipboardManager cm = (ClipboardManager) ctx.getSystemService(Context.CLIPBOARD_SERVICE);
             hasClipboard = cm != null && cm.hasPrimaryClip();
         } catch (Exception e) {
-            return;
+            hasClipboard = false;
         }
 
-        java.util.ArrayList<String> items = new java.util.ArrayList<>();
-        final java.util.ArrayList<Integer> actions = new java.util.ArrayList<>();
+        java.util.List<String> labels = new java.util.ArrayList<>();
+        java.util.List<Integer> actions = new java.util.ArrayList<>();
 
         if (hasText) {
-            items.add("Select all");  actions.add(android.R.id.selectAll);
-            items.add("Cut");         actions.add(android.R.id.cut);
-            items.add("Copy");        actions.add(android.R.id.copy);
+            labels.add("Select all");  actions.add(android.R.id.selectAll);
+            if (hasSelection) {
+                labels.add("Cut");     actions.add(android.R.id.cut);
+            }
+            labels.add("Copy");        actions.add(android.R.id.copy);
         }
         if (hasClipboard) {
-            items.add("Paste");       actions.add(android.R.id.paste);
+            labels.add("Paste");       actions.add(android.R.id.paste);
         }
-        if (items.isEmpty()) return;
+        if (labels.isEmpty()) return;
 
-        android.app.AlertDialog.Builder b = new android.app.AlertDialog.Builder(ctx);
-        b.setTitle("Text options");
-        b.setItems(items.toArray(new String[0]),
-                new android.content.DialogInterface.OnClickListener() {
-                    @Override
-                    public void onClick(android.content.DialogInterface d, int which) {
-                        et.onTextContextMenuItem(actions.get(which));
-                        d.dismiss();
-                    }
-                });
-        android.app.AlertDialog dlg = b.create();
-        if (dlg.getWindow() != null) {
-            if (Build.VERSION.SDK_INT >= 26) dlg.getWindow().setType(2038);
-            else dlg.getWindow().setType(2002);
+        // Build the pill-shaped toolbar
+        LinearLayout toolbar = new LinearLayout(ctx);
+        toolbar.setOrientation(LinearLayout.HORIZONTAL);
+        toolbar.setGravity(Gravity.CENTER_VERTICAL);
+
+        GradientDrawable bg = new GradientDrawable();
+        bg.setColor(COLOR_TOOLBAR_BG);
+        bg.setCornerRadius(dp(28));       // pill shape
+        bg.setStroke(dp(1), COLOR_TOOLBAR_BORDER);
+        toolbar.setBackground(bg);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+            toolbar.setElevation(dp(12));
         }
-        dlg.show();
+
+        int padH = dp(6);
+        int padV = dp(4);
+        toolbar.setPadding(padH, padV, padH, padV);
+
+        final PopupWindow[] popupRef = new PopupWindow[1];
+
+        for (int i = 0; i < labels.size(); i++) {
+            if (i > 0) {
+                View div = new View(ctx);
+                LinearLayout.LayoutParams divLp =
+                        new LinearLayout.LayoutParams(dp(1), dp(20));
+                divLp.setMargins(dp(2), 0, dp(2), 0);
+                div.setLayoutParams(divLp);
+                div.setBackgroundColor(COLOR_TOOLBAR_DIV);
+                toolbar.addView(div);
+            }
+
+            final int actionId = actions.get(i);
+            TextView tv = new TextView(ctx);
+            tv.setText(labels.get(i));
+            tv.setTextColor(COLOR_TOOLBAR_TEXT);
+            tv.setTextSize(14f);
+            tv.setTypeface(Typeface.create("sans-serif", Typeface.NORMAL));
+            tv.setPadding(dp(16), dp(10), dp(16), dp(10));
+            tv.setClickable(true);
+            tv.setFocusable(true);
+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+                ColorStateList rippleCol = ColorStateList.valueOf(0x40FFFFFF);
+                GradientDrawable mask = new GradientDrawable();
+                mask.setCornerRadius(dp(20));
+                mask.setColor(Color.WHITE);
+                RippleDrawable ripple = new RippleDrawable(rippleCol, null, mask);
+                tv.setBackground(ripple);
+            }
+
+            tv.setOnClickListener(new View.OnClickListener() {
+                @Override
+                public void onClick(View v) {
+                    try {
+                        et.onTextContextMenuItem(actionId);
+                    } catch (Exception ex) {
+                        Log.e(DBG, "onTextContextMenuItem error", ex);
+                    }
+                    dismissCopyPastePopup();
+                }
+            });
+
+            toolbar.addView(tv);
+        }
+
+        PopupWindow popup = new PopupWindow(toolbar,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                true);
+        popup.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
+        popup.setOutsideTouchable(true);
+        popup.setFocusable(true);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+            popup.setElevation(dp(12));
+        }
+
+        popupRef[0] = popup;
+        this.copyPastePopup = popup;
+
+        // Measure
+        toolbar.measure(
+                View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED),
+                View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED));
+        int tw = toolbar.getMeasuredWidth();
+        int th = toolbar.getMeasuredHeight();
+
+        int[] loc = new int[2];
+        et.getLocationOnScreen(loc);
+        int ex = loc[0];
+        int ey = loc[1];
+        int ew = et.getWidth();
+        int eh = et.getHeight();
+
+        int screenH = ctx.getResources().getDisplayMetrics().heightPixels;
+        int screenW = ctx.getResources().getDisplayMetrics().widthPixels;
+
+        // Center horizontally on the EditText
+        int x = ex + (ew - tw) / 2;
+        // Prefer above the field
+        int y = ey - th - dp(6);
+        if (y < dp(8)) {
+            // Not enough space above; show below
+            y = ey + eh + dp(6);
+        }
+        // Clamp inside screen
+        if (x < dp(4)) x = dp(4);
+        if (x + tw > screenW - dp(4)) x = screenW - tw - dp(4);
+        if (y + th > screenH - dp(4)) y = screenH - th - dp(4);
+
+        try {
+            popup.showAtLocation(et, Gravity.NO_GRAVITY, x, y);
+            Log.d(DBG, "Toolbar shown at (" + x + "," + y + ") size=" + tw + "x" + th);
+        } catch (Exception e) {
+            Log.e(DBG, "popup show failed", e);
+            copyPastePopup = null;
+        }
     }
 
     private void forceShowKeyboard(final EditText et) {
@@ -757,6 +855,9 @@ public class LoginHelper {
         }
     }
 
+    // ================================================================
+    // LOGIN FLOW
+    // ================================================================
     private void performLogin() {
         if (loginInProgress) return;
 
@@ -901,7 +1002,9 @@ public class LoginHelper {
         });
     }
 
-    // ============== DIALOGS ==============
+    // ================================================================
+    // DIALOGS
+    // ================================================================
     private LinearLayout newDialogCard() {
         LinearLayout card = new LinearLayout(ctx);
         card.setOrientation(LinearLayout.VERTICAL);
@@ -1261,7 +1364,9 @@ public class LoginHelper {
         return (color & 0x00FFFFFF) | ((alpha & 0xFF) << 24);
     }
 
-    // ============== ICONS ==============
+    // ================================================================
+    // ICONS
+    // ================================================================
     private static class FieldIcon extends Drawable {
         static final int USER = 0;
         static final int LOCK = 1;
