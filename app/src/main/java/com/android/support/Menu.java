@@ -173,6 +173,10 @@ public class Menu {
     private HashMap<String, LinearLayout> categoryViewsMap;
     private ArrayList<String> categoryNames;
     private LinearLayout mainContainer;
+    
+    // Header / shimmer — login screen এ লুকানো থাকবে, login হলে দেখানো হবে
+private View mHeaderView = null;
+private View mShimmerView = null;
 
     // Typography (loaded from assets/fonts if present, otherwise clean system sans)
     private Typeface fontRegular;
@@ -498,9 +502,12 @@ if (initH < loginMinH && screenH() > loginMinH + effectivePosY) {
 
         bottomBar.addView(hideBtn);
         bottomBar.addView(closeBtn);
-
+        
+        mHeaderView  = header;
+mShimmerView = shimmer;
         mExpanded.addView(header);
-        mExpanded.addView(shimmer);
+mExpanded.addView(shimmer);
+
         mExpanded.addView(mainContainer);
         mExpanded.addView(makeDivider(false));
         mExpanded.addView(bottomBar);
@@ -561,8 +568,8 @@ if (initH < loginMinH && screenH() > loginMinH + effectivePosY) {
         // ==================================================================
 
         Init(context, title, subTitle);
-        new Titanic().start(title);
-        new Titanic().start(proTitle);
+new Titanic().start(title);
+new Titanic().start(proTitle);
     }
 
     // ================================================================
@@ -1999,6 +2006,8 @@ if (initH < loginMinH && screenH() > loginMinH + effectivePosY) {
 private void showLoginScreen() {
     if (isLoggedIn) return;
 
+    if (mHeaderView  != null) mHeaderView.setVisibility(View.GONE);
+    if (mShimmerView != null) mShimmerView.setVisibility(View.GONE);
     if (sidebarScroll != null) sidebarScroll.setVisibility(View.GONE);
     if (sidebarDivider != null) sidebarDivider.setVisibility(View.GONE);
 
@@ -2012,6 +2021,8 @@ private void showLoginScreen() {
             setWindowFocusable(false);
             isLoggedIn = true;
 
+            if (mHeaderView  != null) mHeaderView.setVisibility(View.VISIBLE);
+        if (mShimmerView != null) mShimmerView.setVisibility(View.VISIBLE);
             if (sidebarScroll != null) sidebarScroll.setVisibility(View.VISIBLE);
             if (sidebarDivider != null) sidebarDivider.setVisibility(View.VISIBLE);
 
