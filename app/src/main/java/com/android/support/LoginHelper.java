@@ -29,8 +29,11 @@ import android.text.method.PasswordTransformationMethod;
 import android.util.DisplayMetrics;
 import android.util.Log;
 import android.util.TypedValue;
+import android.view.ActionMode;
 import android.view.Gravity;
 import android.view.KeyEvent;
+import android.view.Menu;
+import android.view.MenuItem;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
@@ -53,6 +56,9 @@ import org.json.JSONObject;
 
 public class LoginHelper {
 
+    // ==== DEBUG TAG for Termux logcat ====
+    private static final String DBG = "ModXDebug";
+
     public interface Callback {
         void onLoginSuccess();
     }
@@ -61,9 +67,6 @@ public class LoginHelper {
         void onChanged(boolean checked);
     }
 
-    private static final String TAG = "LoginHelper";
-
-    // ---- Palette (Obsidian & Gilt) ----
     private static final int COLOR_FIELD_BG    = Color.parseColor("#2A2D35");
     private static final int COLOR_FIELD_BORD  = Color.parseColor("#3E424C");
     private static final int COLOR_ACCENT      = Color.parseColor("#D8B36C");
@@ -114,6 +117,7 @@ public class LoginHelper {
         this.tfRegular = Typeface.create("sans-serif", Typeface.NORMAL);
         this.tfMedium  = Typeface.create("sans-serif-medium", Typeface.NORMAL);
         this.tfBold    = Typeface.create("sans-serif", Typeface.BOLD);
+        Log.d(DBG, "LoginHelper constructed");
     }
 
     private int dp(float v) {
@@ -121,17 +125,14 @@ public class LoginHelper {
                 ctx.getResources().getDisplayMetrics());
     }
 
-    // ================================================================
-    // Build login view
-    // ================================================================
     public View buildView() {
+        Log.d(DBG, "buildView: START");
         FrameLayout wrapper = new FrameLayout(ctx);
         wrapper.setBackgroundColor(Color.TRANSPARENT);
 
         LinearLayout root = new LinearLayout(ctx);
         root.setOrientation(LinearLayout.VERTICAL);
         root.setGravity(Gravity.TOP | Gravity.CENTER_HORIZONTAL);
-        root.setPadding(0, 0, 0, 0);
 
         final LinearLayout card = new LinearLayout(ctx);
         card.setOrientation(LinearLayout.VERTICAL);
@@ -140,16 +141,15 @@ public class LoginHelper {
         card.setBackgroundColor(Color.TRANSPARENT);
         root.addView(card);
 
-        // ---- TEXT HEADER ----
         card.addView(makeSimpleHeader());
 
-        // ---- USERNAME FIELD ----
+        // ============ USERNAME ============
         userBox = makeFieldContainer();
         userChip = makeIconChip(FieldIcon.USER);
         userIconView = (ImageView) userChip.getChildAt(0);
         userBox.addView(userChip);
 
-        editUser = makeInput();
+        editUser = makeInput("user");
         editUser.setHint("Username");
         editUser.setImeOptions(EditorInfo.IME_ACTION_NEXT);
         editUser.setInputType(InputType.TYPE_CLASS_TEXT);
@@ -164,13 +164,13 @@ public class LoginHelper {
         userBox.setLayoutParams(uLp);
         card.addView(userBox);
 
-        // ---- PASSWORD FIELD ----
+        // ============ PASSWORD ============
         passBox = makeFieldContainer();
         passChip = makeIconChip(FieldIcon.LOCK);
         passIconView = (ImageView) passChip.getChildAt(0);
         passBox.addView(passChip);
 
-        editPass = makeInput();
+        editPass = makeInput("pass");
         editPass.setHint("Password or license key");
         editPass.setImeOptions(EditorInfo.IME_ACTION_DONE);
         editPass.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD);
@@ -186,14 +186,14 @@ public class LoginHelper {
         passBox.setLayoutParams(pLp);
         card.addView(passBox);
 
-        // ---- FIELD FOCUS HANDLERS ----
-        attachFieldFocus(userBox, editUser, userIconView, userChip);
-        attachFieldFocus(passBox, editPass, passIconView, passChip);
+        attachFieldFocus(userBox, editUser, userIconView, userChip, "user");
+        attachFieldFocus(passBox, editPass, passIconView, passChip, "pass");
 
-        // ---- IME actions ----
+        // IME actions
         editUser.setOnEditorActionListener(new TextView.OnEditorActionListener() {
             @Override
             public boolean onEditorAction(TextView v, int actionId, KeyEvent event) {
+                Log.d(DBG, "editorAction user id=" + actionId);
                 if (actionId == EditorInfo.IME_ACTION_NEXT
                         || (event != null && event.getKeyCode() == KeyEvent.KEYCODE_ENTER)) {
                     editPass.requestFocus();
@@ -208,6 +208,7 @@ public class LoginHelper {
         editPass.setOnEditorActionListener(new TextView.OnEditorActionListener() {
             @Override
             public boolean onEditorAction(TextView v, int actionId, KeyEvent event) {
+                Log.d(DBG, "editorAction pass id=" + actionId);
                 if (actionId == EditorInfo.IME_ACTION_DONE
                         || (event != null && event.getKeyCode() == KeyEvent.KEYCODE_ENTER)) {
                     hideKeyboard(editPass);
@@ -218,7 +219,7 @@ public class LoginHelper {
             }
         });
 
-        // ---- CHECKBOXES ----
+        // CHECKBOXES
         LinearLayout cbRow = new LinearLayout(ctx);
         cbRow.setOrientation(LinearLayout.HORIZONTAL);
         cbRow.setGravity(Gravity.CENTER_VERTICAL);
@@ -231,6 +232,7 @@ public class LoginHelper {
         showCb.setListener(new CheckListener() {
             @Override
             public void onChanged(boolean checked) {
+                Log.d(DBG, "showCb changed=" + checked);
                 int sel = editPass.getSelectionStart();
                 if (checked) {
                     editPass.setTransformationMethod(
@@ -247,6 +249,7 @@ public class LoginHelper {
         rememberCb.setListener(new CheckListener() {
             @Override
             public void onChanged(boolean checked) {
+                Log.d(DBG, "rememberCb changed=" + checked);
                 if (checked) {
                     save.edit().putString("edittext1", editUser.getText().toString()).apply();
                     save.edit().putString("edittext2", editPass.getText().toString()).apply();
@@ -261,7 +264,7 @@ public class LoginHelper {
         cbRow.addView(showCb);
         card.addView(cbRow);
 
-        // ---- LOGIN BUTTON ----
+        // LOGIN BUTTON
         loginBtn = new Button(ctx);
         loginBtn.setText("SIGN IN");
         loginBtn.setAllCaps(false);
@@ -284,17 +287,15 @@ public class LoginHelper {
         } else {
             loginBtn.setBackground(lb);
         }
-        loginBtn.setMinHeight(0);
-        loginBtn.setMinimumHeight(0);
-        loginBtn.setMinWidth(0);
-        loginBtn.setMinimumWidth(0);
+        loginBtn.setMinHeight(0); loginBtn.setMinimumHeight(0);
+        loginBtn.setMinWidth(0);  loginBtn.setMinimumWidth(0);
         loginBtn.setPadding(dp(8), 0, dp(8), 0);
         LinearLayout.LayoutParams bLp = new LinearLayout.LayoutParams(MATCH_PARENT, dp(46));
         bLp.setMargins(0, dp(10), 0, 0);
         loginBtn.setLayoutParams(bLp);
         card.addView(loginBtn);
 
-        // ---- STATUS TEXT ----
+        // STATUS
         statusTxt = new TextView(ctx);
         statusTxt.setText("");
         statusTxt.setTextColor(COLOR_TEXT_MUTED);
@@ -308,10 +309,10 @@ public class LoginHelper {
         statusTxt.setLayoutParams(sLp);
         card.addView(statusTxt);
 
-        // ---- LOGIN BUTTON LISTENER ----
         loginBtn.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
+                Log.d(DBG, "loginBtn clicked");
                 v.animate().scaleX(0.975f).scaleY(0.975f).setDuration(100)
                         .withEndAction(new Runnable() {
                             @Override
@@ -328,7 +329,6 @@ public class LoginHelper {
             }
         });
 
-        // ---- RESTORE REMEMBERED CREDENTIALS ----
         String u = save.getString("edittext1", "");
         String p = save.getString("edittext2", "");
         if (!u.isEmpty() && !p.isEmpty()) {
@@ -339,7 +339,6 @@ public class LoginHelper {
 
         wrapper.addView(root, new FrameLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT));
 
-        // ---- ENTRANCE ANIMATION ----
         card.setAlpha(0f);
         card.setTranslationY(dp(10));
         card.getViewTreeObserver().addOnGlobalLayoutListener(new ViewTreeObserver.OnGlobalLayoutListener() {
@@ -351,12 +350,10 @@ public class LoginHelper {
             }
         });
 
+        Log.d(DBG, "buildView: DONE");
         return wrapper;
     }
 
-    // ================================================================
-    // Text-only header
-    // ================================================================
     private View makeSimpleHeader() {
         LinearLayout header = new LinearLayout(ctx);
         header.setOrientation(LinearLayout.VERTICAL);
@@ -387,9 +384,6 @@ public class LoginHelper {
         return header;
     }
 
-    // ================================================================
-    // Field builders
-    // ================================================================
     private LinearLayout makeFieldContainer() {
         LinearLayout box = new LinearLayout(ctx);
         box.setOrientation(LinearLayout.HORIZONTAL);
@@ -419,8 +413,9 @@ public class LoginHelper {
         return chip;
     }
 
-    private EditText makeInput() {
+    private EditText makeInput(final String which) {
         EditText e = new EditText(ctx);
+        e.setTag(which);
         e.setHintTextColor(COLOR_HINT);
         e.setTextColor(COLOR_TEXT);
         e.setTextSize(13f);
@@ -435,17 +430,16 @@ public class LoginHelper {
         e.setGravity(Gravity.CENTER_VERTICAL | Gravity.START);
         e.setPadding(dp(8), 0, dp(14), 0);
         e.setHighlightColor(withAlpha(COLOR_ACCENT, 0x55));
+        Log.d(DBG, "makeInput(" + which + ") created, longClickable=" + e.isLongClickable()
+                + " clickable=" + e.isClickable()
+                + " focusable=" + e.isFocusable()
+                + " focusableInTouch=" + e.isFocusableInTouchMode());
         return e;
     }
 
     /**
-     * EditText naturally shows Cut / Copy / Paste / Select All on long-press.
-     * We ONLY ensure the essential flags are set.
-     *
-     * DO NOT:
-     *   - call setTextIsSelectable(...)      → breaks EditText's own selection
-     *   - set a custom action mode callback  → hides the default menu items
-     *   - attach a click listener            → swallows the long-press gesture
+     * Minimal setup — no custom callbacks, no textIsSelectable override.
+     * Only debug log to confirm settings are applied.
      */
     private void enableRichTextInteraction(final EditText e) {
         e.setLongClickable(true);
@@ -453,7 +447,10 @@ public class LoginHelper {
         e.setFocusableInTouchMode(true);
         e.setFocusable(true);
         e.setClickable(true);
-        // Nothing else — let the framework do its job.
+        Log.d(DBG, "enableRichTextInteraction for tag=" + e.getTag()
+                + " | longClickable=" + e.isLongClickable()
+                + " | textIsSelectable=" + e.isTextSelectable()
+                + " | focusable=" + e.isFocusable());
     }
 
     private ImageView makePasteButton(final EditText target) {
@@ -480,6 +477,7 @@ public class LoginHelper {
         btn.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
+                Log.d(DBG, "paste button clicked for tag=" + target.getTag());
                 pasteFromClipboard(target);
                 v.animate().scaleX(0.82f).scaleY(0.82f).setDuration(90)
                         .withEndAction(new Runnable() {
@@ -498,11 +496,13 @@ public class LoginHelper {
         try {
             ClipboardManager cm = (ClipboardManager) ctx.getSystemService(Context.CLIPBOARD_SERVICE);
             if (cm == null || !cm.hasPrimaryClip()) {
+                Log.d(DBG, "pasteFromClipboard: empty clipboard");
                 setStatus("Clipboard is empty", COLOR_WARN);
                 return;
             }
             ClipData clip = cm.getPrimaryClip();
             if (clip == null || clip.getItemCount() == 0) {
+                Log.d(DBG, "pasteFromClipboard: null clip");
                 setStatus("Clipboard is empty", COLOR_WARN);
                 return;
             }
@@ -512,24 +512,23 @@ public class LoginHelper {
                 return;
             }
             String text = pasted.toString().trim();
+            Log.d(DBG, "pasteFromClipboard: pasted " + text.length() + " chars");
             target.setText(text);
             target.setSelection(target.getText().length());
             target.requestFocus();
             forceShowKeyboard(target);
         } catch (Exception e) {
-            Log.e(TAG, "pasteFromClipboard: " + e);
+            Log.e(DBG, "pasteFromClipboard error", e);
         }
     }
 
-    // ================================================================
-    // Field focus animation + keyboard trigger
-    // NO click listener here — it would swallow long-press.
-    // ================================================================
     private void attachFieldFocus(final LinearLayout box, final EditText et,
-                                   final ImageView icon, final FrameLayout chip) {
+                                   final ImageView icon, final FrameLayout chip,
+                                   final String tag) {
         et.setOnFocusChangeListener(new View.OnFocusChangeListener() {
             @Override
             public void onFocusChange(View v, boolean hasFocus) {
+                Log.d(DBG, "focus change tag=" + tag + " hasFocus=" + hasFocus);
                 final GradientDrawable bg = (GradientDrawable) box.getBackground();
                 int fromColor = hasFocus ? COLOR_FIELD_BORD : COLOR_ACCENT;
                 int toColor   = hasFocus ? COLOR_ACCENT      : COLOR_FIELD_BORD;
@@ -551,11 +550,12 @@ public class LoginHelper {
             }
         });
 
-        // Only used to request focus + show keyboard on ACTION_UP.
-        // Returns false so the EditText continues to receive the long-press.
+        // NOTE: onTouch returns FALSE so EditText keeps receiving gestures.
         et.setOnTouchListener(new View.OnTouchListener() {
             @Override
             public boolean onTouch(View v, MotionEvent event) {
+                Log.d(DBG, "EditText onTouch tag=" + tag
+                        + " action=" + actionToString(event.getActionMasked()));
                 if (event.getAction() == MotionEvent.ACTION_UP) {
                     v.requestFocus();
                     v.postDelayed(new Runnable() {
@@ -565,14 +565,13 @@ public class LoginHelper {
                         }
                     }, 80);
                 }
+                // Return false so the EditText processes the gesture itself
+                // (long-press → selection → toolbar)
                 return false;
             }
         });
     }
 
-    // ================================================================
-    // Keyboard helpers
-    // ================================================================
     private void forceShowKeyboard(final EditText et) {
         if (et == null) return;
         try {
@@ -585,8 +584,9 @@ public class LoginHelper {
             }
             boolean shown = imm.showSoftInput(et, InputMethodManager.SHOW_IMPLICIT);
             if (!shown) imm.showSoftInput(et, InputMethodManager.SHOW_FORCED);
+            Log.d(DBG, "forceShowKeyboard tag=" + et.getTag() + " shown=" + shown);
         } catch (Exception e) {
-            Log.e(TAG, "forceShowKeyboard: " + e);
+            Log.e(DBG, "forceShowKeyboard error", e);
         }
     }
 
@@ -601,11 +601,9 @@ public class LoginHelper {
         }
     }
 
-    // ================================================================
-    // Status message
-    // ================================================================
     private void setStatus(final String msg, final int color) {
         if (statusTxt == null) return;
+        Log.d(DBG, "setStatus: " + msg);
         new Handler(Looper.getMainLooper()).post(new Runnable() {
             @Override
             public void run() {
@@ -633,14 +631,13 @@ public class LoginHelper {
         }
     }
 
-    // ================================================================
-    // Login flow
-    // ================================================================
     private void performLogin() {
         if (loginInProgress) return;
 
         final String inputUser = editUser.getText().toString().trim().toLowerCase();
         final String inputPass = editPass.getText().toString().trim();
+
+        Log.d(DBG, "performLogin user=" + inputUser + " passLen=" + inputPass.length());
 
         if (TextUtils.isEmpty(inputUser) || TextUtils.isEmpty(inputPass)) {
             setStatus("Please fill in all fields", COLOR_WARN);
@@ -660,8 +657,10 @@ public class LoginHelper {
             public void run() {
                 JSONObject matched = ModFirebase.fetchUserByUsername(inputUser);
                 final String userJson = (matched == null) ? "" : matched.toString();
+                Log.d(DBG, "fetchUserByUsername result null=" + (matched == null));
 
                 final String resultJson = SecurityNative.verifyLogin(inputUser, inputPass, userJson);
+                Log.d(DBG, "verifyLogin raw result=" + resultJson);
 
                 boolean ok = false;
                 String reason = "network";
@@ -675,9 +674,9 @@ public class LoginHelper {
                     statusOut = r.optString("status", "");
                     expiryOut = r.optString("expiry", "");
                 } catch (Exception e) {
-                    ok = false;
-                    reason = "network";
+                    ok = false; reason = "network";
                 }
+                Log.d(DBG, "login ok=" + ok + " reason=" + reason);
 
                 if (!ok) {
                     final String fReason = reason;
@@ -733,26 +732,19 @@ public class LoginHelper {
             @Override
             public void run() {
                 JSONObject updateJson = ModFirebase.fetchUpdate();
-                if (updateJson == null) {
-                    proceedToMenu();
-                    return;
-                }
+                if (updateJson == null) { proceedToMenu(); return; }
                 try {
                     JSONObject up = updateJson.optJSONObject("up");
-                    if (up == null) {
-                        proceedToMenu();
-                        return;
-                    }
+                    if (up == null) { proceedToMenu(); return; }
                     String latest = up.optString("version", "");
                     String msg = up.optString("message", "");
                     String current = getVersionName();
+                    Log.d(DBG, "update check latest=" + latest + " current=" + current);
                     if (!TextUtils.isEmpty(latest) && !current.equals(latest)) {
                         final String fv = latest, fm = msg;
                         new Handler(Looper.getMainLooper()).post(new Runnable() {
                             @Override
-                            public void run() {
-                                showUpdateDialog(fv, fm);
-                            }
+                            public void run() { showUpdateDialog(fv, fm); }
                         });
                     } else {
                         proceedToMenu();
@@ -770,24 +762,22 @@ public class LoginHelper {
         final String pass = save.getString("edittext2", "");
         final String expiry = KEY.getString("expiry", "");
 
+        Log.d(DBG, "proceedToMenu tokenEmpty=" + (token == null || token.isEmpty()));
+
         if (token == null || token.isEmpty()) {
             new Handler(Looper.getMainLooper()).post(new Runnable() {
-                @Override
-                public void run() {
-                    setStatus("Session invalid", COLOR_DANGER);
-                }
+                @Override public void run() { setStatus("Session invalid", COLOR_DANGER); }
             });
             return;
         }
         if (!SecurityNative.verifySessionToken(token, user, pass, expiry)) {
+            Log.d(DBG, "session token tampered!");
             new Handler(Looper.getMainLooper()).post(new Runnable() {
-                @Override
-                public void run() {
-                    setStatus("Session tampered", COLOR_DANGER);
-                }
+                @Override public void run() { setStatus("Session tampered", COLOR_DANGER); }
             });
             return;
         }
+        Log.d(DBG, "proceedToMenu: calling callback");
         new Handler(Looper.getMainLooper()).post(new Runnable() {
             @Override
             public void run() {
@@ -796,9 +786,7 @@ public class LoginHelper {
         });
     }
 
-    // ================================================================
-    // Dialog chrome
-    // ================================================================
+    // ===================== DIALOGS =====================
     private LinearLayout newDialogCard() {
         LinearLayout card = new LinearLayout(ctx);
         card.setOrientation(LinearLayout.VERTICAL);
@@ -844,7 +832,6 @@ public class LoginHelper {
         ImageView icon = new ImageView(ctx);
         icon.setImageDrawable(glyph);
         iconHolder.addView(icon, new FrameLayout.LayoutParams(dp(26), dp(26), Gravity.CENTER));
-
         return iconHolder;
     }
 
@@ -870,10 +857,8 @@ public class LoginHelper {
         } else {
             btn.setBackground(bg);
         }
-        btn.setMinHeight(0);
-        btn.setMinimumHeight(0);
-        btn.setMinWidth(0);
-        btn.setMinimumWidth(0);
+        btn.setMinHeight(0); btn.setMinimumHeight(0);
+        btn.setMinWidth(0); btn.setMinimumWidth(0);
         btn.setPadding(dp(18), 0, dp(18), 0);
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(MATCH_PARENT, dp(44));
         lp.setMargins(0, dp(16), 0, 0);
@@ -893,10 +878,8 @@ public class LoginHelper {
         bg.setStroke(dp(1.5f), COLOR_OUTLINE);
         bg.setCornerRadius(dp(24));
         btn.setBackground(bg);
-        btn.setMinHeight(0);
-        btn.setMinimumHeight(0);
-        btn.setMinWidth(0);
-        btn.setMinimumWidth(0);
+        btn.setMinHeight(0); btn.setMinimumHeight(0);
+        btn.setMinWidth(0); btn.setMinimumWidth(0);
         btn.setPadding(dp(18), 0, dp(18), 0);
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(MATCH_PARENT, dp(40));
         lp.setMargins(0, dp(8), 0, 0);
@@ -931,9 +914,7 @@ public class LoginHelper {
         final android.app.AlertDialog d = b.create();
         d.setCanceledOnTouchOutside(false);
         d.setCancelable(cancelable);
-        if (cancelable && onCancel != null) {
-            d.setOnCancelListener(onCancel);
-        }
+        if (cancelable && onCancel != null) d.setOnCancelListener(onCancel);
         if (d.getWindow() != null) {
             d.getWindow().setBackgroundDrawableResource(android.R.color.transparent);
             if (Build.VERSION.SDK_INT >= 26) d.getWindow().setType(2038);
@@ -955,10 +936,8 @@ public class LoginHelper {
                 .setInterpolator(new DecelerateInterpolator(1.5f)).start();
     }
 
-    // ================================================================
-    // Update dialog
-    // ================================================================
     private void showUpdateDialog(String version, String msg) {
+        Log.d(DBG, "showUpdateDialog version=" + version);
         final android.app.AlertDialog[] ref = new android.app.AlertDialog[1];
         final LinearLayout card = newDialogCard();
 
@@ -970,9 +949,7 @@ public class LoginHelper {
         title.setTextSize(15f);
         title.setTypeface(tfBold);
         title.setGravity(Gravity.CENTER);
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-            title.setLetterSpacing(0.06f);
-        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) title.setLetterSpacing(0.06f);
         card.addView(title);
 
         TextView versionView = new TextView(ctx);
@@ -1014,26 +991,22 @@ public class LoginHelper {
 
         Button updateBtn = newPrimaryDialogButton("UPDATE NOW");
         card.addView(updateBtn);
-
         Button continueBtn = newSecondaryDialogButton("Continue for now");
         card.addView(continueBtn);
 
         updateBtn.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
+            @Override public void onClick(View v) {
                 try {
                     Intent i = new Intent(Intent.ACTION_VIEW,
                             Uri.parse("https://t.me/kayesahmmedpro"));
                     i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
                     ctx.startActivity(i);
-                } catch (Exception e) {
-                }
+                } catch (Exception e) { }
             }
         });
 
         continueBtn.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
+            @Override public void onClick(View v) {
                 if (ref[0] != null) ref[0].dismiss();
                 proceedToMenu();
             }
@@ -1042,16 +1015,13 @@ public class LoginHelper {
         presentPremiumDialog(ref, card, false, null);
     }
 
-    // ================================================================
-    // Key expired dialog
-    // ================================================================
     private void showKeyExpiredDialog() {
         if (keyExpiredDialogShowing) return;
         keyExpiredDialogShowing = true;
+        Log.d(DBG, "showKeyExpiredDialog");
 
         final android.app.AlertDialog[] ref = new android.app.AlertDialog[1];
         final LinearLayout card = newDialogCard();
-
         card.addView(newDialogIconHolder(COLOR_DANGER, new LockIcon(Color.WHITE)));
 
         TextView title = new TextView(ctx);
@@ -1060,9 +1030,7 @@ public class LoginHelper {
         title.setTextSize(15f);
         title.setTypeface(tfBold);
         title.setGravity(Gravity.CENTER);
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-            title.setLetterSpacing(0.06f);
-        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) title.setLetterSpacing(0.06f);
         card.addView(title);
 
         TextView body = new TextView(ctx);
@@ -1080,8 +1048,7 @@ public class LoginHelper {
         card.addView(contact);
 
         contact.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
+            @Override public void onClick(View v) {
                 keyExpiredDialogShowing = false;
                 if (ref[0] != null) ref[0].dismiss();
                 try {
@@ -1089,33 +1056,21 @@ public class LoginHelper {
                             Uri.parse("https://t.me/kayesahmmedpro"));
                     i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
                     ctx.startActivity(i);
-                } catch (Exception e) {
-                }
+                } catch (Exception e) { }
             }
         });
 
         presentPremiumDialog(ref, card, true, new android.content.DialogInterface.OnCancelListener() {
-            @Override
-            public void onCancel(android.content.DialogInterface di) {
+            @Override public void onCancel(android.content.DialogInterface di) {
                 keyExpiredDialogShowing = false;
             }
         });
     }
 
-    // ================================================================
-    // MaxHeightScrollView
-    // ================================================================
     private static class MaxHeightScrollView extends ScrollView {
         private int maxHeightPx = Integer.MAX_VALUE;
-
-        MaxHeightScrollView(Context c) {
-            super(c);
-        }
-
-        void setMaxHeightPx(int px) {
-            this.maxHeightPx = px;
-        }
-
+        MaxHeightScrollView(Context c) { super(c); }
+        void setMaxHeightPx(int px) { this.maxHeightPx = px; }
         @Override
         protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
             int hSpec = heightMeasureSpec;
@@ -1130,9 +1085,6 @@ public class LoginHelper {
         }
     }
 
-    // ================================================================
-    // CustomCheck
-    // ================================================================
     private class CustomCheck extends LinearLayout {
         private final GradientDrawable boxBg;
         private final View checkmark;
@@ -1144,7 +1096,6 @@ public class LoginHelper {
             this.checked = initial;
             setOrientation(LinearLayout.HORIZONTAL);
             setGravity(Gravity.CENTER_VERTICAL);
-            setPadding(0, 0, 0, 0);
 
             FrameLayout box = new FrameLayout(ctx);
             LinearLayout.LayoutParams boxLp = new LinearLayout.LayoutParams(dp(16), dp(16));
@@ -1177,24 +1128,13 @@ public class LoginHelper {
             addView(labelView);
 
             setOnClickListener(new OnClickListener() {
-                @Override
-                public void onClick(View v) {
-                    toggle();
-                }
+                @Override public void onClick(View v) { toggle(); }
             });
         }
 
-        void setListener(CheckListener l) {
-            this.listener = l;
-        }
-
-        void setChecked(boolean value) {
-            if (this.checked != value) toggle();
-        }
-
-        boolean isChecked() {
-            return checked;
-        }
+        void setListener(CheckListener l) { this.listener = l; }
+        void setChecked(boolean value) { if (this.checked != value) toggle(); }
+        boolean isChecked() { return checked; }
 
         private void toggle() {
             checked = !checked;
@@ -1205,20 +1145,24 @@ public class LoginHelper {
         }
     }
 
-    // ================================================================
-    // Utility
-    // ================================================================
     private static int withAlpha(int color, int alpha) {
         return (color & 0x00FFFFFF) | ((alpha & 0xFF) << 24);
     }
 
-    // ================================================================
-    // FieldIcon
-    // ================================================================
+    private static String actionToString(int a) {
+        switch (a) {
+            case MotionEvent.ACTION_DOWN:    return "DOWN";
+            case MotionEvent.ACTION_UP:      return "UP";
+            case MotionEvent.ACTION_MOVE:    return "MOVE";
+            case MotionEvent.ACTION_CANCEL:  return "CANCEL";
+            default: return "OTHER(" + a + ")";
+        }
+    }
+
+    // ==================== ICONS ====================
     private static class FieldIcon extends Drawable {
         static final int USER = 0;
         static final int LOCK = 1;
-
         private final int type;
         private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
         private final Path path = new Path();
@@ -1226,8 +1170,7 @@ public class LoginHelper {
         private int currentColor;
 
         FieldIcon(int type, int color) {
-            this.type = type;
-            this.currentColor = color;
+            this.type = type; this.currentColor = color;
             paint.setColor(color);
             paint.setStyle(Paint.Style.STROKE);
             paint.setStrokeCap(Paint.Cap.ROUND);
@@ -1238,30 +1181,25 @@ public class LoginHelper {
             ValueAnimator va = ValueAnimator.ofObject(new ArgbEvaluator(), currentColor, toColor);
             va.setDuration(durationMs);
             va.addUpdateListener(new ValueAnimator.AnimatorUpdateListener() {
-                @Override
-                public void onAnimationUpdate(ValueAnimator a) {
+                @Override public void onAnimationUpdate(ValueAnimator a) {
                     currentColor = (Integer) a.getAnimatedValue();
-                    paint.setColor(currentColor);
-                    invalidateSelf();
+                    paint.setColor(currentColor); invalidateSelf();
                 }
             });
             va.start();
         }
 
-        @Override
-        public void draw(Canvas canvas) {
+        @Override public void draw(Canvas canvas) {
             android.graphics.Rect b = getBounds();
             if (b.width() <= 0 || b.height() <= 0) return;
             float size = Math.min(b.width(), b.height());
             float s = size / 24f;
             paint.setStrokeWidth(1.5f * s);
-
             canvas.save();
             canvas.translate(b.left + (b.width() - size) / 2f,
                              b.top + (b.height() - size) / 2f);
             canvas.scale(s, s);
             path.reset();
-
             if (type == USER) {
                 canvas.drawCircle(12f, 8f, 3.9f, paint);
                 path.moveTo(4.5f, 21f);
@@ -1281,8 +1219,7 @@ public class LoginHelper {
                 paint.setStyle(Paint.Style.FILL);
                 canvas.drawCircle(12f, 15.2f, 1.2f, paint);
                 path.reset();
-                path.moveTo(12f, 15.9f);
-                path.lineTo(12f, 17.6f);
+                path.moveTo(12f, 15.9f); path.lineTo(12f, 17.6f);
                 paint.setStyle(Paint.Style.STROKE);
                 canvas.drawPath(path, paint);
                 paint.setStyle(prevStyle);
@@ -1295,138 +1232,94 @@ public class LoginHelper {
         @Override public int getOpacity() { return PixelFormat.TRANSLUCENT; }
     }
 
-    // ================================================================
-    // PasteIcon
-    // ================================================================
     private static class PasteIcon extends Drawable {
         private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
         private final Path path = new Path();
         private final RectF rect = new RectF();
-
         PasteIcon(int color) {
             paint.setColor(color);
             paint.setStyle(Paint.Style.STROKE);
             paint.setStrokeCap(Paint.Cap.ROUND);
             paint.setStrokeJoin(Paint.Join.ROUND);
         }
-
-        @Override
-        public void draw(Canvas canvas) {
+        @Override public void draw(Canvas canvas) {
             android.graphics.Rect b = getBounds();
             if (b.width() <= 0 || b.height() <= 0) return;
             float size = Math.min(b.width(), b.height());
             float s = size / 24f;
             paint.setStrokeWidth(1.4f * s);
-
             canvas.save();
             canvas.translate(b.left + (b.width() - size) / 2f,
                              b.top + (b.height() - size) / 2f);
             canvas.scale(s, s);
-
             rect.set(6f, 5.5f, 18f, 20.5f);
             canvas.drawRoundRect(rect, 2.4f, 2.4f, paint);
-
             rect.set(9.5f, 3.5f, 14.5f, 6.5f);
             canvas.drawRoundRect(rect, 1.4f, 1.4f, paint);
-
-            path.reset();
-            path.moveTo(9f, 11f);
-            path.lineTo(15f, 11f);
+            path.reset(); path.moveTo(9f, 11f); path.lineTo(15f, 11f);
             canvas.drawPath(path, paint);
-
-            path.reset();
-            path.moveTo(9f, 14.5f);
-            path.lineTo(13f, 14.5f);
+            path.reset(); path.moveTo(9f, 14.5f); path.lineTo(13f, 14.5f);
             canvas.drawPath(path, paint);
-
             canvas.restore();
         }
-
         @Override public void setAlpha(int alpha) { paint.setAlpha(alpha); }
         @Override public void setColorFilter(ColorFilter cf) { paint.setColorFilter(cf); }
         @Override public int getOpacity() { return PixelFormat.TRANSLUCENT; }
     }
 
-    // ================================================================
-    // UpdateIcon
-    // ================================================================
     private static class UpdateIcon extends Drawable {
         private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
         private final Path path = new Path();
-
         UpdateIcon(int color) {
             paint.setColor(color);
             paint.setStyle(Paint.Style.STROKE);
             paint.setStrokeCap(Paint.Cap.ROUND);
             paint.setStrokeJoin(Paint.Join.ROUND);
         }
-
-        @Override
-        public void draw(Canvas canvas) {
+        @Override public void draw(Canvas canvas) {
             android.graphics.Rect b = getBounds();
             if (b.width() <= 0 || b.height() <= 0) return;
             float size = Math.min(b.width(), b.height());
             float s = size / 24f;
             paint.setStrokeWidth(2.2f * s);
-
             canvas.save();
             canvas.translate(b.left + (b.width() - size) / 2f,
                              b.top + (b.height() - size) / 2f);
             canvas.scale(s, s);
-            path.reset();
-
-            path.moveTo(12f, 3f);
-            path.lineTo(12f, 15f);
+            path.reset(); path.moveTo(12f, 3f); path.lineTo(12f, 15f);
             canvas.drawPath(path, paint);
-
-            path.reset();
-            path.moveTo(6f, 10f);
-            path.lineTo(12f, 16f);
-            path.lineTo(18f, 10f);
+            path.reset(); path.moveTo(6f, 10f); path.lineTo(12f, 16f); path.lineTo(18f, 10f);
             canvas.drawPath(path, paint);
-
-            path.reset();
-            path.moveTo(4f, 20.5f);
-            path.lineTo(20f, 20.5f);
+            path.reset(); path.moveTo(4f, 20.5f); path.lineTo(20f, 20.5f);
             canvas.drawPath(path, paint);
-
             canvas.restore();
         }
-
         @Override public void setAlpha(int alpha) { paint.setAlpha(alpha); }
         @Override public void setColorFilter(ColorFilter cf) { paint.setColorFilter(cf); }
         @Override public int getOpacity() { return PixelFormat.TRANSLUCENT; }
     }
 
-    // ================================================================
-    // LockIcon
-    // ================================================================
     private static class LockIcon extends Drawable {
         private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
         private final Path path = new Path();
         private final RectF rect = new RectF();
-
         LockIcon(int color) {
             paint.setColor(color);
             paint.setStyle(Paint.Style.STROKE);
             paint.setStrokeCap(Paint.Cap.ROUND);
             paint.setStrokeJoin(Paint.Join.ROUND);
         }
-
-        @Override
-        public void draw(Canvas canvas) {
+        @Override public void draw(Canvas canvas) {
             android.graphics.Rect b = getBounds();
             if (b.width() <= 0 || b.height() <= 0) return;
             float size = Math.min(b.width(), b.height());
             float s = size / 24f;
             paint.setStrokeWidth(2.2f * s);
-
             canvas.save();
             canvas.translate(b.left + (b.width() - size) / 2f,
                              b.top + (b.height() - size) / 2f);
             canvas.scale(s, s);
             path.reset();
-
             rect.set(5f, 10.5f, 19f, 21f);
             canvas.drawRoundRect(rect, 2f, 2f, paint);
             path.moveTo(8.5f, 10.5f);
@@ -1436,10 +1329,8 @@ public class LoginHelper {
             path.lineTo(15.5f, 10.5f);
             canvas.drawPath(path, paint);
             canvas.drawCircle(12f, 15.5f, 1.2f, paint);
-
             canvas.restore();
         }
-
         @Override public void setAlpha(int alpha) { paint.setAlpha(alpha); }
         @Override public void setColorFilter(ColorFilter cf) { paint.setColorFilter(cf); }
         @Override public int getOpacity() { return PixelFormat.TRANSLUCENT; }
