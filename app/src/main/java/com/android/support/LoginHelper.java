@@ -36,6 +36,7 @@ import android.view.Menu;
 import android.view.MenuItem;
 import android.view.MotionEvent;
 import android.view.View;
+import android.view.ViewConfiguration;
 import android.view.ViewGroup;
 import android.view.ViewTreeObserver;
 import android.view.WindowManager;
@@ -56,7 +57,6 @@ import org.json.JSONObject;
 
 public class LoginHelper {
 
-    // ==== DEBUG TAG for Termux logcat ====
     private static final String DBG = "ModXDebug";
 
     public interface Callback {
@@ -143,7 +143,7 @@ public class LoginHelper {
 
         card.addView(makeSimpleHeader());
 
-        // ============ USERNAME ============
+        // USERNAME
         userBox = makeFieldContainer();
         userChip = makeIconChip(FieldIcon.USER);
         userIconView = (ImageView) userChip.getChildAt(0);
@@ -164,7 +164,7 @@ public class LoginHelper {
         userBox.setLayoutParams(uLp);
         card.addView(userBox);
 
-        // ============ PASSWORD ============
+        // PASSWORD
         passBox = makeFieldContainer();
         passChip = makeIconChip(FieldIcon.LOCK);
         passIconView = (ImageView) passChip.getChildAt(0);
@@ -189,11 +189,9 @@ public class LoginHelper {
         attachFieldFocus(userBox, editUser, userIconView, userChip, "user");
         attachFieldFocus(passBox, editPass, passIconView, passChip, "pass");
 
-        // IME actions
         editUser.setOnEditorActionListener(new TextView.OnEditorActionListener() {
             @Override
             public boolean onEditorAction(TextView v, int actionId, KeyEvent event) {
-                Log.d(DBG, "editorAction user id=" + actionId);
                 if (actionId == EditorInfo.IME_ACTION_NEXT
                         || (event != null && event.getKeyCode() == KeyEvent.KEYCODE_ENTER)) {
                     editPass.requestFocus();
@@ -208,7 +206,6 @@ public class LoginHelper {
         editPass.setOnEditorActionListener(new TextView.OnEditorActionListener() {
             @Override
             public boolean onEditorAction(TextView v, int actionId, KeyEvent event) {
-                Log.d(DBG, "editorAction pass id=" + actionId);
                 if (actionId == EditorInfo.IME_ACTION_DONE
                         || (event != null && event.getKeyCode() == KeyEvent.KEYCODE_ENTER)) {
                     hideKeyboard(editPass);
@@ -232,7 +229,6 @@ public class LoginHelper {
         showCb.setListener(new CheckListener() {
             @Override
             public void onChanged(boolean checked) {
-                Log.d(DBG, "showCb changed=" + checked);
                 int sel = editPass.getSelectionStart();
                 if (checked) {
                     editPass.setTransformationMethod(
@@ -249,7 +245,6 @@ public class LoginHelper {
         rememberCb.setListener(new CheckListener() {
             @Override
             public void onChanged(boolean checked) {
-                Log.d(DBG, "rememberCb changed=" + checked);
                 if (checked) {
                     save.edit().putString("edittext1", editUser.getText().toString()).apply();
                     save.edit().putString("edittext2", editPass.getText().toString()).apply();
@@ -295,7 +290,6 @@ public class LoginHelper {
         loginBtn.setLayoutParams(bLp);
         card.addView(loginBtn);
 
-        // STATUS
         statusTxt = new TextView(ctx);
         statusTxt.setText("");
         statusTxt.setTextColor(COLOR_TEXT_MUTED);
@@ -312,7 +306,6 @@ public class LoginHelper {
         loginBtn.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
-                Log.d(DBG, "loginBtn clicked");
                 v.animate().scaleX(0.975f).scaleY(0.975f).setDuration(100)
                         .withEndAction(new Runnable() {
                             @Override
@@ -350,7 +343,6 @@ public class LoginHelper {
             }
         });
 
-        Log.d(DBG, "buildView: DONE");
         return wrapper;
     }
 
@@ -430,16 +422,12 @@ public class LoginHelper {
         e.setGravity(Gravity.CENTER_VERTICAL | Gravity.START);
         e.setPadding(dp(8), 0, dp(14), 0);
         e.setHighlightColor(withAlpha(COLOR_ACCENT, 0x55));
-        Log.d(DBG, "makeInput(" + which + ") created, longClickable=" + e.isLongClickable()
-                + " clickable=" + e.isClickable()
-                + " focusable=" + e.isFocusable()
-                + " focusableInTouch=" + e.isFocusableInTouchMode());
         return e;
     }
 
     /**
-     * Minimal setup — no custom callbacks, no textIsSelectable override.
-     * Only debug log to confirm settings are applied.
+     * পুরোপুরি native setup। Custom callback, setTextIsSelectable কিছুই নেই।
+     * Manual long-press আমরা attachFieldFocus এ হ্যান্ডল করছি।
      */
     private void enableRichTextInteraction(final EditText e) {
         e.setLongClickable(true);
@@ -447,10 +435,6 @@ public class LoginHelper {
         e.setFocusableInTouchMode(true);
         e.setFocusable(true);
         e.setClickable(true);
-        Log.d(DBG, "enableRichTextInteraction for tag=" + e.getTag()
-                + " | longClickable=" + e.isLongClickable()
-                + " | textIsSelectable=" + e.isTextSelectable()
-                + " | focusable=" + e.isFocusable());
     }
 
     private ImageView makePasteButton(final EditText target) {
@@ -477,7 +461,6 @@ public class LoginHelper {
         btn.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
-                Log.d(DBG, "paste button clicked for tag=" + target.getTag());
                 pasteFromClipboard(target);
                 v.animate().scaleX(0.82f).scaleY(0.82f).setDuration(90)
                         .withEndAction(new Runnable() {
@@ -496,13 +479,11 @@ public class LoginHelper {
         try {
             ClipboardManager cm = (ClipboardManager) ctx.getSystemService(Context.CLIPBOARD_SERVICE);
             if (cm == null || !cm.hasPrimaryClip()) {
-                Log.d(DBG, "pasteFromClipboard: empty clipboard");
                 setStatus("Clipboard is empty", COLOR_WARN);
                 return;
             }
             ClipData clip = cm.getPrimaryClip();
             if (clip == null || clip.getItemCount() == 0) {
-                Log.d(DBG, "pasteFromClipboard: null clip");
                 setStatus("Clipboard is empty", COLOR_WARN);
                 return;
             }
@@ -512,7 +493,6 @@ public class LoginHelper {
                 return;
             }
             String text = pasted.toString().trim();
-            Log.d(DBG, "pasteFromClipboard: pasted " + text.length() + " chars");
             target.setText(text);
             target.setSelection(target.getText().length());
             target.requestFocus();
@@ -522,13 +502,15 @@ public class LoginHelper {
         }
     }
 
+    // ================================================================
+    // FIELD FOCUS — Manual long-press + Manual ActionMode
+    // ================================================================
     private void attachFieldFocus(final LinearLayout box, final EditText et,
                                    final ImageView icon, final FrameLayout chip,
                                    final String tag) {
         et.setOnFocusChangeListener(new View.OnFocusChangeListener() {
             @Override
             public void onFocusChange(View v, boolean hasFocus) {
-                Log.d(DBG, "focus change tag=" + tag + " hasFocus=" + hasFocus);
                 final GradientDrawable bg = (GradientDrawable) box.getBackground();
                 int fromColor = hasFocus ? COLOR_FIELD_BORD : COLOR_ACCENT;
                 int toColor   = hasFocus ? COLOR_ACCENT      : COLOR_FIELD_BORD;
@@ -550,26 +532,172 @@ public class LoginHelper {
             }
         });
 
-        // NOTE: onTouch returns FALSE so EditText keeps receiving gestures.
+        // ==== MANUAL LONG-PRESS DETECTION ====
+        // Native long-press এই overlay window এ কাজ করছে না, তাই নিজে handle করছি।
         et.setOnTouchListener(new View.OnTouchListener() {
+            private final Handler handler = new Handler(Looper.getMainLooper());
+            private Runnable longPressRunnable;
+            private float downX, downY;
+            private boolean longPressFired = false;
+            private final int slop = ViewConfiguration.get(ctx).getScaledTouchSlop();
+            private static final long LONG_PRESS_MS = 500;
+
             @Override
             public boolean onTouch(View v, MotionEvent event) {
-                Log.d(DBG, "EditText onTouch tag=" + tag
-                        + " action=" + actionToString(event.getActionMasked()));
-                if (event.getAction() == MotionEvent.ACTION_UP) {
-                    v.requestFocus();
-                    v.postDelayed(new Runnable() {
-                        @Override
-                        public void run() {
-                            forceShowKeyboard(et);
+                switch (event.getActionMasked()) {
+                    case MotionEvent.ACTION_DOWN:
+                        downX = event.getRawX();
+                        downY = event.getRawY();
+                        longPressFired = false;
+                        longPressRunnable = new Runnable() {
+                            @Override
+                            public void run() {
+                                longPressFired = true;
+                                Log.d(DBG, "Manual LONG-PRESS fired for " + tag);
+                                showCopyPasteMenu(et);
+                            }
+                        };
+                        handler.postDelayed(longPressRunnable, LONG_PRESS_MS);
+                        return false;
+
+                    case MotionEvent.ACTION_MOVE: {
+                        float dx = Math.abs(event.getRawX() - downX);
+                        float dy = Math.abs(event.getRawY() - downY);
+                        if (!longPressFired && (dx > slop || dy > slop)) {
+                            if (longPressRunnable != null) {
+                                handler.removeCallbacks(longPressRunnable);
+                                longPressRunnable = null;
+                            }
                         }
-                    }, 80);
+                        return false;
+                    }
+
+                    case MotionEvent.ACTION_UP:
+                    case MotionEvent.ACTION_CANCEL:
+                        if (longPressRunnable != null) {
+                            handler.removeCallbacks(longPressRunnable);
+                            longPressRunnable = null;
+                        }
+                        if (!longPressFired
+                                && event.getActionMasked() == MotionEvent.ACTION_UP) {
+                            v.requestFocus();
+                            v.postDelayed(new Runnable() {
+                                @Override
+                                public void run() {
+                                    forceShowKeyboard(et);
+                                }
+                            }, 80);
+                        }
+                        return false;
                 }
-                // Return false so the EditText processes the gesture itself
-                // (long-press → selection → toolbar)
                 return false;
             }
         });
+    }
+
+    /**
+     * Manual ActionMode — Cut / Copy / Paste / Select All সহ।
+     * Native toolbar না আসার কারণে এইটা force show করছি।
+     */
+    private void showCopyPasteMenu(final EditText et) {
+        try {
+            et.requestFocus();
+            // যদি কিছু select করা না থাকে, সব select করি
+            if (et.getText() != null && et.getText().length() > 0
+                    && et.getSelectionStart() == et.getSelectionEnd()) {
+                et.selectAll();
+            }
+
+            ActionMode.Callback cb = new ActionMode.Callback() {
+                @Override
+                public boolean onCreateActionMode(ActionMode mode, Menu menu) {
+                    Log.d(DBG, "ActionMode onCreate");
+                    menu.add(Menu.NONE, android.R.id.selectAll, 0, "Select all")
+                            .setShowAsAction(MenuItem.SHOW_AS_ACTION_IF_ROOM);
+                    menu.add(Menu.NONE, android.R.id.cut, 0, "Cut")
+                            .setShowAsAction(MenuItem.SHOW_AS_ACTION_IF_ROOM);
+                    menu.add(Menu.NONE, android.R.id.copy, 0, "Copy")
+                            .setShowAsAction(MenuItem.SHOW_AS_ACTION_IF_ROOM);
+                    menu.add(Menu.NONE, android.R.id.paste, 0, "Paste")
+                            .setShowAsAction(MenuItem.SHOW_AS_ACTION_IF_ROOM);
+                    return true;
+                }
+
+                @Override
+                public boolean onPrepareActionMode(ActionMode mode, Menu menu) {
+                    return false;
+                }
+
+                @Override
+                public boolean onActionItemClicked(ActionMode mode, MenuItem item) {
+                    Log.d(DBG, "ActionMode item=" + item.getTitle());
+                    boolean handled = et.onTextContextMenuItem(item.getItemId());
+                    if (handled) mode.finish();
+                    return handled;
+                }
+
+                @Override
+                public void onDestroyActionMode(ActionMode mode) {
+                    Log.d(DBG, "ActionMode destroyed");
+                }
+            };
+
+            ActionMode mode = et.startActionMode(cb);
+            Log.d(DBG, "startActionMode returned " + (mode != null ? "OK" : "NULL"));
+
+            // Fallback: যদি ActionMode null ফেরত দেয়, AlertDialog দেখাই
+            if (mode == null) {
+                showCopyPasteDialogFallback(et);
+            }
+        } catch (Exception e) {
+            Log.e(DBG, "showCopyPasteMenu error", e);
+            showCopyPasteDialogFallback(et);
+        }
+    }
+
+    /**
+     * Fallback — যদি overlay window তে ActionMode না আসে, simple AlertDialog।
+     */
+    private void showCopyPasteDialogFallback(final EditText et) {
+        final boolean hasText = et.getText() != null && et.getText().length() > 0;
+        final boolean hasClipboard;
+        try {
+            ClipboardManager cm = (ClipboardManager)
+                    ctx.getSystemService(Context.CLIPBOARD_SERVICE);
+            hasClipboard = cm != null && cm.hasPrimaryClip();
+        } catch (Exception e) {
+            return;
+        }
+
+        java.util.ArrayList<String> items = new java.util.ArrayList<>();
+        final java.util.ArrayList<Integer> actions = new java.util.ArrayList<>();
+
+        if (hasText) {
+            items.add("Select all");  actions.add(android.R.id.selectAll);
+            items.add("Cut");         actions.add(android.R.id.cut);
+            items.add("Copy");        actions.add(android.R.id.copy);
+        }
+        if (hasClipboard) {
+            items.add("Paste");       actions.add(android.R.id.paste);
+        }
+        if (items.isEmpty()) return;
+
+        android.app.AlertDialog.Builder b = new android.app.AlertDialog.Builder(ctx);
+        b.setTitle("Text options");
+        b.setItems(items.toArray(new String[0]),
+                new android.content.DialogInterface.OnClickListener() {
+                    @Override
+                    public void onClick(android.content.DialogInterface d, int which) {
+                        et.onTextContextMenuItem(actions.get(which));
+                        d.dismiss();
+                    }
+                });
+        android.app.AlertDialog dlg = b.create();
+        if (dlg.getWindow() != null) {
+            if (Build.VERSION.SDK_INT >= 26) dlg.getWindow().setType(2038);
+            else dlg.getWindow().setType(2002);
+        }
+        dlg.show();
     }
 
     private void forceShowKeyboard(final EditText et) {
@@ -584,7 +712,6 @@ public class LoginHelper {
             }
             boolean shown = imm.showSoftInput(et, InputMethodManager.SHOW_IMPLICIT);
             if (!shown) imm.showSoftInput(et, InputMethodManager.SHOW_FORCED);
-            Log.d(DBG, "forceShowKeyboard tag=" + et.getTag() + " shown=" + shown);
         } catch (Exception e) {
             Log.e(DBG, "forceShowKeyboard error", e);
         }
@@ -603,7 +730,6 @@ public class LoginHelper {
 
     private void setStatus(final String msg, final int color) {
         if (statusTxt == null) return;
-        Log.d(DBG, "setStatus: " + msg);
         new Handler(Looper.getMainLooper()).post(new Runnable() {
             @Override
             public void run() {
@@ -637,8 +763,6 @@ public class LoginHelper {
         final String inputUser = editUser.getText().toString().trim().toLowerCase();
         final String inputPass = editPass.getText().toString().trim();
 
-        Log.d(DBG, "performLogin user=" + inputUser + " passLen=" + inputPass.length());
-
         if (TextUtils.isEmpty(inputUser) || TextUtils.isEmpty(inputPass)) {
             setStatus("Please fill in all fields", COLOR_WARN);
             return;
@@ -657,10 +781,7 @@ public class LoginHelper {
             public void run() {
                 JSONObject matched = ModFirebase.fetchUserByUsername(inputUser);
                 final String userJson = (matched == null) ? "" : matched.toString();
-                Log.d(DBG, "fetchUserByUsername result null=" + (matched == null));
-
                 final String resultJson = SecurityNative.verifyLogin(inputUser, inputPass, userJson);
-                Log.d(DBG, "verifyLogin raw result=" + resultJson);
 
                 boolean ok = false;
                 String reason = "network";
@@ -676,7 +797,6 @@ public class LoginHelper {
                 } catch (Exception e) {
                     ok = false; reason = "network";
                 }
-                Log.d(DBG, "login ok=" + ok + " reason=" + reason);
 
                 if (!ok) {
                     final String fReason = reason;
@@ -739,7 +859,6 @@ public class LoginHelper {
                     String latest = up.optString("version", "");
                     String msg = up.optString("message", "");
                     String current = getVersionName();
-                    Log.d(DBG, "update check latest=" + latest + " current=" + current);
                     if (!TextUtils.isEmpty(latest) && !current.equals(latest)) {
                         final String fv = latest, fm = msg;
                         new Handler(Looper.getMainLooper()).post(new Runnable() {
@@ -762,8 +881,6 @@ public class LoginHelper {
         final String pass = save.getString("edittext2", "");
         final String expiry = KEY.getString("expiry", "");
 
-        Log.d(DBG, "proceedToMenu tokenEmpty=" + (token == null || token.isEmpty()));
-
         if (token == null || token.isEmpty()) {
             new Handler(Looper.getMainLooper()).post(new Runnable() {
                 @Override public void run() { setStatus("Session invalid", COLOR_DANGER); }
@@ -771,13 +888,11 @@ public class LoginHelper {
             return;
         }
         if (!SecurityNative.verifySessionToken(token, user, pass, expiry)) {
-            Log.d(DBG, "session token tampered!");
             new Handler(Looper.getMainLooper()).post(new Runnable() {
                 @Override public void run() { setStatus("Session tampered", COLOR_DANGER); }
             });
             return;
         }
-        Log.d(DBG, "proceedToMenu: calling callback");
         new Handler(Looper.getMainLooper()).post(new Runnable() {
             @Override
             public void run() {
@@ -786,7 +901,7 @@ public class LoginHelper {
         });
     }
 
-    // ===================== DIALOGS =====================
+    // ============== DIALOGS ==============
     private LinearLayout newDialogCard() {
         LinearLayout card = new LinearLayout(ctx);
         card.setOrientation(LinearLayout.VERTICAL);
@@ -858,7 +973,7 @@ public class LoginHelper {
             btn.setBackground(bg);
         }
         btn.setMinHeight(0); btn.setMinimumHeight(0);
-        btn.setMinWidth(0); btn.setMinimumWidth(0);
+        btn.setMinWidth(0);  btn.setMinimumWidth(0);
         btn.setPadding(dp(18), 0, dp(18), 0);
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(MATCH_PARENT, dp(44));
         lp.setMargins(0, dp(16), 0, 0);
@@ -879,7 +994,7 @@ public class LoginHelper {
         bg.setCornerRadius(dp(24));
         btn.setBackground(bg);
         btn.setMinHeight(0); btn.setMinimumHeight(0);
-        btn.setMinWidth(0); btn.setMinimumWidth(0);
+        btn.setMinWidth(0);  btn.setMinimumWidth(0);
         btn.setPadding(dp(18), 0, dp(18), 0);
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(MATCH_PARENT, dp(40));
         lp.setMargins(0, dp(8), 0, 0);
@@ -937,10 +1052,8 @@ public class LoginHelper {
     }
 
     private void showUpdateDialog(String version, String msg) {
-        Log.d(DBG, "showUpdateDialog version=" + version);
         final android.app.AlertDialog[] ref = new android.app.AlertDialog[1];
         final LinearLayout card = newDialogCard();
-
         card.addView(newDialogIconHolder(COLOR_CTA, new UpdateIcon(COLOR_ON_ACCENT)));
 
         TextView title = new TextView(ctx);
@@ -1018,7 +1131,6 @@ public class LoginHelper {
     private void showKeyExpiredDialog() {
         if (keyExpiredDialogShowing) return;
         keyExpiredDialogShowing = true;
-        Log.d(DBG, "showKeyExpiredDialog");
 
         final android.app.AlertDialog[] ref = new android.app.AlertDialog[1];
         final LinearLayout card = newDialogCard();
@@ -1149,17 +1261,7 @@ public class LoginHelper {
         return (color & 0x00FFFFFF) | ((alpha & 0xFF) << 24);
     }
 
-    private static String actionToString(int a) {
-        switch (a) {
-            case MotionEvent.ACTION_DOWN:    return "DOWN";
-            case MotionEvent.ACTION_UP:      return "UP";
-            case MotionEvent.ACTION_MOVE:    return "MOVE";
-            case MotionEvent.ACTION_CANCEL:  return "CANCEL";
-            default: return "OTHER(" + a + ")";
-        }
-    }
-
-    // ==================== ICONS ====================
+    // ============== ICONS ==============
     private static class FieldIcon extends Drawable {
         static final int USER = 0;
         static final int LOCK = 1;

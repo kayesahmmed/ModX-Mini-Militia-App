@@ -2004,8 +2004,7 @@ new Titanic().start(proTitle);
 }
 
 private void showLoginScreen() {
-    Log.d("ModXDebug", "=== showLoginScreen START ===");
-    if (isLoggedIn) { Log.d("ModXDebug", "already logged in, abort"); return; }
+    if (isLoggedIn) return;
 
     if (mHeaderView  != null) mHeaderView.setVisibility(View.GONE);
     if (mShimmerView != null) mShimmerView.setVisibility(View.GONE);
@@ -2018,7 +2017,6 @@ private void showLoginScreen() {
     LoginHelper loginHelper = new LoginHelper(getContext, new LoginHelper.Callback() {
         @Override
         public void onLoginSuccess() {
-            Log.d("ModXDebug", "=== onLoginSuccess callback ===");
             setWindowFocusable(false);
             isLoggedIn = true;
 
@@ -2035,7 +2033,10 @@ private void showLoginScreen() {
     final View loginView = loginHelper.buildView();
 
     // ================================================================
-    // Drag wrapper with FULL debug logging
+    // Drag wrapper — dispatchTouchEvent ব্যবহার করে intercept
+    // কারণ EditText নিজে requestDisallowInterceptTouchEvent(true) কল করে,
+    // যার ফলে onInterceptTouchEvent আর কল হয় না।
+    // dispatchTouchEvent সবসময় কল হয়, তাই এখানে intercept করি।
     // ================================================================
     FrameLayout dragWrapper = new FrameLayout(Menu.this.getContext) {
         private float downX, downY;
@@ -2043,31 +2044,10 @@ private void showLoginScreen() {
         private boolean dragging = false;
         private final int slop =
                 ViewConfiguration.get(Menu.this.getContext).getScaledTouchSlop();
-        private int moveCount = 0;
 
         @Override
         public boolean dispatchTouchEvent(MotionEvent ev) {
-            Log.d("ModXDebug", "dragWrapper.dispatchTouchEvent action="
-                    + Menu.actionName(ev.getActionMasked())
-                    + " rawX=" + ev.getRawX() + " rawY=" + ev.getRawY());
-            if (ev.getActionMasked() == MotionEvent.ACTION_DOWN) {
-                // Ask parent (ScrollView) not to steal the gesture
-                ViewParent parent = getParent();
-                if (parent != null) {
-                    parent.requestDisallowInterceptTouchEvent(true);
-                    Log.d("ModXDebug", "  → requestDisallowInterceptTouchEvent(true) sent");
-                }
-            }
-            return super.dispatchTouchEvent(ev);
-        }
-
-        @Override
-        public boolean onInterceptTouchEvent(MotionEvent ev) {
-            int act = ev.getActionMasked();
-            Log.d("ModXDebug", "dragWrapper.onInterceptTouchEvent action="
-                    + Menu.actionName(act) + " slop=" + slop
-                    + " dragging=" + dragging);
-            switch (act) {
+            switch (ev.getActionMasked()) {
                 case MotionEvent.ACTION_DOWN:
                     downX = ev.getRawX();
                     downY = ev.getRawY();
@@ -2076,57 +2056,43 @@ private void showLoginScreen() {
                         startWindowY = vmParams.y;
                     }
                     dragging = false;
-                    moveCount = 0;
-                    return false;
+                    return super.dispatchTouchEvent(ev);
 
                 case MotionEvent.ACTION_MOVE: {
                     float dx = ev.getRawX() - downX;
                     float dy = ev.getRawY() - downY;
-                    Log.d("ModXDebug", "  MOVE dx=" + (int)dx + " dy=" + (int)dy);
                     if (!dragging
                             && (Math.abs(dx) > slop || Math.abs(dy) > slop)) {
                         dragging = true;
-                        Log.d("ModXDebug", "  → slop exceeded, INTERCEPT → drag started");
+                        // Child (EditText/Button) এর gesture cancel করি
+                        MotionEvent cancel = MotionEvent.obtain(ev);
+                        cancel.setAction(MotionEvent.ACTION_CANCEL);
+                        super.dispatchTouchEvent(cancel);
+                        cancel.recycle();
+                    }
+                    if (dragging) {
+                        if (vmParams != null) {
+                            menuFrame.setAlpha(0.75f);
+                            moveWindow(startWindowX + (int) dx,
+                                       startWindowY + (int) dy);
+                        }
                         return true;
                     }
-                    return dragging;
+                    return super.dispatchTouchEvent(ev);
                 }
 
                 case MotionEvent.ACTION_UP:
                 case MotionEvent.ACTION_CANCEL: {
+                    menuFrame.setAlpha(1f);
                     boolean wasDragging = dragging;
                     dragging = false;
-                    return wasDragging;
+                    if (wasDragging) {
+                        return true;   // consumed
+                    }
+                    return super.dispatchTouchEvent(ev);
                 }
             }
-            return false;
-        }
-
-        @Override
-        public boolean onTouchEvent(MotionEvent ev) {
-            int act = ev.getActionMasked();
-            switch (act) {
-                case MotionEvent.ACTION_MOVE:
-                    if (vmParams == null) return false;
-                    moveCount++;
-                    int newX = startWindowX + (int)(ev.getRawX() - downX);
-                    int newY = startWindowY + (int)(ev.getRawY() - downY);
-                    if (moveCount % 10 == 1) {
-                        Log.d("ModXDebug", "onTouchEvent MOVE #" + moveCount
-                                + " newX=" + newX + " newY=" + newY);
-                    }
-                    menuFrame.setAlpha(0.75f);
-                    moveWindow(newX, newY);
-                    return true;
-                case MotionEvent.ACTION_UP:
-                case MotionEvent.ACTION_CANCEL:
-                    Log.d("ModXDebug", "onTouchEvent " + Menu.actionName(act)
-                            + " totalMoves=" + moveCount);
-                    menuFrame.setAlpha(1f);
-                    dragging = false;
-                    return true;
-            }
-            return false;
+            return super.dispatchTouchEvent(ev);
         }
     };
 
@@ -2134,8 +2100,6 @@ private void showLoginScreen() {
             new FrameLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT));
     contentLayout.addView(dragWrapper,
             new LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT));
-
-    Log.d("ModXDebug", "dragWrapper added to contentLayout");
 
     if (isViewCollapsed()) {
         menuFrame.post(new Runnable() {
@@ -2154,7 +2118,6 @@ private void showLoginScreen() {
                 int orientation = Menu.this.getContext.getResources()
                                         .getConfiguration().orientation;
                 int targetH;
-
                 if (orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE) {
                     targetH = screenH() - dp(15);
                 } else {
@@ -2163,7 +2126,6 @@ private void showLoginScreen() {
                         targetH = screenH() - vmParams.y - dp(10);
                     }
                 }
-
                 if (lp.height != targetH) {
                     lp.height = targetH;
                     menuFrame.setLayoutParams(lp);
@@ -2171,16 +2133,9 @@ private void showLoginScreen() {
                         mWindowManager.updateViewLayout(rootFrame, vmParams);
                     }
                 }
-                Log.d("ModXDebug", "menuFrame height set to " + targetH
-                        + " (menuFrame W=" + menuFrame.getWidth()
-                        + " H=" + menuFrame.getHeight() + ")");
-            } catch (Exception e) {
-                Log.e("ModXDebug", "resize error", e);
-            }
+            } catch (Exception ignored) { }
         }
     }, 250);
-
-    Log.d("ModXDebug", "=== showLoginScreen DONE ===");
 }
     @SuppressLint("WrongConstant")
     public void SetWindowManagerWindowService() {
