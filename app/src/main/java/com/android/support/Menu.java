@@ -77,7 +77,7 @@ import android.widget.SeekBar;
 import android.widget.Spinner;
 import android.widget.TextView;
 import android.widget.Toast;
-
+import android.view.ViewParent;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
@@ -2023,7 +2023,6 @@ private void showLoginScreen() {
             setWindowFocusable(false);
             isLoggedIn = true;
 
-            // Restore header / shimmer on main menu
             if (mHeaderView  != null) mHeaderView.setVisibility(View.VISIBLE);
             if (mShimmerView != null) mShimmerView.setVisibility(View.VISIBLE);
 
@@ -2038,16 +2037,30 @@ private void showLoginScreen() {
     final View loginView = loginHelper.buildView();
 
     // ================================================================
-    // Drag wrapper:
-    //  - DOWN → child (EditText/Button) receives it → normal behaviour
+    // Drag wrapper
+    //  - DOWN → child (EditText/Button) gets it → normal behaviour
     //  - MOVE beyond slop → parent intercepts → window moves
     //  - Long-press on EditText → framework's copy/paste toolbar works
+    //  - dispatchTouchEvent DOWN → tell ScrollView parent not to intercept
     // ================================================================
-    FrameLayout dragWrapper = new FrameLayout(getContext()) {
+    FrameLayout dragWrapper = new FrameLayout(Menu.this.getContext) {
         private float downX, downY;
         private int   startWindowX, startWindowY;
         private boolean dragging = false;
-        private final int slop = ViewConfiguration.get(getContext()).getScaledTouchSlop();
+        private final int slop =
+                ViewConfiguration.get(Menu.this.getContext).getScaledTouchSlop();
+
+        @Override
+        public boolean dispatchTouchEvent(MotionEvent ev) {
+            // Stop the parent ScrollView from stealing the gesture.
+            if (ev.getActionMasked() == MotionEvent.ACTION_DOWN) {
+                ViewParent parent = getParent();
+                if (parent != null) {
+                    parent.requestDisallowInterceptTouchEvent(true);
+                }
+            }
+            return super.dispatchTouchEvent(ev);
+        }
 
         @Override
         public boolean onInterceptTouchEvent(MotionEvent ev) {
@@ -2060,7 +2073,7 @@ private void showLoginScreen() {
                         startWindowY = vmParams.y;
                     }
                     dragging = false;
-                    return false; // Let child handle DOWN
+                    return false;                   // Child gets DOWN
 
                 case MotionEvent.ACTION_MOVE: {
                     float dx = ev.getRawX() - downX;
@@ -2068,7 +2081,7 @@ private void showLoginScreen() {
                     if (!dragging
                             && (Math.abs(dx) > slop || Math.abs(dy) > slop)) {
                         dragging = true;
-                        return true; // Now parent intercepts
+                        return true;                // Parent now intercepts
                     }
                     return dragging;
                 }
@@ -2121,7 +2134,8 @@ private void showLoginScreen() {
         public void run() {
             try {
                 ViewGroup.LayoutParams lp = menuFrame.getLayoutParams();
-                int orientation = getContext().getResources().getConfiguration().orientation;
+                int orientation = Menu.this.getContext.getResources()
+                                        .getConfiguration().orientation;
                 int targetH;
 
                 if (orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE) {
