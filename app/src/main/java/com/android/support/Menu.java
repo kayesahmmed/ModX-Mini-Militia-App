@@ -2040,7 +2040,7 @@ loginView.setOnTouchListener(new View.OnTouchListener() {
     private float initialTouchX, initialTouchY;
     private int   initialX, initialY;
     private boolean moved;
-    private final int slop = ViewConfiguration.get(getContext()).getScaledTouchSlop();
+    private final int slop = ViewConfiguration.get(getContext).getScaledTouchSlop();
 
     @Override
     public boolean onTouch(View v, MotionEvent ev) {
