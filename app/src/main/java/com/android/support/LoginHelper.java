@@ -68,12 +68,14 @@ public class LoginHelper {
 
     // ---- Palette (Obsidian & Gilt) ----
     private static final int COLOR_BG_1        = Color.parseColor("#0C0E14");
-    private static final int COLOR_CARD        = Color.parseColor("#181B24");
-    private static final int COLOR_CARD_TOP    = Color.parseColor("#20232E");
-    private static final int COLOR_BORDER      = Color.parseColor("#2E313C");
-    private static final int COLOR_FIELD_BG    = Color.parseColor("#14161F");
-    private static final int COLOR_FIELD_BG_HI = Color.parseColor("#191C27");
-    private static final int COLOR_FIELD_BORD  = Color.parseColor("#2A2D38");
+    // Card is now transparent (blends with menu bg)
+    private static final int COLOR_CARD        = Color.TRANSPARENT;
+    private static final int COLOR_CARD_TOP    = Color.TRANSPARENT;
+    private static final int COLOR_BORDER      = Color.TRANSPARENT;
+    // Input field: ash / dark gray
+    private static final int COLOR_FIELD_BG    = Color.parseColor("#2A2D35");
+    private static final int COLOR_FIELD_BG_HI = Color.parseColor("#33363F");
+    private static final int COLOR_FIELD_BORD  = Color.parseColor("#3E424C");
     private static final int COLOR_ACCENT      = Color.parseColor("#D8B36C");
     private static final int COLOR_ACCENT_HI   = Color.parseColor("#F1DFAE");
     private static final int COLOR_ACCENT_DEEP = Color.parseColor("#C79C56");
@@ -82,7 +84,7 @@ public class LoginHelper {
     private static final int COLOR_WARN        = Color.parseColor("#E0A94D");
     private static final int COLOR_TEXT        = Color.parseColor("#ECE8DF");
     private static final int COLOR_TEXT_MUTED  = Color.parseColor("#8D8F99");
-    private static final int COLOR_HINT        = Color.parseColor("#5C5F6A");
+    private static final int COLOR_HINT        = Color.parseColor("#7A7D87");
     private static final int COLOR_ON_ACCENT   = Color.parseColor("#14161F");
     private static final int COLOR_CHIP_BG     = withAlpha(COLOR_ACCENT, 0x20);
 
@@ -131,7 +133,7 @@ public class LoginHelper {
     }
 
     // ================================================================
-    // Build login view  (compact, no scroll, no brand logo, no labels)
+    // Build login view  (transparent card, ash input fields, no scroll)
     // ================================================================
     public View buildView() {
         FrameLayout wrapper = new FrameLayout(ctx);
@@ -140,25 +142,18 @@ public class LoginHelper {
         LinearLayout root = new LinearLayout(ctx);
         root.setOrientation(LinearLayout.VERTICAL);
         root.setGravity(Gravity.TOP | Gravity.CENTER_HORIZONTAL);
-        root.setPadding(dp(4), dp(4), dp(4), dp(4));
+        root.setPadding(0, 0, 0, 0);
 
         final LinearLayout card = new LinearLayout(ctx);
         card.setOrientation(LinearLayout.VERTICAL);
-        card.setPadding(dp(16), dp(14), dp(16), dp(12));
+        // Top padding small so "Welcome Back" sits closer to the top
+        card.setPadding(dp(14), dp(4), dp(14), dp(6));
         card.setGravity(Gravity.CENTER_HORIZONTAL);
-
-        GradientDrawable cardBg = new GradientDrawable(
-                GradientDrawable.Orientation.TOP_BOTTOM,
-                new int[]{COLOR_CARD_TOP, COLOR_CARD});
-        cardBg.setCornerRadius(dp(18));
-        cardBg.setStroke(dp(1), COLOR_BORDER);
-        card.setBackground(cardBg);
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-            card.setElevation(dp(10));
-        }
+        // No background, no border — transparent so it blends with menu bg
+        card.setBackgroundColor(Color.TRANSPARENT);
         root.addView(card);
 
-        // ---- SIMPLE TEXT HEADER (no logo, no brand) ----
+        // ---- TEXT HEADER (tight to top, no logo, no brand) ----
         card.addView(makeSimpleHeader());
 
         // ---- USERNAME FIELD (no label above) ----
@@ -177,8 +172,8 @@ public class LoginHelper {
         userBox.addView(editUser);
         userBox.addView(makePasteButton(editUser));
 
-        LinearLayout.LayoutParams uLp = new LinearLayout.LayoutParams(MATCH_PARENT, dp(46));
-        uLp.setMargins(0, 0, 0, dp(10));
+        LinearLayout.LayoutParams uLp = new LinearLayout.LayoutParams(MATCH_PARENT, dp(44));
+        uLp.setMargins(0, 0, 0, dp(8));
         userBox.setLayoutParams(uLp);
         card.addView(userBox);
 
@@ -199,8 +194,8 @@ public class LoginHelper {
         passBox.addView(editPass);
         passBox.addView(makePasteButton(editPass));
 
-        LinearLayout.LayoutParams pLp = new LinearLayout.LayoutParams(MATCH_PARENT, dp(46));
-        pLp.setMargins(0, 0, 0, dp(8));
+        LinearLayout.LayoutParams pLp = new LinearLayout.LayoutParams(MATCH_PARENT, dp(44));
+        pLp.setMargins(0, 0, 0, dp(6));
         passBox.setLayoutParams(pLp);
         card.addView(passBox);
 
@@ -359,12 +354,12 @@ public class LoginHelper {
 
         // ---- ENTRANCE ANIMATION ----
         card.setAlpha(0f);
-        card.setTranslationY(dp(14));
+        card.setTranslationY(dp(10));
         card.getViewTreeObserver().addOnGlobalLayoutListener(new ViewTreeObserver.OnGlobalLayoutListener() {
             @Override
             public void onGlobalLayout() {
                 card.getViewTreeObserver().removeOnGlobalLayoutListener(this);
-                card.animate().alpha(1f).translationY(0f).setDuration(380)
+                card.animate().alpha(1f).translationY(0f).setDuration(340)
                         .setInterpolator(new DecelerateInterpolator(1.6f)).start();
             }
         });
@@ -373,14 +368,15 @@ public class LoginHelper {
     }
 
     // ================================================================
-    // Simple text-only header (no logo, no brand, no settings)
+    // Text-only header  — "Welcome Back" pushed to top, no logo
     // ================================================================
     private View makeSimpleHeader() {
         LinearLayout header = new LinearLayout(ctx);
         header.setOrientation(LinearLayout.VERTICAL);
         header.setGravity(Gravity.CENTER_HORIZONTAL);
         LinearLayout.LayoutParams hLp = new LinearLayout.LayoutParams(WRAP_CONTENT, WRAP_CONTENT);
-        hLp.setMargins(0, 0, 0, dp(14));
+        // very small margin so title hugs the top
+        hLp.setMargins(0, 0, 0, dp(10));
         header.setLayoutParams(hLp);
 
         TextView title = new TextView(ctx);
@@ -398,7 +394,7 @@ public class LoginHelper {
         subtitle.setTypeface(tfRegular);
         subtitle.setGravity(Gravity.CENTER);
         LinearLayout.LayoutParams sLp = new LinearLayout.LayoutParams(WRAP_CONTENT, WRAP_CONTENT);
-        sLp.setMargins(0, dp(4), 0, 0);
+        sLp.setMargins(0, dp(3), 0, 0);
         subtitle.setLayoutParams(sLp);
         header.addView(subtitle);
 
@@ -406,15 +402,15 @@ public class LoginHelper {
     }
 
     // ================================================================
-    // Field builders
+    // Field builders — ash / dark gray input box
     // ================================================================
     private LinearLayout makeFieldContainer() {
         LinearLayout box = new LinearLayout(ctx);
         box.setOrientation(LinearLayout.HORIZONTAL);
         box.setGravity(Gravity.CENTER_VERTICAL);
-        GradientDrawable bg = new GradientDrawable(
-                GradientDrawable.Orientation.TOP_BOTTOM,
-                new int[]{COLOR_FIELD_BG_HI, COLOR_FIELD_BG});
+        // Solid ash-gray background
+        GradientDrawable bg = new GradientDrawable();
+        bg.setColor(COLOR_FIELD_BG);
         bg.setCornerRadius(dp(12));
         bg.setStroke(dp(1), COLOR_FIELD_BORD);
         box.setBackground(bg);
@@ -424,19 +420,18 @@ public class LoginHelper {
 
     private FrameLayout makeIconChip(int iconType) {
         FrameLayout chip = new FrameLayout(ctx);
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(dp(32), dp(32));
-        lp.setMargins(dp(6), 0, dp(2), 0);
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(dp(30), dp(30));
+        lp.setMargins(dp(7), 0, dp(4), 0);
         chip.setLayoutParams(lp);
 
-        GradientDrawable chipBg = new GradientDrawable();
-        chipBg.setShape(GradientDrawable.OVAL);
-        chipBg.setColor(COLOR_CHIP_BG);
-        chip.setBackground(chipBg);
+        // No circular chip background — just a bare icon for a cleaner look
+        chip.setBackgroundColor(Color.TRANSPARENT);
 
         ImageView iv = new ImageView(ctx);
+        // Thinner icon: darker muted tone for lighter feel
         iv.setImageDrawable(new FieldIcon(iconType, COLOR_TEXT_MUTED));
         iv.setScaleType(ImageView.ScaleType.FIT_CENTER);
-        FrameLayout.LayoutParams ivLp = new FrameLayout.LayoutParams(dp(16), dp(16), Gravity.CENTER);
+        FrameLayout.LayoutParams ivLp = new FrameLayout.LayoutParams(dp(17), dp(17), Gravity.CENTER);
         iv.setLayoutParams(ivLp);
         chip.addView(iv);
         return chip;
@@ -446,7 +441,7 @@ public class LoginHelper {
         EditText e = new EditText(ctx);
         e.setHintTextColor(COLOR_HINT);
         e.setTextColor(COLOR_TEXT);
-        e.setTextSize(12.5f);
+        e.setTextSize(13f);
         e.setTypeface(tfRegular);
         e.setSingleLine(true);
         e.setFocusable(true);
@@ -456,25 +451,56 @@ public class LoginHelper {
         e.setBackground(null);
         e.setIncludeFontPadding(false);
         e.setGravity(Gravity.CENTER_VERTICAL | Gravity.START);
-        e.setPadding(dp(8), 0, dp(10), 0);
+        e.setPadding(dp(2), 0, dp(10), 0);
         e.setHighlightColor(withAlpha(COLOR_ACCENT, 0x55));
         return e;
     }
 
+    /**
+     * Enable long-press cut / copy / paste / select-all.
+     * Uses the default ActionMode so the system toolbar always appears,
+     * and forces it to show all standard menu items.
+     */
     private void enableRichTextInteraction(final EditText e) {
         e.setLongClickable(true);
-        e.setTextIsSelectable(false);
+        e.setTextIsSelectable(true);              // allow selecting text
+        e.setCursorVisible(true);
+        e.setFocusableInTouchMode(true);
+
+        // Custom callback that keeps every default menu item
+        // (Cut / Copy / Paste / Select all / Share etc.)
         e.setCustomSelectionActionModeCallback(new ActionMode.Callback() {
-            @Override public boolean onCreateActionMode(ActionMode mode, Menu menu) { return true; }
-            @Override public boolean onPrepareActionMode(ActionMode mode, Menu menu) { return true; }
-            @Override public boolean onActionItemClicked(ActionMode mode, MenuItem item) { return false; }
+            @Override public boolean onCreateActionMode(ActionMode mode, Menu menu) {
+                // Return true → keep the default menu items intact
+                return true;
+            }
+            @Override public boolean onPrepareActionMode(ActionMode mode, Menu menu) {
+                // Force Show As Action so nothing collapses into overflow
+                for (int i = 0; i < menu.size(); i++) {
+                    MenuItem it = menu.getItem(i);
+                    it.setShowAsAction(MenuItem.SHOW_AS_ACTION_IF_ROOM
+                            | MenuItem.SHOW_AS_ACTION_WITH_TEXT);
+                }
+                return true;
+            }
+            @Override public boolean onActionItemClicked(ActionMode mode, MenuItem item) {
+                // Let the framework handle the action
+                return false;
+            }
             @Override public void onDestroyActionMode(ActionMode mode) { }
         });
+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
             e.setCustomInsertionActionModeCallback(new ActionMode.Callback() {
-                @Override public boolean onCreateActionMode(ActionMode mode, Menu menu) { return true; }
-                @Override public boolean onPrepareActionMode(ActionMode mode, Menu menu) { return true; }
-                @Override public boolean onActionItemClicked(ActionMode mode, MenuItem item) { return false; }
+                @Override public boolean onCreateActionMode(ActionMode mode, Menu menu) {
+                    return true;
+                }
+                @Override public boolean onPrepareActionMode(ActionMode mode, Menu menu) {
+                    return true;
+                }
+                @Override public boolean onActionItemClicked(ActionMode mode, MenuItem item) {
+                    return false;
+                }
                 @Override public void onDestroyActionMode(ActionMode mode) { }
             });
         }
@@ -486,7 +512,7 @@ public class LoginHelper {
         btn.setScaleType(ImageView.ScaleType.FIT_CENTER);
         btn.setPadding(dp(7), dp(7), dp(7), dp(7));
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(dp(32), dp(32));
-        lp.setMargins(dp(2), 0, dp(5), 0);
+        lp.setMargins(dp(2), 0, dp(6), 0);
         btn.setLayoutParams(lp);
         btn.setClickable(true);
         btn.setFocusable(true);
@@ -566,19 +592,6 @@ public class LoginHelper {
                     }
                 });
                 va.start();
-
-                final GradientDrawable chipBg = (GradientDrawable) chip.getBackground();
-                int chipFrom = hasFocus ? COLOR_CHIP_BG : withAlpha(COLOR_ACCENT, 0x55);
-                int chipTo   = hasFocus ? withAlpha(COLOR_ACCENT, 0x55) : COLOR_CHIP_BG;
-                ValueAnimator cva = ValueAnimator.ofObject(new ArgbEvaluator(), chipFrom, chipTo);
-                cva.setDuration(200);
-                cva.addUpdateListener(new ValueAnimator.AnimatorUpdateListener() {
-                    @Override
-                    public void onAnimationUpdate(ValueAnimator a) {
-                        chipBg.setColor((Integer) a.getAnimatedValue());
-                    }
-                });
-                cva.start();
 
                 FieldIcon fi = (FieldIcon) icon.getDrawable();
                 if (fi != null) {
@@ -1259,7 +1272,7 @@ public class LoginHelper {
     }
 
     // ================================================================
-    // FieldIcon
+    // FieldIcon — thinner stroke (1.5 instead of 2.0)
     // ================================================================
     private static class FieldIcon extends Drawable {
         static final int USER = 0;
@@ -1300,7 +1313,8 @@ public class LoginHelper {
             if (b.width() <= 0 || b.height() <= 0) return;
             float size = Math.min(b.width(), b.height());
             float s = size / 24f;
-            paint.setStrokeWidth(2.0f * s);
+            // ↓ Thinner icons (was 2.0)
+            paint.setStrokeWidth(1.5f * s);
 
             canvas.save();
             canvas.translate(b.left + (b.width() - size) / 2f,
@@ -1323,9 +1337,10 @@ public class LoginHelper {
                 path.cubicTo(13.8f, 3f, 15.5f, 5.0f, 15.5f, 7.5f);
                 path.lineTo(15.5f, 10.5f);
                 canvas.drawPath(path, paint);
+                // Smaller keyhole so the icon feels lighter
                 Paint.Style prevStyle = paint.getStyle();
                 paint.setStyle(Paint.Style.FILL);
-                canvas.drawCircle(12f, 15.2f, 1.35f, paint);
+                canvas.drawCircle(12f, 15.2f, 1.2f, paint);
                 path.reset();
                 path.moveTo(12f, 15.9f);
                 path.lineTo(12f, 17.6f);
@@ -1342,7 +1357,7 @@ public class LoginHelper {
     }
 
     // ================================================================
-    // PasteIcon
+    // PasteIcon — thinner stroke (1.5)
     // ================================================================
     private static class PasteIcon extends Drawable {
         private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -1362,7 +1377,8 @@ public class LoginHelper {
             if (b.width() <= 0 || b.height() <= 0) return;
             float size = Math.min(b.width(), b.height());
             float s = size / 24f;
-            paint.setStrokeWidth(1.8f * s);
+            // ↓ Thinner (was 1.8)
+            paint.setStrokeWidth(1.4f * s);
 
             canvas.save();
             canvas.translate(b.left + (b.width() - size) / 2f,
