@@ -66,18 +66,19 @@ public class LoginHelper {
         void onChanged(boolean checked);
     }
 
+    // ================= GREEN THEME =================
     private static final int COLOR_FIELD_BG    = Color.parseColor("#2A2D35");
     private static final int COLOR_FIELD_BORD  = Color.parseColor("#3E424C");
-    private static final int COLOR_ACCENT      = Color.parseColor("#D8B36C");
-    private static final int COLOR_ACCENT_HI   = Color.parseColor("#F1DFAE");
-    private static final int COLOR_ACCENT_DEEP = Color.parseColor("#C79C56");
+    private static final int COLOR_ACCENT      = Color.parseColor("#3DDB87");
+    private static final int COLOR_ACCENT_HI   = Color.parseColor("#6EE7A9");
+    private static final int COLOR_ACCENT_DEEP = Color.parseColor("#2BB673");
     private static final int COLOR_SUCCESS     = Color.parseColor("#4FBA82");
     private static final int COLOR_DANGER      = Color.parseColor("#C25C56");
     private static final int COLOR_WARN        = Color.parseColor("#E0A94D");
     private static final int COLOR_TEXT        = Color.parseColor("#ECE8DF");
     private static final int COLOR_TEXT_MUTED  = Color.parseColor("#8D8F99");
     private static final int COLOR_HINT        = Color.parseColor("#7A7D87");
-    private static final int COLOR_ON_ACCENT   = Color.parseColor("#14161F");
+    private static final int COLOR_ON_ACCENT   = Color.parseColor("#0C2418");
 
     private static final int COLOR_DIALOG_BG    = Color.parseColor("#1D2029");
     private static final int COLOR_DIALOG_BG_TOP= Color.parseColor("#242835");
@@ -85,11 +86,10 @@ public class LoginHelper {
     private static final int COLOR_DIALOG_SUB   = Color.parseColor("#A7A9B2");
     private static final int COLOR_DIALOG_SUB2  = Color.parseColor("#7D7F89");
     private static final int COLOR_DIALOG_BODY  = Color.parseColor("#C6C8D0");
-    private static final int COLOR_CTA          = Color.parseColor("#D8B36C");
+    private static final int COLOR_CTA          = Color.parseColor("#3DDB87");
     private static final int COLOR_OUTLINE      = Color.parseColor("#3A3D49");
 
-    // Native-style floating toolbar colors
-    private static final int COLOR_TOOLBAR_BG     = 0xFF2E2E2E;  // dark gray
+    private static final int COLOR_TOOLBAR_BG     = 0xFF2E2E2E;
     private static final int COLOR_TOOLBAR_BORDER = 0xFF3D3D3D;
     private static final int COLOR_TOOLBAR_TEXT   = 0xFFFFFFFF;
     private static final int COLOR_TOOLBAR_DIV    = 0xFF4A4A4A;
@@ -112,7 +112,6 @@ public class LoginHelper {
     private boolean loginInProgress = false;
     private boolean keyExpiredDialogShowing = false;
 
-    // Native-style floating toolbar popup
     private PopupWindow copyPastePopup;
 
     private Typeface tfRegular, tfMedium, tfBold;
@@ -132,9 +131,6 @@ public class LoginHelper {
                 ctx.getResources().getDisplayMetrics());
     }
 
-    // ================================================================
-    // BUILD VIEW
-    // ================================================================
     public View buildView() {
         FrameLayout wrapper = new FrameLayout(ctx);
         wrapper.setBackgroundColor(Color.TRANSPARENT);
@@ -152,7 +148,6 @@ public class LoginHelper {
 
         card.addView(makeSimpleHeader());
 
-        // ===== USERNAME FIELD =====
         userBox = makeFieldContainer();
         userChip = makeIconChip(FieldIcon.USER);
         userIconView = (ImageView) userChip.getChildAt(0);
@@ -173,7 +168,6 @@ public class LoginHelper {
         userBox.setLayoutParams(uLp);
         card.addView(userBox);
 
-        // ===== PASSWORD FIELD =====
         passBox = makeFieldContainer();
         passChip = makeIconChip(FieldIcon.LOCK);
         passIconView = (ImageView) passChip.getChildAt(0);
@@ -198,7 +192,6 @@ public class LoginHelper {
         attachFieldFocus(userBox, editUser, userIconView, userChip, "user");
         attachFieldFocus(passBox, editPass, passIconView, passChip, "pass");
 
-        // IME actions
         editUser.setOnEditorActionListener(new TextView.OnEditorActionListener() {
             @Override
             public boolean onEditorAction(TextView v, int actionId, KeyEvent event) {
@@ -227,7 +220,6 @@ public class LoginHelper {
             }
         });
 
-        // CHECKBOXES
         LinearLayout cbRow = new LinearLayout(ctx);
         cbRow.setOrientation(LinearLayout.HORIZONTAL);
         cbRow.setGravity(Gravity.CENTER_VERTICAL);
@@ -270,7 +262,6 @@ public class LoginHelper {
         cbRow.addView(showCb);
         card.addView(cbRow);
 
-        // LOGIN BUTTON
         loginBtn = new Button(ctx);
         loginBtn.setText("SIGN IN");
         loginBtn.setAllCaps(false);
@@ -510,9 +501,6 @@ public class LoginHelper {
         }
     }
 
-    // ================================================================
-    // MANUAL LONG-PRESS → Native-style floating toolbar
-    // ================================================================
     private void attachFieldFocus(final LinearLayout box, final EditText et,
                                    final ImageView icon, final FrameLayout chip,
                                    final String tag) {
@@ -563,7 +551,6 @@ public class LoginHelper {
                             @Override
                             public void run() {
                                 longPressFired = true;
-                                Log.d(DBG, "Long-press fired for " + tag);
                                 onLongPress(et, localX, localY);
                             }
                         };
@@ -608,7 +595,6 @@ public class LoginHelper {
     private void onLongPress(EditText et, float x, float y) {
         try {
             et.requestFocus();
-            // Select word at touch position (native behavior)
             CharSequence text = et.getText();
             if (text != null && text.length() > 0) {
                 int offset = et.getOffsetForPosition(x, y);
@@ -626,8 +612,6 @@ public class LoginHelper {
                     et.selectAll();
                 }
             }
-
-            // Slight delay so the selection is applied
             et.post(new Runnable() {
                 @Override
                 public void run() {
@@ -646,12 +630,6 @@ public class LoginHelper {
         }
     }
 
-    /**
-     * Native-style dark pill toolbar:
-     *  - Rounded background (#2E2E2E)
-     *  - White text items with vertical dividers
-     *  - High elevation, floats above/below the EditText
-     */
     private void showCopyPasteToolbar(final EditText et) {
         dismissCopyPastePopup();
 
@@ -680,31 +658,26 @@ public class LoginHelper {
         }
         if (labels.isEmpty()) return;
 
-        // Build the pill-shaped toolbar
         LinearLayout toolbar = new LinearLayout(ctx);
         toolbar.setOrientation(LinearLayout.HORIZONTAL);
         toolbar.setGravity(Gravity.CENTER_VERTICAL);
 
         GradientDrawable bg = new GradientDrawable();
         bg.setColor(COLOR_TOOLBAR_BG);
-        bg.setCornerRadius(dp(28));       // pill shape
+        bg.setCornerRadius(dp(8));
         bg.setStroke(dp(1), COLOR_TOOLBAR_BORDER);
         toolbar.setBackground(bg);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
             toolbar.setElevation(dp(12));
         }
 
-        int padH = dp(6);
-        int padV = dp(4);
-        toolbar.setPadding(padH, padV, padH, padV);
-
-        final PopupWindow[] popupRef = new PopupWindow[1];
+        toolbar.setPadding(dp(4), dp(3), dp(4), dp(3));
 
         for (int i = 0; i < labels.size(); i++) {
             if (i > 0) {
                 View div = new View(ctx);
                 LinearLayout.LayoutParams divLp =
-                        new LinearLayout.LayoutParams(dp(1), dp(20));
+                        new LinearLayout.LayoutParams(dp(1), dp(18));
                 divLp.setMargins(dp(2), 0, dp(2), 0);
                 div.setLayoutParams(divLp);
                 div.setBackgroundColor(COLOR_TOOLBAR_DIV);
@@ -717,14 +690,14 @@ public class LoginHelper {
             tv.setTextColor(COLOR_TOOLBAR_TEXT);
             tv.setTextSize(14f);
             tv.setTypeface(Typeface.create("sans-serif", Typeface.NORMAL));
-            tv.setPadding(dp(16), dp(10), dp(16), dp(10));
+            tv.setPadding(dp(14), dp(9), dp(14), dp(9));
             tv.setClickable(true);
             tv.setFocusable(true);
 
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
                 ColorStateList rippleCol = ColorStateList.valueOf(0x40FFFFFF);
                 GradientDrawable mask = new GradientDrawable();
-                mask.setCornerRadius(dp(20));
+                mask.setCornerRadius(dp(6));
                 mask.setColor(Color.WHITE);
                 RippleDrawable ripple = new RippleDrawable(rippleCol, null, mask);
                 tv.setBackground(ripple);
@@ -756,10 +729,8 @@ public class LoginHelper {
             popup.setElevation(dp(12));
         }
 
-        popupRef[0] = popup;
         this.copyPastePopup = popup;
 
-        // Measure
         toolbar.measure(
                 View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED),
                 View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED));
@@ -773,25 +744,28 @@ public class LoginHelper {
         int ew = et.getWidth();
         int eh = et.getHeight();
 
-        int screenH = ctx.getResources().getDisplayMetrics().heightPixels;
         int screenW = ctx.getResources().getDisplayMetrics().widthPixels;
+        int screenH = ctx.getResources().getDisplayMetrics().heightPixels;
 
-        // Center horizontally on the EditText
         int x = ex + (ew - tw) / 2;
-        // Prefer above the field
-        int y = ey - th - dp(6);
-        if (y < dp(8)) {
-            // Not enough space above; show below
-            y = ey + eh + dp(6);
-        }
-        // Clamp inside screen
         if (x < dp(4)) x = dp(4);
         if (x + tw > screenW - dp(4)) x = screenW - tw - dp(4);
-        if (y + th > screenH - dp(4)) y = screenH - th - dp(4);
+
+        int gap = dp(8);
+        int yAbove = ey - th - gap;
+        int yBelow = ey + eh + gap;
+
+        int y;
+        if (yAbove >= dp(8)) {
+            y = yAbove;
+        } else if (yBelow + th <= screenH - dp(8)) {
+            y = yBelow;
+        } else {
+            y = dp(8);
+        }
 
         try {
             popup.showAtLocation(et, Gravity.NO_GRAVITY, x, y);
-            Log.d(DBG, "Toolbar shown at (" + x + "," + y + ") size=" + tw + "x" + th);
         } catch (Exception e) {
             Log.e(DBG, "popup show failed", e);
             copyPastePopup = null;
@@ -855,9 +829,6 @@ public class LoginHelper {
         }
     }
 
-    // ================================================================
-    // LOGIN FLOW
-    // ================================================================
     private void performLogin() {
         if (loginInProgress) return;
 
@@ -1002,9 +973,6 @@ public class LoginHelper {
         });
     }
 
-    // ================================================================
-    // DIALOGS
-    // ================================================================
     private LinearLayout newDialogCard() {
         LinearLayout card = new LinearLayout(ctx);
         card.setOrientation(LinearLayout.VERTICAL);
@@ -1364,9 +1332,6 @@ public class LoginHelper {
         return (color & 0x00FFFFFF) | ((alpha & 0xFF) << 24);
     }
 
-    // ================================================================
-    // ICONS
-    // ================================================================
     private static class FieldIcon extends Drawable {
         static final int USER = 0;
         static final int LOCK = 1;

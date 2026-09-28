@@ -94,51 +94,46 @@ public class Menu {
     public static final String TAG = "Mod_Menu";
 
     // ---- "Obsidian & Gilt" palette : graphite-navy surfaces, champagne-gold accent ----
-    int COLOR_ACCENT      = Color.parseColor("#D8B36C");   // champagne gold (primary accent)
-    int COLOR_ACCENT_2    = Color.parseColor("#A9772F");   // antique bronze (gradient partner)
-    int COLOR_ACCENT_3    = Color.parseColor("#F1DFAE");   // pale gold sheen (bridge / highlight)
-    int COLOR_SUCCESS     = Color.parseColor("#4FBA82");   // muted emerald
-    int COLOR_DANGER      = Color.parseColor("#C25C56");   // muted brick red
-    // Surfaces
-    int COLOR_BG_TOP      = Color.parseColor("#12141C");
-    int COLOR_BG_BOTTOM   = Color.parseColor("#08090D");
-    int COLOR_CARD        = Color.parseColor("#181B24");
-    int COLOR_CARD_HI     = Color.parseColor("#20242F");
-    int COLOR_CARD_BORDER = Color.parseColor("#2E313C");
-    int COLOR_TRACK       = Color.parseColor("#282B35");
-    int COLOR_TEXT_MUTED  = Color.parseColor("#8D8F99");
-    // Gradient buttons
-    int BTN_GRAD_1        = Color.parseColor("#2E3550");
-    int BTN_GRAD_2        = Color.parseColor("#4C5C8C");
+    // ==== DEFAULT ACCENT = SKY BLUE (changeable via Settings) ====
+int COLOR_ACCENT      = Color.parseColor("#5DADE2");
+int COLOR_ACCENT_2    = Color.parseColor("#2E86C1");
+int COLOR_ACCENT_3    = Color.parseColor("#85C1E9");
+int COLOR_SUCCESS     = Color.parseColor("#4FBA82");
+int COLOR_DANGER      = Color.parseColor("#C25C56");
 
-    // Legacy names (kept so old references keep working)
-    int TEXT_COLOR            = Color.parseColor("#D8B36C");
-    int TEXT_COLOR_2          = Color.parseColor("#ECE8DF");
-    int BTN_COLOR             = Color.parseColor("#D8B36C");
-    int MENU_BG_COLOR         = Color.parseColor("#0C0E14");
-    int MENU_FEATURE_BG_COLOR = Color.parseColor("#181B24");
-    int BORDER_COLOR          = Color.parseColor("#D8B36C");
+// ==== FIXED GREEN GLOW (both menus) ====
+final int GLOW_COLOR_1 = Color.parseColor("#3DDB87");
+final int GLOW_COLOR_2 = Color.parseColor("#2BB673");
 
-    // Default (design) menu size - includes the outer glow padding
-    int MENU_WIDTH  = 272;
-    int MENU_HEIGHT = 352;
+int COLOR_BG_TOP      = Color.parseColor("#12141C");
+int COLOR_BG_BOTTOM   = Color.parseColor("#08090D");
+int COLOR_CARD        = Color.parseColor("#181B24");
+int COLOR_CARD_HI     = Color.parseColor("#20242F");
+int COLOR_CARD_BORDER = Color.parseColor("#2E313C");
+int COLOR_TRACK       = Color.parseColor("#282B35");
+int COLOR_TEXT_MUTED  = Color.parseColor("#8D8F99");
+int BTN_GRAD_1        = Color.parseColor("#2E3550");
+int BTN_GRAD_2        = Color.parseColor("#4C5C8C");
 
-    int POS_X = 5;
-    int POS_Y = 100;
-    float MENU_CORNER  = 20f;      // dp — softer, more premium silhouette
-    int   ICON_SIZE    = 50;
-    float ICON_ALPHA   = 1f;
-    int ToggleON  = Color.parseColor("#4FBA82");
-    int ToggleOFF = Color.parseColor("#C25C56");
-    int BtnON     = Color.parseColor("#4FBA82");
-    int BtnOFF    = Color.parseColor("#C25C56");
-    int CategoryBG    = Color.parseColor("#151822");
-    int SeekBarColor  = Color.parseColor("#D8B36C");
-    int SeekBarProgressColor = Color.parseColor("#D8B36C");
-    int CheckBoxColor = Color.parseColor("#D8B36C");
-    int RadioColor    = Color.parseColor("#D8B36C");
-    int CollapseColor = Color.parseColor("#171A24");
-    String NumberTxtColor = "#D8B36C";
+// Legacy refs
+int TEXT_COLOR            = Color.parseColor("#5DADE2");
+int TEXT_COLOR_2          = Color.parseColor("#ECE8DF");
+int BTN_COLOR             = Color.parseColor("#5DADE2");
+int MENU_BG_COLOR         = Color.parseColor("#0C0E14");
+int MENU_FEATURE_BG_COLOR = Color.parseColor("#181B24");
+int BORDER_COLOR          = Color.parseColor("#5DADE2");
+
+int ToggleON  = Color.parseColor("#4FBA82");
+int ToggleOFF = Color.parseColor("#C25C56");
+int BtnON     = Color.parseColor("#4FBA82");
+int BtnOFF    = Color.parseColor("#C25C56");
+int CategoryBG    = Color.parseColor("#151822");
+int SeekBarColor  = Color.parseColor("#5DADE2");
+int SeekBarProgressColor = Color.parseColor("#5DADE2");
+int CheckBoxColor = Color.parseColor("#5DADE2");
+int RadioColor    = Color.parseColor("#5DADE2");
+int CollapseColor = Color.parseColor("#171A24");
+String NumberTxtColor = "#5DADE2";
 
     // ---- Glow / frame ----
     private static final int   GLOW_DP   = 6;     // subtler ambient edge-light, not a neon halo
@@ -217,6 +212,26 @@ private int effectivePosY = POS_Y;
     public Menu(Context context) {
         getContext = context;
         Preferences.context = context;
+        
+        // ==== Load saved theme color ====
+try {
+    android.content.SharedPreferences themePrefs =
+            context.getSharedPreferences("menu_theme", Context.MODE_PRIVATE);
+    int savedAccent = themePrefs.getInt("accent", 0);
+    if (savedAccent != 0) {
+        COLOR_ACCENT   = savedAccent;
+        COLOR_ACCENT_2 = darken(savedAccent, 0.65f);
+        COLOR_ACCENT_3 = lighten(savedAccent, 0.35f);
+        TEXT_COLOR = savedAccent;
+        BTN_COLOR  = savedAccent;
+        BORDER_COLOR = savedAccent;
+        SeekBarColor = savedAccent;
+        SeekBarProgressColor = savedAccent;
+        CheckBoxColor = savedAccent;
+        RadioColor    = savedAccent;
+        NumberTxtColor = String.format("#%06X", (0xFFFFFF & savedAccent));
+    }
+} catch (Exception ignored) { }
 
         // Drop Poppins / Inter files into assets/fonts to upgrade the typography.
         fontRegular = loadFont(new String[]{"fonts/poppins_regular.ttf", "fonts/inter_regular.ttf"}, "sans-serif", Typeface.NORMAL);
@@ -251,8 +266,8 @@ if (initH < loginMinH && screenH() > loginMinH + effectivePosY) {
         menuFrame.setClipToPadding(false);
         final int inset = dp(GLOW_DP) + dp(BORDER_DP);
         menuFrame.setPadding(inset, inset, inset, inset);
-        glowDrawable = new GlowFrameDrawable(dpf(MENU_CORNER), dp(GLOW_DP), dp(BORDER_DP), COLOR_ACCENT,
-                                             new int[]{COLOR_ACCENT, COLOR_ACCENT_3, COLOR_ACCENT_2, COLOR_ACCENT});
+        glowDrawable = new GlowFrameDrawable(dpf(MENU_CORNER), dp(GLOW_DP), dp(BORDER_DP), GLOW_COLOR_1,
+                                     new int[]{GLOW_COLOR_1, GLOW_COLOR_2, GLOW_COLOR_1, GLOW_COLOR_2});
         menuFrame.setBackground(glowDrawable);
 
         // Re-apply responsive scale whenever the width changes
@@ -755,7 +770,7 @@ new Titanic().start(proTitle);
                     float p = (Float) a.getAnimatedValue();
                     double s = Math.sin(p * Math.PI * 2.0 * 4.0);
                     float intensity = (float) (0.78 + 0.22 * s);
-                    int color = (Integer) argb.evaluate((float) ((s + 1.0) / 2.0), COLOR_ACCENT, COLOR_ACCENT_2);
+                    int color = (Integer) argb.evaluate((float) ((s + 1.0) / 2.0), GLOW_COLOR_1, GLOW_COLOR_2);
                     glowDrawable.update(p, intensity, color);
                 }
             });
@@ -1804,19 +1819,36 @@ new Titanic().start(proTitle);
         }
 
         if (!categoryNames.contains("Power")) {
-            int idx = categoryNames.indexOf("Settings");
-            if (idx == -1) idx = categoryNames.size();
-            categoryNames.add(idx, "Power");
-            categoryViewsMap.put("Power", newCategoryLayout());
-        }
+    categoryNames.add("Power");
+    categoryViewsMap.put("Power", newCategoryLayout());
+}
 
-        if (categoryViewsMap.containsKey("Settings")) {
-            LinearLayout settingsLay = categoryViewsMap.get("Settings");
-            settingsLay.removeAllViews();
-            Switch(settingsLay, -1, "Save features preference", Preferences.loadPref);
-            Switch(settingsLay, -3, "Auto size", Preferences.isExpanded);
-            Button(settingsLay, -6, "Close Menu");
-        }
+// Ensure Settings category always exists
+if (!categoryNames.contains("Settings")) {
+    categoryNames.add("Settings");
+    categoryViewsMap.put("Settings", newCategoryLayout());
+}
+
+LinearLayout settingsLay = categoryViewsMap.get("Settings");
+if (settingsLay != null) {
+    settingsLay.removeAllViews();
+
+    Switch(settingsLay, -1, "Save features preference", Preferences.loadPref);
+    Switch(settingsLay, -3, "Auto size", Preferences.isExpanded);
+
+    Category(settingsLay, "Menu Color Theme");
+    Button(settingsLay, -20, "Blue (default)");
+    Button(settingsLay, -21, "Green");
+    Button(settingsLay, -22, "Purple");
+    Button(settingsLay, -23, "Red");
+    Button(settingsLay, -24, "Cyan");
+    Button(settingsLay, -25, "Pink");
+    Button(settingsLay, -26, "Orange");
+    Button(settingsLay, -27, "Gold");
+    Button(settingsLay, -28, "Reset to Blue");
+
+    Button(settingsLay, -6, "Close Menu");
+}
 
         setupSidebarTabs();
         rescaleAll();
@@ -2701,22 +2733,32 @@ private void setWindowFocusable(boolean focusable) {
         addPressAnim(button);
 
         button.setOnClickListener(new View.OnClickListener() {
-                @Override
-                public void onClick(View v) {
-                    switch (featNum) {
-                        case -6:
-                            if (categoryNames.size() > 0 && selectTabByName(categoryNames.get(0))) {
-                                return;
-                            }
-                            collapseMenu(ICON_ALPHA);
-                            break;
-                        case -100: stopChecking = true; break;
+        @Override
+        public void onClick(View v) {
+            switch (featNum) {
+                case -6:
+                    if (categoryNames.size() > 0 && selectTabByName(categoryNames.get(0))) {
+                        return;
                     }
-                    Preferences.changeFeatureInt(featName, featNum, 0);
-                }
-            });
-        linLayout.addView(button);
-    }
+                    collapseMenu(ICON_ALPHA);
+                    return;
+                case -100: stopChecking = true; break;
+
+                case -20: applyMenuColor(Color.parseColor("#5DADE2")); return;
+                case -21: applyMenuColor(Color.parseColor("#3DDB87")); return;
+                case -22: applyMenuColor(Color.parseColor("#9B59B6")); return;
+                case -23: applyMenuColor(Color.parseColor("#E74C3C")); return;
+                case -24: applyMenuColor(Color.parseColor("#1ABC9C")); return;
+                case -25: applyMenuColor(Color.parseColor("#FF69B4")); return;
+                case -26: applyMenuColor(Color.parseColor("#E67E22")); return;
+                case -27: applyMenuColor(Color.parseColor("#D8B36C")); return;
+                case -28: applyMenuColor(Color.parseColor("#5DADE2")); return;
+            }
+            Preferences.changeFeatureInt(featName, featNum, 0);
+        }
+    });
+    linLayout.addView(button);
+}
 
     private void ButtonLink(LinearLayout linLayout, final String featName, final String url) {
         final Button button = new Button(getContext);
@@ -3187,5 +3229,45 @@ private void setWindowFocusable(boolean focusable) {
         case MotionEvent.ACTION_OUTSIDE: return "OUTSIDE";
         default: return "OTHER_" + a;
     }
+}
+private static int darken(int color, float factor) {
+    int r = (int)(Color.red(color) * factor);
+    int g = (int)(Color.green(color) * factor);
+    int b = (int)(Color.blue(color) * factor);
+    return Color.argb(Color.alpha(color),
+        Math.max(0, Math.min(255, r)),
+        Math.max(0, Math.min(255, g)),
+        Math.max(0, Math.min(255, b)));
+}
+
+private static int lighten(int color, float factor) {
+    int r = Color.red(color) + (int)((255 - Color.red(color)) * factor);
+    int g = Color.green(color) + (int)((255 - Color.green(color)) * factor);
+    int b = Color.blue(color) + (int)((255 - Color.blue(color)) * factor);
+    return Color.argb(Color.alpha(color),
+        Math.max(0, Math.min(255, r)),
+        Math.max(0, Math.min(255, g)),
+        Math.max(0, Math.min(255, b)));
+}
+
+private void applyMenuColor(int baseColor) {
+    COLOR_ACCENT   = baseColor;
+    COLOR_ACCENT_2 = darken(baseColor, 0.65f);
+    COLOR_ACCENT_3 = lighten(baseColor, 0.35f);
+    TEXT_COLOR = baseColor;
+    BTN_COLOR  = baseColor;
+    BORDER_COLOR = baseColor;
+    SeekBarColor = baseColor;
+    SeekBarProgressColor = baseColor;
+    CheckBoxColor = baseColor;
+    RadioColor    = baseColor;
+    NumberTxtColor = String.format("#%06X", (0xFFFFFF & baseColor));
+
+    getContext.getSharedPreferences("menu_theme", Context.MODE_PRIVATE)
+        .edit().putInt("accent", baseColor).apply();
+
+    buildFeaturesAndCategories(GetFeatureList());
+    selectTabByName("Settings");
+    Toast.makeText(getContext, "Menu color updated", Toast.LENGTH_SHORT).show();
 }
 }
