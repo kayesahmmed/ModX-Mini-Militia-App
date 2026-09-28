@@ -29,11 +29,8 @@ import android.text.method.PasswordTransformationMethod;
 import android.util.DisplayMetrics;
 import android.util.Log;
 import android.util.TypedValue;
-import android.view.ActionMode;
 import android.view.Gravity;
 import android.view.KeyEvent;
-import android.view.Menu;
-import android.view.MenuItem;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
@@ -67,13 +64,7 @@ public class LoginHelper {
     private static final String TAG = "LoginHelper";
 
     // ---- Palette (Obsidian & Gilt) ----
-    private static final int COLOR_BG_1        = Color.parseColor("#0C0E14");
-    private static final int COLOR_CARD        = Color.TRANSPARENT;
-    private static final int COLOR_CARD_TOP    = Color.TRANSPARENT;
-    private static final int COLOR_BORDER      = Color.TRANSPARENT;
-    // Input field: ash / dark gray
     private static final int COLOR_FIELD_BG    = Color.parseColor("#2A2D35");
-    private static final int COLOR_FIELD_BG_HI = Color.parseColor("#33363F");
     private static final int COLOR_FIELD_BORD  = Color.parseColor("#3E424C");
     private static final int COLOR_ACCENT      = Color.parseColor("#D8B36C");
     private static final int COLOR_ACCENT_HI   = Color.parseColor("#F1DFAE");
@@ -85,7 +76,6 @@ public class LoginHelper {
     private static final int COLOR_TEXT_MUTED  = Color.parseColor("#8D8F99");
     private static final int COLOR_HINT        = Color.parseColor("#7A7D87");
     private static final int COLOR_ON_ACCENT   = Color.parseColor("#14161F");
-    private static final int COLOR_CHIP_BG     = withAlpha(COLOR_ACCENT, 0x20);
 
     private static final int COLOR_DIALOG_BG    = Color.parseColor("#1D2029");
     private static final int COLOR_DIALOG_BG_TOP= Color.parseColor("#242835");
@@ -169,7 +159,6 @@ public class LoginHelper {
         userBox.addView(editUser);
         userBox.addView(makePasteButton(editUser));
 
-        // Field height 48dp (was 44) for more breathing room
         LinearLayout.LayoutParams uLp = new LinearLayout.LayoutParams(MATCH_PARENT, dp(48));
         uLp.setMargins(0, 0, 0, dp(10));
         userBox.setLayoutParams(uLp);
@@ -197,7 +186,7 @@ public class LoginHelper {
         passBox.setLayoutParams(pLp);
         card.addView(passBox);
 
-        // ---- ATTACH FIELD FOCUS HANDLERS ----
+        // ---- FIELD FOCUS HANDLERS ----
         attachFieldFocus(userBox, editUser, userIconView, userChip);
         attachFieldFocus(passBox, editPass, passIconView, passChip);
 
@@ -367,14 +356,12 @@ public class LoginHelper {
 
     // ================================================================
     // Text-only header
-    // More padding below the subtitle (18dp now, was 10dp)
     // ================================================================
     private View makeSimpleHeader() {
         LinearLayout header = new LinearLayout(ctx);
         header.setOrientation(LinearLayout.VERTICAL);
         header.setGravity(Gravity.CENTER_HORIZONTAL);
         LinearLayout.LayoutParams hLp = new LinearLayout.LayoutParams(WRAP_CONTENT, WRAP_CONTENT);
-        // ↓ increased from dp(10) to dp(18)  →  more gap below subtitle
         hLp.setMargins(0, 0, 0, dp(18));
         header.setLayoutParams(hLp);
 
@@ -419,7 +406,6 @@ public class LoginHelper {
     private FrameLayout makeIconChip(int iconType) {
         FrameLayout chip = new FrameLayout(ctx);
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(dp(30), dp(30));
-        // ↓ bigger left inset (was 7) so the icon breathes more
         lp.setMargins(dp(10), 0, dp(6), 0);
         chip.setLayoutParams(lp);
         chip.setBackgroundColor(Color.TRANSPARENT);
@@ -447,57 +433,27 @@ public class LoginHelper {
         e.setBackground(null);
         e.setIncludeFontPadding(false);
         e.setGravity(Gravity.CENTER_VERTICAL | Gravity.START);
-        // ↓ more horizontal padding inside the field (was 2 / 10)
         e.setPadding(dp(8), 0, dp(14), 0);
         e.setHighlightColor(withAlpha(COLOR_ACCENT, 0x55));
         return e;
     }
 
     /**
-     * Enable long-press Cut / Copy / Paste / Select-all on the EditText.
-     * IMPORTANT: We do NOT call setTextIsSelectable() — on an EditText it
-     * breaks the normal editable + selection behaviour and prevents the
-     * system toolbar from showing up on long-press.
+     * EditText naturally shows Cut / Copy / Paste / Select All on long-press.
+     * We ONLY ensure the essential flags are set.
+     *
+     * DO NOT:
+     *   - call setTextIsSelectable(...)      → breaks EditText's own selection
+     *   - set a custom action mode callback  → hides the default menu items
+     *   - attach a click listener            → swallows the long-press gesture
      */
     private void enableRichTextInteraction(final EditText e) {
         e.setLongClickable(true);
         e.setCursorVisible(true);
         e.setFocusableInTouchMode(true);
-        // Do NOT call setTextIsSelectable — EditText handles selection natively.
-
-        // Keep the default Cut / Copy / Paste / Select-all menu items visible.
-        e.setCustomSelectionActionModeCallback(new ActionMode.Callback() {
-            @Override public boolean onCreateActionMode(ActionMode mode, Menu menu) {
-                return true; // let the framework build the default menu
-            }
-            @Override public boolean onPrepareActionMode(ActionMode mode, Menu menu) {
-                for (int i = 0; i < menu.size(); i++) {
-                    MenuItem it = menu.getItem(i);
-                    it.setShowAsAction(MenuItem.SHOW_AS_ACTION_IF_ROOM
-                            | MenuItem.SHOW_AS_ACTION_WITH_TEXT);
-                }
-                return true;
-            }
-            @Override public boolean onActionItemClicked(ActionMode mode, MenuItem item) {
-                return false; // let the framework handle the action
-            }
-            @Override public void onDestroyActionMode(ActionMode mode) { }
-        });
-
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-            e.setCustomInsertionActionModeCallback(new ActionMode.Callback() {
-                @Override public boolean onCreateActionMode(ActionMode mode, Menu menu) {
-                    return true;
-                }
-                @Override public boolean onPrepareActionMode(ActionMode mode, Menu menu) {
-                    return true;
-                }
-                @Override public boolean onActionItemClicked(ActionMode mode, MenuItem item) {
-                    return false;
-                }
-                @Override public void onDestroyActionMode(ActionMode mode) { }
-            });
-        }
+        e.setFocusable(true);
+        e.setClickable(true);
+        // Nothing else — let the framework do its job.
     }
 
     private ImageView makePasteButton(final EditText target) {
@@ -567,9 +523,7 @@ public class LoginHelper {
 
     // ================================================================
     // Field focus animation + keyboard trigger
-    // NOTE: no setOnClickListener here — a click listener on an EditText
-    // can swallow the long-press gesture and prevent the copy/paste
-    // toolbar from appearing. The touch listener already handles focus.
+    // NO click listener here — it would swallow long-press.
     // ================================================================
     private void attachFieldFocus(final LinearLayout box, final EditText et,
                                    final ImageView icon, final FrameLayout chip) {
@@ -597,6 +551,8 @@ public class LoginHelper {
             }
         });
 
+        // Only used to request focus + show keyboard on ACTION_UP.
+        // Returns false so the EditText continues to receive the long-press.
         et.setOnTouchListener(new View.OnTouchListener() {
             @Override
             public boolean onTouch(View v, MotionEvent event) {
@@ -609,7 +565,7 @@ public class LoginHelper {
                         }
                     }, 80);
                 }
-                return false; // do NOT consume — let EditText handle long-press
+                return false;
             }
         });
     }
@@ -1257,7 +1213,7 @@ public class LoginHelper {
     }
 
     // ================================================================
-    // FieldIcon  (thin stroke)
+    // FieldIcon
     // ================================================================
     private static class FieldIcon extends Drawable {
         static final int USER = 0;
@@ -1340,7 +1296,7 @@ public class LoginHelper {
     }
 
     // ================================================================
-    // PasteIcon (thin stroke)
+    // PasteIcon
     // ================================================================
     private static class PasteIcon extends Drawable {
         private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);

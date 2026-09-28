@@ -2006,8 +2006,10 @@ new Titanic().start(proTitle);
 private void showLoginScreen() {
     if (isLoggedIn) return;
 
+    // Header / shimmer hidden on login screen
     if (mHeaderView  != null) mHeaderView.setVisibility(View.GONE);
     if (mShimmerView != null) mShimmerView.setVisibility(View.GONE);
+
     if (sidebarScroll != null) sidebarScroll.setVisibility(View.GONE);
     if (sidebarDivider != null) sidebarDivider.setVisibility(View.GONE);
 
@@ -2021,8 +2023,10 @@ private void showLoginScreen() {
             setWindowFocusable(false);
             isLoggedIn = true;
 
+            // Restore header / shimmer on main menu
             if (mHeaderView  != null) mHeaderView.setVisibility(View.VISIBLE);
-        if (mShimmerView != null) mShimmerView.setVisibility(View.VISIBLE);
+            if (mShimmerView != null) mShimmerView.setVisibility(View.VISIBLE);
+
             if (sidebarScroll != null) sidebarScroll.setVisibility(View.VISIBLE);
             if (sidebarDivider != null) sidebarDivider.setVisibility(View.VISIBLE);
 
@@ -2031,53 +2035,77 @@ private void showLoginScreen() {
         }
     });
 
-    View loginView = loginHelper.buildView();
+    final View loginView = loginHelper.buildView();
 
-// ---- Login পেজকে draggable করুন (header যেভাবে ছিল ঠিক সেভাবে) ----
-// NOTE: DOWN consume করা হয় না, তাই EditText/Button কাজ করবে;
-// শুধু drag শুরু হলে MOVE consume করা হয় যাতে মেনু উইন্ডো মুভ হয়।
-loginView.setOnTouchListener(new View.OnTouchListener() {
-    private float initialTouchX, initialTouchY;
-    private int   initialX, initialY;
-    private boolean moved;
-    private final int slop = ViewConfiguration.get(getContext).getScaledTouchSlop();
+    // ================================================================
+    // Drag wrapper:
+    //  - DOWN → child (EditText/Button) receives it → normal behaviour
+    //  - MOVE beyond slop → parent intercepts → window moves
+    //  - Long-press on EditText → framework's copy/paste toolbar works
+    // ================================================================
+    FrameLayout dragWrapper = new FrameLayout(getContext()) {
+        private float downX, downY;
+        private int   startWindowX, startWindowY;
+        private boolean dragging = false;
+        private final int slop = ViewConfiguration.get(getContext()).getScaledTouchSlop();
 
-    @Override
-    public boolean onTouch(View v, MotionEvent ev) {
-        if (vmParams == null) return false;
-        switch (ev.getActionMasked()) {
-            case MotionEvent.ACTION_DOWN:
-                initialX = vmParams.x;
-                initialY = vmParams.y;
-                initialTouchX = ev.getRawX();
-                initialTouchY = ev.getRawY();
-                moved = false;
-                return false; // don't consume — let children handle
-            case MotionEvent.ACTION_MOVE: {
-                float dx = ev.getRawX() - initialTouchX;
-                float dy = ev.getRawY() - initialTouchY;
-                if (!moved && (Math.abs(dx) > slop || Math.abs(dy) > slop)) moved = true;
-                if (moved) {
-                    menuFrame.setAlpha(0.75f);
-                    moveWindow(initialX + (int) dx, initialY + (int) dy);
-                    return true;
+        @Override
+        public boolean onInterceptTouchEvent(MotionEvent ev) {
+            switch (ev.getActionMasked()) {
+                case MotionEvent.ACTION_DOWN:
+                    downX = ev.getRawX();
+                    downY = ev.getRawY();
+                    if (vmParams != null) {
+                        startWindowX = vmParams.x;
+                        startWindowY = vmParams.y;
+                    }
+                    dragging = false;
+                    return false; // Let child handle DOWN
+
+                case MotionEvent.ACTION_MOVE: {
+                    float dx = ev.getRawX() - downX;
+                    float dy = ev.getRawY() - downY;
+                    if (!dragging
+                            && (Math.abs(dx) > slop || Math.abs(dy) > slop)) {
+                        dragging = true;
+                        return true; // Now parent intercepts
+                    }
+                    return dragging;
                 }
-                return false;
-            }
-            case MotionEvent.ACTION_UP:
-            case MotionEvent.ACTION_CANCEL: {
-                menuFrame.setAlpha(1f);
-                boolean wasMoved = moved;
-                moved = false;
-                return wasMoved;
-            }
-        }
-        return false;
-    }
-});
 
-contentLayout.addView(loginView,
-        new LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT));
+                case MotionEvent.ACTION_UP:
+                case MotionEvent.ACTION_CANCEL: {
+                    boolean wasDragging = dragging;
+                    dragging = false;
+                    return wasDragging;
+                }
+            }
+            return false;
+        }
+
+        @Override
+        public boolean onTouchEvent(MotionEvent ev) {
+            switch (ev.getActionMasked()) {
+                case MotionEvent.ACTION_MOVE:
+                    if (vmParams == null) return false;
+                    menuFrame.setAlpha(0.75f);
+                    moveWindow(startWindowX + (int)(ev.getRawX() - downX),
+                               startWindowY + (int)(ev.getRawY() - downY));
+                    return true;
+                case MotionEvent.ACTION_UP:
+                case MotionEvent.ACTION_CANCEL:
+                    menuFrame.setAlpha(1f);
+                    dragging = false;
+                    return true;
+            }
+            return false;
+        }
+    };
+
+    dragWrapper.addView(loginView,
+            new FrameLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT));
+    contentLayout.addView(dragWrapper,
+            new LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT));
 
     if (isViewCollapsed()) {
         menuFrame.post(new Runnable() {
@@ -2093,7 +2121,7 @@ contentLayout.addView(loginView,
         public void run() {
             try {
                 ViewGroup.LayoutParams lp = menuFrame.getLayoutParams();
-                int orientation = getContext.getResources().getConfiguration().orientation;
+                int orientation = getContext().getResources().getConfiguration().orientation;
                 int targetH;
 
                 if (orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE) {
