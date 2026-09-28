@@ -135,6 +135,15 @@ int RadioColor    = Color.parseColor("#5DADE2");
 int CollapseColor = Color.parseColor("#171A24");
 String NumberTxtColor = "#5DADE2";
 
+    // ---- Default menu / window dimensions ----
+    private static final int   POS_X       = 5;
+    private static final int   POS_Y       = 100;
+    private static final int   MENU_WIDTH  = 272;
+    private static final int   MENU_HEIGHT = 352;
+    private static final float MENU_CORNER = 20f;
+    private static final float ICON_SIZE   = 50f;
+    private static final float ICON_ALPHA  = 1f;
+
     // ---- Glow / frame ----
     private static final int   GLOW_DP   = 6;     // subtler ambient edge-light, not a neon halo
     private static final int   BORDER_DP = 1;
