@@ -68,7 +68,6 @@ public class LoginHelper {
 
     // ---- Palette (Obsidian & Gilt) ----
     private static final int COLOR_BG_1        = Color.parseColor("#0C0E14");
-    // Card is now transparent (blends with menu bg)
     private static final int COLOR_CARD        = Color.TRANSPARENT;
     private static final int COLOR_CARD_TOP    = Color.TRANSPARENT;
     private static final int COLOR_BORDER      = Color.TRANSPARENT;
@@ -133,7 +132,7 @@ public class LoginHelper {
     }
 
     // ================================================================
-    // Build login view  (transparent card, ash input fields, no scroll)
+    // Build login view
     // ================================================================
     public View buildView() {
         FrameLayout wrapper = new FrameLayout(ctx);
@@ -146,17 +145,15 @@ public class LoginHelper {
 
         final LinearLayout card = new LinearLayout(ctx);
         card.setOrientation(LinearLayout.VERTICAL);
-        // Top padding small so "Welcome Back" sits closer to the top
         card.setPadding(dp(14), dp(4), dp(14), dp(6));
         card.setGravity(Gravity.CENTER_HORIZONTAL);
-        // No background, no border — transparent so it blends with menu bg
         card.setBackgroundColor(Color.TRANSPARENT);
         root.addView(card);
 
-        // ---- TEXT HEADER (tight to top, no logo, no brand) ----
+        // ---- TEXT HEADER ----
         card.addView(makeSimpleHeader());
 
-        // ---- USERNAME FIELD (no label above) ----
+        // ---- USERNAME FIELD ----
         userBox = makeFieldContainer();
         userChip = makeIconChip(FieldIcon.USER);
         userIconView = (ImageView) userChip.getChildAt(0);
@@ -172,12 +169,13 @@ public class LoginHelper {
         userBox.addView(editUser);
         userBox.addView(makePasteButton(editUser));
 
-        LinearLayout.LayoutParams uLp = new LinearLayout.LayoutParams(MATCH_PARENT, dp(44));
-        uLp.setMargins(0, 0, 0, dp(8));
+        // Field height 48dp (was 44) for more breathing room
+        LinearLayout.LayoutParams uLp = new LinearLayout.LayoutParams(MATCH_PARENT, dp(48));
+        uLp.setMargins(0, 0, 0, dp(10));
         userBox.setLayoutParams(uLp);
         card.addView(userBox);
 
-        // ---- PASSWORD FIELD (no label above) ----
+        // ---- PASSWORD FIELD ----
         passBox = makeFieldContainer();
         passChip = makeIconChip(FieldIcon.LOCK);
         passIconView = (ImageView) passChip.getChildAt(0);
@@ -194,8 +192,8 @@ public class LoginHelper {
         passBox.addView(editPass);
         passBox.addView(makePasteButton(editPass));
 
-        LinearLayout.LayoutParams pLp = new LinearLayout.LayoutParams(MATCH_PARENT, dp(44));
-        pLp.setMargins(0, 0, 0, dp(6));
+        LinearLayout.LayoutParams pLp = new LinearLayout.LayoutParams(MATCH_PARENT, dp(48));
+        pLp.setMargins(0, 0, 0, dp(8));
         passBox.setLayoutParams(pLp);
         card.addView(passBox);
 
@@ -368,15 +366,16 @@ public class LoginHelper {
     }
 
     // ================================================================
-    // Text-only header  — "Welcome Back" pushed to top, no logo
+    // Text-only header
+    // More padding below the subtitle (18dp now, was 10dp)
     // ================================================================
     private View makeSimpleHeader() {
         LinearLayout header = new LinearLayout(ctx);
         header.setOrientation(LinearLayout.VERTICAL);
         header.setGravity(Gravity.CENTER_HORIZONTAL);
         LinearLayout.LayoutParams hLp = new LinearLayout.LayoutParams(WRAP_CONTENT, WRAP_CONTENT);
-        // very small margin so title hugs the top
-        hLp.setMargins(0, 0, 0, dp(10));
+        // ↓ increased from dp(10) to dp(18)  →  more gap below subtitle
+        hLp.setMargins(0, 0, 0, dp(18));
         header.setLayoutParams(hLp);
 
         TextView title = new TextView(ctx);
@@ -402,13 +401,12 @@ public class LoginHelper {
     }
 
     // ================================================================
-    // Field builders — ash / dark gray input box
+    // Field builders
     // ================================================================
     private LinearLayout makeFieldContainer() {
         LinearLayout box = new LinearLayout(ctx);
         box.setOrientation(LinearLayout.HORIZONTAL);
         box.setGravity(Gravity.CENTER_VERTICAL);
-        // Solid ash-gray background
         GradientDrawable bg = new GradientDrawable();
         bg.setColor(COLOR_FIELD_BG);
         bg.setCornerRadius(dp(12));
@@ -421,14 +419,12 @@ public class LoginHelper {
     private FrameLayout makeIconChip(int iconType) {
         FrameLayout chip = new FrameLayout(ctx);
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(dp(30), dp(30));
-        lp.setMargins(dp(7), 0, dp(4), 0);
+        // ↓ bigger left inset (was 7) so the icon breathes more
+        lp.setMargins(dp(10), 0, dp(6), 0);
         chip.setLayoutParams(lp);
-
-        // No circular chip background — just a bare icon for a cleaner look
         chip.setBackgroundColor(Color.TRANSPARENT);
 
         ImageView iv = new ImageView(ctx);
-        // Thinner icon: darker muted tone for lighter feel
         iv.setImageDrawable(new FieldIcon(iconType, COLOR_TEXT_MUTED));
         iv.setScaleType(ImageView.ScaleType.FIT_CENTER);
         FrameLayout.LayoutParams ivLp = new FrameLayout.LayoutParams(dp(17), dp(17), Gravity.CENTER);
@@ -451,31 +447,30 @@ public class LoginHelper {
         e.setBackground(null);
         e.setIncludeFontPadding(false);
         e.setGravity(Gravity.CENTER_VERTICAL | Gravity.START);
-        e.setPadding(dp(2), 0, dp(10), 0);
+        // ↓ more horizontal padding inside the field (was 2 / 10)
+        e.setPadding(dp(8), 0, dp(14), 0);
         e.setHighlightColor(withAlpha(COLOR_ACCENT, 0x55));
         return e;
     }
 
     /**
-     * Enable long-press cut / copy / paste / select-all.
-     * Uses the default ActionMode so the system toolbar always appears,
-     * and forces it to show all standard menu items.
+     * Enable long-press Cut / Copy / Paste / Select-all on the EditText.
+     * IMPORTANT: We do NOT call setTextIsSelectable() — on an EditText it
+     * breaks the normal editable + selection behaviour and prevents the
+     * system toolbar from showing up on long-press.
      */
     private void enableRichTextInteraction(final EditText e) {
         e.setLongClickable(true);
-        e.setTextIsSelectable(true);              // allow selecting text
         e.setCursorVisible(true);
         e.setFocusableInTouchMode(true);
+        // Do NOT call setTextIsSelectable — EditText handles selection natively.
 
-        // Custom callback that keeps every default menu item
-        // (Cut / Copy / Paste / Select all / Share etc.)
+        // Keep the default Cut / Copy / Paste / Select-all menu items visible.
         e.setCustomSelectionActionModeCallback(new ActionMode.Callback() {
             @Override public boolean onCreateActionMode(ActionMode mode, Menu menu) {
-                // Return true → keep the default menu items intact
-                return true;
+                return true; // let the framework build the default menu
             }
             @Override public boolean onPrepareActionMode(ActionMode mode, Menu menu) {
-                // Force Show As Action so nothing collapses into overflow
                 for (int i = 0; i < menu.size(); i++) {
                     MenuItem it = menu.getItem(i);
                     it.setShowAsAction(MenuItem.SHOW_AS_ACTION_IF_ROOM
@@ -484,8 +479,7 @@ public class LoginHelper {
                 return true;
             }
             @Override public boolean onActionItemClicked(ActionMode mode, MenuItem item) {
-                // Let the framework handle the action
-                return false;
+                return false; // let the framework handle the action
             }
             @Override public void onDestroyActionMode(ActionMode mode) { }
         });
@@ -573,6 +567,9 @@ public class LoginHelper {
 
     // ================================================================
     // Field focus animation + keyboard trigger
+    // NOTE: no setOnClickListener here — a click listener on an EditText
+    // can swallow the long-press gesture and prevent the copy/paste
+    // toolbar from appearing. The touch listener already handles focus.
     // ================================================================
     private void attachFieldFocus(final LinearLayout box, final EditText et,
                                    final ImageView icon, final FrameLayout chip) {
@@ -612,19 +609,7 @@ public class LoginHelper {
                         }
                     }, 80);
                 }
-                return false;
-            }
-        });
-
-        et.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                v.postDelayed(new Runnable() {
-                    @Override
-                    public void run() {
-                        forceShowKeyboard(et);
-                    }
-                }, 80);
+                return false; // do NOT consume — let EditText handle long-press
             }
         });
     }
@@ -856,7 +841,7 @@ public class LoginHelper {
     }
 
     // ================================================================
-    // Shared dialog chrome
+    // Dialog chrome
     // ================================================================
     private LinearLayout newDialogCard() {
         LinearLayout card = new LinearLayout(ctx);
@@ -868,7 +853,7 @@ public class LoginHelper {
                 GradientDrawable.Orientation.TOP_BOTTOM,
                 new int[]{COLOR_DIALOG_BG_TOP, COLOR_DIALOG_BG});
         cardBg.setCornerRadius(dp(18));
-        cardBg.setStroke(dp(1), COLOR_BORDER);
+        cardBg.setStroke(dp(1), COLOR_OUTLINE);
         card.setBackground(cardBg);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
             card.setElevation(dp(14));
@@ -1272,7 +1257,7 @@ public class LoginHelper {
     }
 
     // ================================================================
-    // FieldIcon — thinner stroke (1.5 instead of 2.0)
+    // FieldIcon  (thin stroke)
     // ================================================================
     private static class FieldIcon extends Drawable {
         static final int USER = 0;
@@ -1313,7 +1298,6 @@ public class LoginHelper {
             if (b.width() <= 0 || b.height() <= 0) return;
             float size = Math.min(b.width(), b.height());
             float s = size / 24f;
-            // ↓ Thinner icons (was 2.0)
             paint.setStrokeWidth(1.5f * s);
 
             canvas.save();
@@ -1337,7 +1321,6 @@ public class LoginHelper {
                 path.cubicTo(13.8f, 3f, 15.5f, 5.0f, 15.5f, 7.5f);
                 path.lineTo(15.5f, 10.5f);
                 canvas.drawPath(path, paint);
-                // Smaller keyhole so the icon feels lighter
                 Paint.Style prevStyle = paint.getStyle();
                 paint.setStyle(Paint.Style.FILL);
                 canvas.drawCircle(12f, 15.2f, 1.2f, paint);
@@ -1357,7 +1340,7 @@ public class LoginHelper {
     }
 
     // ================================================================
-    // PasteIcon — thinner stroke (1.5)
+    // PasteIcon (thin stroke)
     // ================================================================
     private static class PasteIcon extends Drawable {
         private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -1377,7 +1360,6 @@ public class LoginHelper {
             if (b.width() <= 0 || b.height() <= 0) return;
             float size = Math.min(b.width(), b.height());
             float s = size / 24f;
-            // ↓ Thinner (was 1.8)
             paint.setStrokeWidth(1.4f * s);
 
             canvas.save();

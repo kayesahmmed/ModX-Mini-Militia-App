@@ -2032,8 +2032,52 @@ private void showLoginScreen() {
     });
 
     View loginView = loginHelper.buildView();
-    contentLayout.addView(loginView,
-            new LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT));
+
+// ---- Login পেজকে draggable করুন (header যেভাবে ছিল ঠিক সেভাবে) ----
+// NOTE: DOWN consume করা হয় না, তাই EditText/Button কাজ করবে;
+// শুধু drag শুরু হলে MOVE consume করা হয় যাতে মেনু উইন্ডো মুভ হয়।
+loginView.setOnTouchListener(new View.OnTouchListener() {
+    private float initialTouchX, initialTouchY;
+    private int   initialX, initialY;
+    private boolean moved;
+    private final int slop = ViewConfiguration.get(getContext()).getScaledTouchSlop();
+
+    @Override
+    public boolean onTouch(View v, MotionEvent ev) {
+        if (vmParams == null) return false;
+        switch (ev.getActionMasked()) {
+            case MotionEvent.ACTION_DOWN:
+                initialX = vmParams.x;
+                initialY = vmParams.y;
+                initialTouchX = ev.getRawX();
+                initialTouchY = ev.getRawY();
+                moved = false;
+                return false; // don't consume — let children handle
+            case MotionEvent.ACTION_MOVE: {
+                float dx = ev.getRawX() - initialTouchX;
+                float dy = ev.getRawY() - initialTouchY;
+                if (!moved && (Math.abs(dx) > slop || Math.abs(dy) > slop)) moved = true;
+                if (moved) {
+                    menuFrame.setAlpha(0.75f);
+                    moveWindow(initialX + (int) dx, initialY + (int) dy);
+                    return true;
+                }
+                return false;
+            }
+            case MotionEvent.ACTION_UP:
+            case MotionEvent.ACTION_CANCEL: {
+                menuFrame.setAlpha(1f);
+                boolean wasMoved = moved;
+                moved = false;
+                return wasMoved;
+            }
+        }
+        return false;
+    }
+});
+
+contentLayout.addView(loginView,
+        new LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT));
 
     if (isViewCollapsed()) {
         menuFrame.post(new Runnable() {
