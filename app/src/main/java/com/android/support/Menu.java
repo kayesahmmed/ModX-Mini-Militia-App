@@ -3665,7 +3665,7 @@ private void showMenuColorPickerDialog() {
                 }
             });
 
-            Toast.makeText(getContext(),
+            Toast.makeText(getContext,
                     "Menu color saved", Toast.LENGTH_SHORT).show();
         }
     });
@@ -3675,7 +3675,7 @@ private void showMenuColorPickerDialog() {
     box.addView(btnRow);
 
     // ---- Show dialog ----
-    AlertDialog.Builder builder = new AlertDialog.Builder(getContext());
+    AlertDialog.Builder builder = new AlertDialog.Builder(getContext);
     builder.setView(box);
     AlertDialog dialog = builder.create();
     dialogRef[0] = dialog;
