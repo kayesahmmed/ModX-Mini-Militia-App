@@ -3422,10 +3422,10 @@ private static class ColorWheelView extends View {
     void setListener(Listener l)       { liveListener = l; }
     void setCommitListener(Listener l) { commitListener = l; }
 
-    private float hueToHsv(int hueDeg) {
-        // Hue + fixed S/L for vibrant, readable colors
-        return Color.HSVToColor(new float[]{hueDeg, 0.72f, 0.86f});
-    }
+    private int hueToHsv(int hueDeg) {
+    // Hue + fixed S/L for vibrant, readable colors
+    return Color.HSVToColor(new float[]{hueDeg, 0.72f, 0.86f});
+}
 
     @Override
     protected void onSizeChanged(int w, int h, int oldw, int oldh) {
