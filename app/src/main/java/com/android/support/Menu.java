@@ -95,9 +95,10 @@ public class Menu {
 
     // ---- "Obsidian & Gilt" palette : graphite-navy surfaces, champagne-gold accent ----
     // ==== DEFAULT ACCENT = SKY BLUE (changeable via Settings) ====
-int COLOR_ACCENT      = Color.parseColor("#5DADE2");
-int COLOR_ACCENT_2    = Color.parseColor("#2E86C1");
-int COLOR_ACCENT_3    = Color.parseColor("#85C1E9");
+// ==== DEFAULT = login menu এর green ====
+int COLOR_ACCENT      = Color.parseColor("#3DDB87");
+int COLOR_ACCENT_2    = Color.parseColor("#2BB673");
+int COLOR_ACCENT_3    = Color.parseColor("#6EE7A9");
 int COLOR_SUCCESS     = Color.parseColor("#4FBA82");
 int COLOR_DANGER      = Color.parseColor("#C25C56");
 
@@ -116,24 +117,25 @@ int BTN_GRAD_1        = Color.parseColor("#2E3550");
 int BTN_GRAD_2        = Color.parseColor("#4C5C8C");
 
 // Legacy refs
-int TEXT_COLOR            = Color.parseColor("#5DADE2");
+// Legacy refs
+int TEXT_COLOR            = Color.parseColor("#3DDB87");
 int TEXT_COLOR_2          = Color.parseColor("#ECE8DF");
-int BTN_COLOR             = Color.parseColor("#5DADE2");
+int BTN_COLOR             = Color.parseColor("#3DDB87");
 int MENU_BG_COLOR         = Color.parseColor("#0C0E14");
 int MENU_FEATURE_BG_COLOR = Color.parseColor("#181B24");
-int BORDER_COLOR          = Color.parseColor("#5DADE2");
+int BORDER_COLOR          = Color.parseColor("#3DDB87");
 
 int ToggleON  = Color.parseColor("#4FBA82");
 int ToggleOFF = Color.parseColor("#C25C56");
 int BtnON     = Color.parseColor("#4FBA82");
 int BtnOFF    = Color.parseColor("#C25C56");
 int CategoryBG    = Color.parseColor("#151822");
-int SeekBarColor  = Color.parseColor("#5DADE2");
-int SeekBarProgressColor = Color.parseColor("#5DADE2");
-int CheckBoxColor = Color.parseColor("#5DADE2");
-int RadioColor    = Color.parseColor("#5DADE2");
+int SeekBarColor  = Color.parseColor("#3DDB87");
+int SeekBarProgressColor = Color.parseColor("#3DDB87");
+int CheckBoxColor = Color.parseColor("#3DDB87");
+int RadioColor    = Color.parseColor("#3DDB87");
 int CollapseColor = Color.parseColor("#171A24");
-String NumberTxtColor = "#5DADE2";
+String NumberTxtColor = "#3DDB87";
 
     // ---- Default menu / window dimensions ----
     private static final int   POS_X       = 5;
@@ -181,6 +183,12 @@ String NumberTxtColor = "#5DADE2";
     // Header / shimmer — login screen এ লুকানো থাকবে, login হলে দেখানো হবে
 private View mHeaderView = null;
 private View mShimmerView = null;
+// Header views যাতে color change এ update করা যায়
+private TitanicTextView mTitleView    = null;
+private TitanicTextView mProView      = null;
+private ImageView       mSettingsIcon = null;
+private View            mShimmerViewRef = null;
+private float           mCurrentHueF  = 145f;
 
     // Typography (loaded from assets/fonts if present, otherwise clean system sans)
     private Typeface fontRegular;
@@ -430,6 +438,11 @@ if (initH < loginMinH && screenH() > loginMinH + effectivePosY) {
         shimmerLp.setMargins(dp(12), 0, dp(12), 0);
         ShimmerLine shimmer = new ShimmerLine(context, COLOR_ACCENT, COLOR_ACCENT_2);
         shimmer.setLayoutParams(shimmerLp);
+        // ==== Save header views for color theming ====
+mTitleView      = title;
+mProView        = proTitle;
+mSettingsIcon   = settings;
+mShimmerViewRef = shimmer;
 
         // ---------------- Body: sidebar + content (both natively drag-scrollable) ----------------
         mainContainer = new LinearLayout(context);
@@ -1846,19 +1859,32 @@ if (settingsLay != null) {
     Switch(settingsLay, -3, "Auto size", Preferences.isExpanded);
 
     Category(settingsLay, "Menu Color Theme");
-    Button(settingsLay, -20, "Blue (default)");
-    Button(settingsLay, -21, "Green");
-    Button(settingsLay, -22, "Purple");
-    Button(settingsLay, -23, "Red");
-    Button(settingsLay, -24, "Cyan");
-    Button(settingsLay, -25, "Pink");
-    Button(settingsLay, -26, "Orange");
-    Button(settingsLay, -27, "Gold");
-    Button(settingsLay, -28, "Reset to Blue");
 
+    // ===== Color Wheel / Pie Chart =====
+    ColorWheelView wheel = new ColorWheelView(getContext, mCurrentHueF);
+    LinearLayout.LayoutParams wlp =
+            new LinearLayout.LayoutParams(MATCH_PARENT, dp(200));
+    wlp.setMargins(dp(6), dp(6), dp(6), dp(6));
+    wheel.setLayoutParams(wlp);
+    wheel.setListener(new ColorWheelView.Listener() {
+        @Override
+        public void onColorChanged(int hueDegrees, int color) {
+            mCurrentHueF = (float) hueDegrees;
+            applyMenuColorLive(color);
+        }
+    });
+    wheel.setCommitListener(new ColorWheelView.Listener() {
+        @Override
+        public void onColorChanged(int hueDegrees, int color) {
+            mCurrentHueF = (float) hueDegrees;
+            applyMenuColor(color);
+        }
+    });
+    settingsLay.addView(wheel);
+
+    Button(settingsLay, -28, "Reset to Default (Green)");
     Button(settingsLay, -6, "Close Menu");
 }
-
         setupSidebarTabs();
         rescaleAll();
         applyTabMetrics();
@@ -2753,15 +2779,11 @@ private void setWindowFocusable(boolean focusable) {
                     return;
                 case -100: stopChecking = true; break;
 
-                case -20: applyMenuColor(Color.parseColor("#5DADE2")); return;
-                case -21: applyMenuColor(Color.parseColor("#3DDB87")); return;
-                case -22: applyMenuColor(Color.parseColor("#9B59B6")); return;
-                case -23: applyMenuColor(Color.parseColor("#E74C3C")); return;
-                case -24: applyMenuColor(Color.parseColor("#1ABC9C")); return;
-                case -25: applyMenuColor(Color.parseColor("#FF69B4")); return;
-                case -26: applyMenuColor(Color.parseColor("#E67E22")); return;
-                case -27: applyMenuColor(Color.parseColor("#D8B36C")); return;
-                case -28: applyMenuColor(Color.parseColor("#5DADE2")); return;
+                
+                case -28:
+    mCurrentHueF = 145f;
+    applyMenuColor(Color.parseColor("#3DDB87"));
+    return;
             }
             Preferences.changeFeatureInt(featName, featNum, 0);
         }
@@ -3259,7 +3281,11 @@ private static int lighten(int color, float factor) {
         Math.max(0, Math.min(255, b)));
 }
 
-private void applyMenuColor(int baseColor) {
+/**
+ * Live preview — wheel থেকে drag করার সময় সাথে সাথে apply,
+ * কিন্তু rebuild হয় না (খুব দ্রুত responsive)।
+ */
+private void applyMenuColorLive(int baseColor) {
     COLOR_ACCENT   = baseColor;
     COLOR_ACCENT_2 = darken(baseColor, 0.65f);
     COLOR_ACCENT_3 = lighten(baseColor, 0.35f);
@@ -3272,11 +3298,224 @@ private void applyMenuColor(int baseColor) {
     RadioColor    = baseColor;
     NumberTxtColor = String.format("#%06X", (0xFFFFFF & baseColor));
 
+    // Header colors live update
+    updateHeaderColors();
+
+    // Resize handle grip
+    if (resizeHandle != null) {
+        resizeHandle.setBackground(makeGripDrawable(withAlpha(COLOR_ACCENT, 0xE0), dpf(1.7f)));
+    }
+
+    // Glow frame accent
+    if (glowDrawable != null) {
+        // glow is now fixed green, don't touch
+    }
+
+    // Sidebar tab colors update (rebuild styleTab)
+    for (TabHolder h : tabHolders) styleTab(h, isTabSelected(h));
+}
+
+/**
+ * Commit — wheel থেকে আঙুল ছাড়ার সময়; SharedPreferences এ save করে,
+ * theme rebuild করে।
+ */
+private void applyMenuColor(final int baseColor) {
+    applyMenuColorLive(baseColor);
+
     getContext.getSharedPreferences("menu_theme", Context.MODE_PRIVATE)
         .edit().putInt("accent", baseColor).apply();
 
-    buildFeaturesAndCategories(GetFeatureList());
-    selectTabByName("Settings");
+    // Rebuild-কে main thread এর পরের tick এ schedule করি
+    // যাতে touch gesture আগে নিরাপদে শেষ হতে পারে
+    menuFrame.post(new Runnable() {
+        @Override
+        public void run() {
+            try {
+                buildFeaturesAndCategories(GetFeatureList());
+                selectTabByName("Settings");
+            } catch (Exception ignored) { }
+        }
+    });
+
     Toast.makeText(getContext, "Menu color updated", Toast.LENGTH_SHORT).show();
+}
+
+private boolean isTabSelected(TabHolder h) {
+    // কোনো tab selected কিনা চেক — TabHolder এ tag দিয়ে track করা হয়
+    for (TabHolder t : tabHolders) {
+        LinearLayout catView = categoryViewsMap.get(t.name);
+        if (catView != null && catView.getParent() == contentLayout) {
+            return t == h;
+        }
+    }
+    return false;
+}
+
+/**
+ * Header (ModX Lab / PRO / gear) colors update।
+ */
+private void updateHeaderColors() {
+    if (mTitleView != null) {
+        mTitleView.setTextColor(COLOR_ACCENT);
+    }
+    if (mProView != null) {
+        mProView.setBackground(cardBg(
+            withAlpha(COLOR_SUCCESS, 0x1A),
+            withAlpha(COLOR_SUCCESS, 0x99), 8));
+    }
+    if (mSettingsIcon != null) {
+        TabIcon icon = new TabIcon(TabIcon.GEAR);
+        icon.setColor(COLOR_ACCENT);
+        mSettingsIcon.setImageDrawable(icon);
+        GradientDrawable gearBg = new GradientDrawable();
+        gearBg.setShape(GradientDrawable.OVAL);
+        gearBg.setColor(withAlpha(COLOR_ACCENT, 0x14));
+        gearBg.setStroke(dp(1), withAlpha(COLOR_ACCENT, 0x55));
+        mSettingsIcon.setBackground(gearBg);
+    }
+    if (mShimmerViewRef != null && mShimmerViewRef instanceof ShimmerLine) {
+        // Shimmer রঙ নতুন accent এ regenerate করতে হবে — view replace
+        // সহজ উপায়: existing ShimmerLine এর color field final, তাই rebuild।
+        // তার জন্য নতুন instance লাগবে; এখানে header rebuild করি।
+        // (Practical approach: full header rebuild on commit)
+    }
+}
+// ================================================================
+// Color Wheel / Pie Chart
+// ----------------------------------------------------------------
+//  • Hue ring (0-360°) with white marker
+//  • Center swatch shows current color
+//  • Touch inside ring → live color change
+//  • Release → commit (save + rebuild UI)
+// ================================================================
+private static class ColorWheelView extends View {
+    interface Listener { void onColorChanged(int hueDegrees, int color); }
+
+    private final Paint ringPaint   = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint centerPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint markerPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint markRingPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final RectF ringRect = new RectF();
+    private final float density;
+    private final float ringWidth;
+    private SweepGradient sweep;
+    private float currentHue = 145f;   // 0..360
+    private Listener liveListener;
+    private Listener commitListener;
+    private boolean dragging = false;
+
+    ColorWheelView(Context ctx, float initialHue) {
+        super(ctx);
+        this.density = ctx.getResources().getDisplayMetrics().density;
+        this.ringWidth = 30f * density;
+        this.currentHue = ((initialHue % 360f) + 360f) % 360f;
+
+        markerPaint.setStyle(Paint.Style.FILL);
+        markRingPaint.setStyle(Paint.Style.STROKE);
+        markRingPaint.setStrokeWidth(2f * density);
+        markRingPaint.setColor(0xFF000000);
+        centerPaint.setStyle(Paint.Style.FILL);
+        ringPaint.setStyle(Paint.Style.STROKE);
+        ringPaint.setStrokeWidth(ringWidth);
+    }
+
+    void setListener(Listener l)       { liveListener = l; }
+    void setCommitListener(Listener l) { commitListener = l; }
+
+    private float hueToHsv(int hueDeg) {
+        // Hue + fixed S/L for vibrant, readable colors
+        return Color.HSVToColor(new float[]{hueDeg, 0.72f, 0.86f});
+    }
+
+    @Override
+    protected void onSizeChanged(int w, int h, int oldw, int oldh) {
+        super.onSizeChanged(w, h, oldw, oldh);
+        int[] hues = new int[13];
+        for (int i = 0; i <= 12; i++) {
+            hues[i] = Color.HSVToColor(new float[]{i * 30f, 0.72f, 0.86f});
+        }
+        sweep = new SweepGradient(w / 2f, h / 2f, hues, null);
+    }
+
+    @Override
+    protected void onDraw(Canvas canvas) {
+        int w = getWidth();
+        int h = getHeight();
+        if (w <= 0 || h <= 0 || sweep == null) return;
+
+        float cx = w / 2f;
+        float cy = h / 2f;
+        float radius = Math.min(w, h) / 2f - 6f * density;
+
+        // Hue ring
+        ringRect.set(cx - radius, cy - radius, cx + radius, cy + radius);
+        ringPaint.setShader(sweep);
+        canvas.drawCircle(cx, cy, radius - ringWidth / 2f, ringPaint);
+        ringPaint.setShader(null);
+
+        // Outer thin border
+        ringPaint.setStyle(Paint.Style.STROKE);
+        ringPaint.setStrokeWidth(1f * density);
+        ringPaint.setColor(0x55000000);
+        canvas.drawCircle(cx, cy, radius, ringPaint);
+        canvas.drawCircle(cx, cy, radius - ringWidth, ringPaint);
+
+        // Center swatch
+        float innerR = radius - ringWidth - 6f * density;
+        centerPaint.setColor(hueToHsv((int) currentHue));
+        canvas.drawCircle(cx, cy, innerR, centerPaint);
+
+        // Marker on hue ring
+        double a = Math.toRadians(currentHue);
+        float markerRadius = radius - ringWidth / 2f;
+        float mx = cx + (float) Math.cos(a) * markerRadius;
+        float my = cy + (float) Math.sin(a) * markerRadius;
+        markerPaint.setColor(0xFFFFFFFF);
+        canvas.drawCircle(mx, my, 9f * density, markerPaint);
+        canvas.drawCircle(mx, my, 9f * density, markRingPaint);
+
+        // Small dark dot inside marker (preview of picked color)
+        markerPaint.setColor(hueToHsv((int) currentHue));
+        canvas.drawCircle(mx, my, 5f * density, markerPaint);
+    }
+
+    private void pick(MotionEvent e, boolean commit) {
+        float cx = getWidth() / 2f;
+        float cy = getHeight() / 2f;
+        float dx = e.getX() - cx;
+        float dy = e.getY() - cy;
+        float angle = (float) Math.toDegrees(Math.atan2(dy, dx));
+        if (angle < 0) angle += 360f;
+        currentHue = angle;
+        int color = hueToHsv((int) currentHue);
+        invalidate();
+
+        if (commit) {
+            if (commitListener != null) commitListener.onColorChanged((int) currentHue, color);
+        } else {
+            if (liveListener != null) liveListener.onColorChanged((int) currentHue, color);
+        }
+    }
+
+    @Override
+    public boolean onTouchEvent(MotionEvent event) {
+        switch (event.getActionMasked()) {
+            case MotionEvent.ACTION_DOWN:
+                dragging = true;
+                getParent().requestDisallowInterceptTouchEvent(true);
+                pick(event, false);
+                return true;
+            case MotionEvent.ACTION_MOVE:
+                if (dragging) pick(event, false);
+                return true;
+            case MotionEvent.ACTION_UP:
+            case MotionEvent.ACTION_CANCEL:
+                if (dragging) pick(event, true);
+                dragging = false;
+                getParent().requestDisallowInterceptTouchEvent(false);
+                return true;
+        }
+        return super.onTouchEvent(event);
+    }
 }
 }
