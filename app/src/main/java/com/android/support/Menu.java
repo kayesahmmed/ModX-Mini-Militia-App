@@ -188,7 +188,13 @@ private TitanicTextView mTitleView    = null;
 private TitanicTextView mProView      = null;
 private ImageView       mSettingsIcon = null;
 private View            mShimmerViewRef = null;
-private float           mCurrentHueF  = 145f;
+private float           mCurrentHueF    = 145f;
+
+// ---- NEW: additional view references for live theming ----
+private Button          mMinimizeBtn    = null;
+private Button          mHideBtn        = null;
+private TextView        mProBadgeText   = null;
+private int             mColorPickerOriginalColor = 0;
 
     // Typography (loaded from assets/fonts if present, otherwise clean system sans)
     private Typeface fontRegular;
@@ -539,7 +545,10 @@ mShimmerViewRef = shimmer;
 
         bottomBar.addView(hideBtn);
         bottomBar.addView(closeBtn);
-        
+                // ==== NEW: save references for live theming ====
+        mHideBtn        = hideBtn;
+        mMinimizeBtn    = closeBtn;
+        mProBadgeText   = proTitle;
         mHeaderView  = header;
 mShimmerView = shimmer;
         mExpanded.addView(header);
@@ -1858,33 +1867,13 @@ if (settingsLay != null) {
     Switch(settingsLay, -1, "Save features preference", Preferences.loadPref);
     Switch(settingsLay, -3, "Auto size", Preferences.isExpanded);
 
-    Category(settingsLay, "Menu Color Theme");
+        Category(settingsLay, "Menu Color Theme");
 
-    // ===== Color Wheel / Pie Chart =====
-    ColorWheelView wheel = new ColorWheelView(getContext, mCurrentHueF);
-    LinearLayout.LayoutParams wlp =
-            new LinearLayout.LayoutParams(MATCH_PARENT, dp(200));
-    wlp.setMargins(dp(6), dp(6), dp(6), dp(6));
-    wheel.setLayoutParams(wlp);
-    wheel.setListener(new ColorWheelView.Listener() {
-        @Override
-        public void onColorChanged(int hueDegrees, int color) {
-            mCurrentHueF = (float) hueDegrees;
-            applyMenuColorLive(color);
-        }
-    });
-    wheel.setCommitListener(new ColorWheelView.Listener() {
-        @Override
-        public void onColorChanged(int hueDegrees, int color) {
-            mCurrentHueF = (float) hueDegrees;
-            applyMenuColor(color);
-        }
-    });
-    settingsLay.addView(wheel);
-
+    // ===== Pick Menu Color (opens pie-chart dialog) =====
+    Button(settingsLay, -29, "🎨  Pick Menu Color");
     Button(settingsLay, -28, "Reset to Default (Green)");
     Button(settingsLay, -6, "Close Menu");
-}
+    }
         setupSidebarTabs();
         rescaleAll();
         applyTabMetrics();
@@ -2777,13 +2766,16 @@ private void setWindowFocusable(boolean focusable) {
                     }
                     collapseMenu(ICON_ALPHA);
                     return;
-                case -100: stopChecking = true; break;
+                                case -100: stopChecking = true; break;
 
-                
+                case -29:
+                    showMenuColorPickerDialog();
+                    return;
+
                 case -28:
-    mCurrentHueF = 145f;
-    applyMenuColor(Color.parseColor("#3DDB87"));
-    return;
+                    mCurrentHueF = 145f;
+                    applyMenuColor(Color.parseColor("#3DDB87"));
+                    return;
             }
             Preferences.changeFeatureInt(featName, featNum, 0);
         }
@@ -3355,14 +3347,20 @@ private boolean isTabSelected(TabHolder h) {
  * Header (ModX Lab / PRO / gear) colors update।
  */
 private void updateHeaderColors() {
+    // ---- Title (ModX Lab) ----
     if (mTitleView != null) {
         mTitleView.setTextColor(COLOR_ACCENT);
     }
+
+    // ---- PRO badge ----
     if (mProView != null) {
         mProView.setBackground(cardBg(
-            withAlpha(COLOR_SUCCESS, 0x1A),
-            withAlpha(COLOR_SUCCESS, 0x99), 8));
+            withAlpha(COLOR_ACCENT, 0x1A),
+            withAlpha(COLOR_ACCENT, 0x99), 8));
+        mProView.setTextColor(COLOR_ACCENT);
     }
+
+    // ---- Settings gear icon ----
     if (mSettingsIcon != null) {
         TabIcon icon = new TabIcon(TabIcon.GEAR);
         icon.setColor(COLOR_ACCENT);
@@ -3373,11 +3371,42 @@ private void updateHeaderColors() {
         gearBg.setStroke(dp(1), withAlpha(COLOR_ACCENT, 0x55));
         mSettingsIcon.setBackground(gearBg);
     }
-    if (mShimmerViewRef != null && mShimmerViewRef instanceof ShimmerLine) {
-        // Shimmer রঙ নতুন accent এ regenerate করতে হবে — view replace
-        // সহজ উপায়: existing ShimmerLine এর color field final, তাই rebuild।
-        // তার জন্য নতুন instance লাগবে; এখানে header rebuild করি।
-        // (Practical approach: full header rebuild on commit)
+
+    // ---- MINIMIZE button ----
+    if (mMinimizeBtn != null) {
+        mMinimizeBtn.setBackground(cardBg(
+            withAlpha(COLOR_ACCENT, 0x1A),
+            withAlpha(COLOR_ACCENT, 0x77), 10));
+        mMinimizeBtn.setTextColor(COLOR_ACCENT);
+    }
+
+    // ---- HIDE/KILL button stays danger-colored (do not change) ----
+
+    // ---- Shimmer line (needs replacement because colors are final) ----
+    if (mShimmerViewRef != null && mShimmerViewRef.getParent() instanceof ViewGroup) {
+        try {
+            ViewGroup parent = (ViewGroup) mShimmerViewRef.getParent();
+            int idx = parent.indexOfChild(mShimmerViewRef);
+            if (idx >= 0) {
+                parent.removeView(mShimmerViewRef);
+
+                ShimmerLine newShimmer =
+                        new ShimmerLine(getContext, COLOR_ACCENT, COLOR_ACCENT_2);
+                LinearLayout.LayoutParams shimmerLp =
+                        new LinearLayout.LayoutParams(MATCH_PARENT, dp(2));
+                shimmerLp.setMargins(dp(12), 0, dp(12), 0);
+                newShimmer.setLayoutParams(shimmerLp);
+
+                parent.addView(newShimmer, idx);
+                mShimmerViewRef = newShimmer;
+                mShimmerView = newShimmer;
+            }
+        } catch (Exception ignored) { }
+    }
+
+    // ---- Sidebar divider ----
+    if (sidebarDivider != null) {
+        sidebarDivider.setBackgroundColor(withAlpha(COLOR_ACCENT, 0x24));
     }
 }
 // ================================================================
@@ -3516,6 +3545,159 @@ private static class ColorWheelView extends View {
                 return true;
         }
         return super.onTouchEvent(event);
+    }
+}
+// ================================================================
+// Popup Color Picker Dialog (with pie-chart wheel)
+//  • Live preview while dragging the wheel
+//  • Apply → saves + full rebuild
+//  • Cancel → reverts to original color
+// ================================================================
+private void showMenuColorPickerDialog() {
+    mColorPickerOriginalColor = COLOR_ACCENT;
+
+    final AlertDialog[] dialogRef = new AlertDialog[1];
+
+    // ---- Root container ----
+    LinearLayout box = new LinearLayout(getContext);
+    box.setOrientation(LinearLayout.VERTICAL);
+    box.setGravity(Gravity.CENTER_HORIZONTAL);
+    box.setPadding(dp(18), dp(18), dp(18), dp(16));
+
+    GradientDrawable boxBg = new GradientDrawable(
+            GradientDrawable.Orientation.TOP_BOTTOM,
+            new int[]{COLOR_BG_TOP, COLOR_BG_BOTTOM});
+    boxBg.setCornerRadius(dp(20));
+    boxBg.setStroke(dp(1), withAlpha(COLOR_ACCENT, 0xAA));
+    box.setBackground(boxBg);
+
+    // ---- Title ----
+    TextView title = new TextView(getContext);
+    title.setText("Pick Menu Color");
+    title.setTextColor(COLOR_ACCENT);
+    title.setTypeface(fontBold);
+    title.setTextSize(15f);
+    title.setGravity(Gravity.CENTER);
+    box.addView(title);
+
+    // ---- Hint ----
+    TextView hint = new TextView(getContext);
+    hint.setText("Drag around the wheel");
+    hint.setTextColor(COLOR_TEXT_MUTED);
+    hint.setTypeface(fontRegular);
+    hint.setTextSize(10f);
+    hint.setGravity(Gravity.CENTER);
+    LinearLayout.LayoutParams hintLp =
+            new LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT);
+    hintLp.setMargins(0, dp(4), 0, dp(14));
+    hint.setLayoutParams(hintLp);
+    box.addView(hint);
+
+    // ---- Color wheel ----
+    int availW = screenW() - dp(100);
+    int wheelSize = Math.min(availW, dp(260));
+    if (wheelSize < dp(180)) wheelSize = dp(180);
+
+    ColorWheelView wheel = new ColorWheelView(getContext, mCurrentHueF);
+    LinearLayout.LayoutParams wlp =
+            new LinearLayout.LayoutParams(wheelSize, wheelSize);
+    wlp.gravity = Gravity.CENTER_HORIZONTAL;
+    wheel.setLayoutParams(wlp);
+
+    // Live preview only — no rebuild
+    wheel.setListener(new ColorWheelView.Listener() {
+        @Override
+        public void onColorChanged(int hueDegrees, int color) {
+            mCurrentHueF = (float) hueDegrees;
+            applyMenuColorLive(color);
+        }
+    });
+    box.addView(wheel);
+
+    // ---- Button row ----
+    LinearLayout btnRow = new LinearLayout(getContext);
+    btnRow.setOrientation(LinearLayout.HORIZONTAL);
+    btnRow.setGravity(Gravity.CENTER);
+    LinearLayout.LayoutParams btnRowLp =
+            new LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT);
+    btnRowLp.setMargins(0, dp(16), 0, 0);
+    btnRow.setLayoutParams(btnRowLp);
+
+    // Cancel button
+    Button cancelBtn = dialogButton("Cancel", false);
+    LinearLayout.LayoutParams cLp =
+            new LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f);
+    cLp.setMargins(0, 0, dp(4), 0);
+    cancelBtn.setLayoutParams(cLp);
+    cancelBtn.setOnClickListener(new View.OnClickListener() {
+        @Override
+        public void onClick(View v) {
+            // Revert to original color
+            applyMenuColorLive(mColorPickerOriginalColor);
+            if (dialogRef[0] != null) dialogRef[0].dismiss();
+        }
+    });
+
+    // Apply button
+    Button okBtn = dialogButton("Apply", true);
+    LinearLayout.LayoutParams oLp =
+            new LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f);
+    oLp.setMargins(dp(4), 0, 0, 0);
+    okBtn.setLayoutParams(oLp);
+    okBtn.setOnClickListener(new View.OnClickListener() {
+        @Override
+        public void onClick(View v) {
+            int finalColor = COLOR_ACCENT;
+            // Persist
+            getContext.getSharedPreferences("menu_theme", Context.MODE_PRIVATE)
+                    .edit().putInt("accent", finalColor).apply();
+
+            if (dialogRef[0] != null) dialogRef[0].dismiss();
+
+            // Rebuild UI so all accent elements use the new color
+            menuFrame.post(new Runnable() {
+                @Override
+                public void run() {
+                    try {
+                        buildFeaturesAndCategories(GetFeatureList());
+                        selectTabByName("Settings");
+                    } catch (Exception ignored) { }
+                }
+            });
+
+            Toast.makeText(getContext(),
+                    "Menu color saved", Toast.LENGTH_SHORT).show();
+        }
+    });
+
+    btnRow.addView(cancelBtn);
+    btnRow.addView(okBtn);
+    box.addView(btnRow);
+
+    // ---- Show dialog ----
+    AlertDialog.Builder builder = new AlertDialog.Builder(getContext());
+    builder.setView(box);
+    AlertDialog dialog = builder.create();
+    dialogRef[0] = dialog;
+    dialog.setCancelable(true);
+
+    Window w = dialog.getWindow();
+    if (w != null) {
+        w.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
+        if (overlayRequired) {
+            w.setType(Build.VERSION.SDK_INT >= 26 ? 2038 : 2002);
+        }
+    }
+
+    dialog.show();
+
+    // Enforce max width so it doesn't stretch edge-to-edge
+    if (dialog.getWindow() != null) {
+        int maxW = Math.min(dp(360), (int)(screenW() * 0.9f));
+        WindowManager.LayoutParams lp = dialog.getWindow().getAttributes();
+        lp.width = maxW;
+        lp.height = WindowManager.LayoutParams.WRAP_CONTENT;
+        dialog.getWindow().setAttributes(lp);
     }
 }
 }
