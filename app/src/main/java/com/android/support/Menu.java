@@ -189,7 +189,7 @@ private TitanicTextView mProView      = null;
 private ImageView       mSettingsIcon = null;
 private View            mShimmerViewRef = null;
 private float           mCurrentHueF    = 145f;
-
+private TextView mSubTitleView = null;
 // ---- NEW: additional view references for live theming ----
 private Button          mMinimizeBtn    = null;
 private Button          mHideBtn        = null;
@@ -363,8 +363,7 @@ if (initH < loginMinH && screenH() > loginMinH + effectivePosY) {
         FrameLayout iconHolder = new FrameLayout(context);
         int holderPx = iconPx + dp(22);
         iconHolder.setLayoutParams(new RelativeLayout.LayoutParams(holderPx, holderPx));
-        iconHolder.addView(new GlowRingView(context, COLOR_ACCENT, COLOR_ACCENT_2),
-                           new FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT));
+        
         iconHolder.setOnTouchListener(onTouchListener());
         mCollapsed.addView(iconHolder);
 
@@ -445,10 +444,12 @@ if (initH < loginMinH && screenH() > loginMinH + effectivePosY) {
         ShimmerLine shimmer = new ShimmerLine(context, COLOR_ACCENT, COLOR_ACCENT_2);
         shimmer.setLayoutParams(shimmerLp);
         // ==== Save header views for color theming ====
-mTitleView      = title;
-mProView        = proTitle;
-mSettingsIcon   = settings;
+mTitleView = title;
+mSubTitleView = subTitle;
+mProView = proTitle;
+mSettingsIcon = settings;
 mShimmerViewRef = shimmer;
+
 
         // ---------------- Body: sidebar + content (both natively drag-scrollable) ----------------
         mainContainer = new LinearLayout(context);
@@ -1891,7 +1892,7 @@ if (settingsLay != null) {
     settingsLay.removeAllViews();
 
     Switch(settingsLay, -1, "Save features preference", Preferences.loadPref);
-    Switch(settingsLay, -3, "Auto size", Preferences.isExpanded);
+    
 
                 Category(settingsLay, "Menu Color Theme");
 
@@ -3428,6 +3429,9 @@ private void updateHeaderColors() {
     if (mTitleView != null) {
         mTitleView.setTextColor(COLOR_ACCENT);
     }
+    if (mSubTitleView != null) {
+    mSubTitleView.setTextColor(Color.WHITE);
+}
 
     // ---- PRO badge ----
     if (mProView != null) {
@@ -3571,6 +3575,8 @@ ringPaint.setShader(sweep);            // ← shader আগেই সেট ক�
         ringPaint.setShader(sweep);
 canvas.drawCircle(cx, cy, radius - ringWidth / 2f, ringPaint);
 ringPaint.setShader(null);
+
+        // Outer thin border
 
         // Outer thin border
         ringPaint.setStyle(Paint.Style.STROKE);
