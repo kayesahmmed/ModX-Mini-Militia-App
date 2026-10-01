@@ -2653,7 +2653,7 @@ Toast.makeText(getContext, "Color: " + cname, Toast.LENGTH_SHORT).show();
         label.setTextSize(12f);
         label.setPadding(dp(12), dp(10), dp(6), dp(10));
 
-        final ToggleView toggle = new ToggleView(getContext, COLOR_ACCENT, COLOR_ACCENT_2, COLOR_TRACK);
+        final ToggleView toggle = new ToggleView(getContext, COLOR_ACCENT, COLOR_ACCENT_3, COLOR_TRACK);
 boolean initial = loadFeatureBool(featName, featNum,
         Preferences.loadPrefBool(featName, featNum, swiOn));
 toggle.setChecked(initial, false);
@@ -2906,8 +2906,8 @@ private void applyMenuColorButtonStyle(Button button, String label, int color) {
 
         final String finalfeatName = featName.replace("OnOff_", "");
         final boolean[] state = new boolean[]{
-        loadFeatureBool(featName, featNum,
-                Preferences.loadPrefBool(featName, featNum, switchedOn)) };
+loadFeatureBool(finalfeatName, featNum,
+        Preferences.loadPrefBool(finalfeatName, featNum, switchedOn)) };
         applyOnOffStyle(button, finalfeatName, state[0]);
 
         button.setOnClickListener(new View.OnClickListener() {
@@ -3555,10 +3555,12 @@ private static class ColorWheelView extends View {
         if (w <= 0 || h <= 0) return;
 
         int[] hues = new int[13];
-        for (int i = 0; i <= 12; i++) {
-            hues[i] = Color.HSVToColor(new float[]{i * 30f, 0.72f, 0.86f});
-        }
-        sweep = new SweepGradient(w / 2f, h / 2f, hues, null);
+for (int i = 0; i <= 12; i++) {
+    hues[i] = Color.HSVToColor(new float[]{i * 30f, 0.72f, 0.86f});
+}
+sweep = new SweepGradient(w / 2f, h / 2f, hues, null);
+sweep.setLocalMatrix(new Matrix());   // ← force fresh shader
+ringPaint.setShader(sweep);            // ← shader আগেই সেট করে দিন
 
         float cx = w / 2f;
         float cy = h / 2f;
@@ -3567,8 +3569,8 @@ private static class ColorWheelView extends View {
         // Hue ring
         ringRect.set(cx - radius, cy - radius, cx + radius, cy + radius);
         ringPaint.setShader(sweep);
-        canvas.drawCircle(cx, cy, radius - ringWidth / 2f, ringPaint);
-        ringPaint.setShader(null);
+canvas.drawCircle(cx, cy, radius - ringWidth / 2f, ringPaint);
+ringPaint.setShader(null);
 
         // Outer thin border
         ringPaint.setStyle(Paint.Style.STROKE);
@@ -3671,39 +3673,7 @@ private void showMenuColorPickerDialog() {
     title.setGravity(Gravity.CENTER);
     box.addView(title);
 
-    // ---- Current color swatch preview ----
-    final View preview = new View(getContext);
-    LinearLayout.LayoutParams plp = new LinearLayout.LayoutParams(
-            dp(60), dp(60));
-    plp.setMargins(0, dp(12), 0, dp(6));
-    preview.setLayoutParams(plp);
-    GradientDrawable prevBg = new GradientDrawable();
-    prevBg.setShape(GradientDrawable.OVAL);
-    prevBg.setColor(COLOR_ACCENT);
-    prevBg.setStroke(dp(3), 0xFFFFFFFF);
-    preview.setBackground(prevBg);
-    box.addView(preview);
-
-    final TextView hexLabel = new TextView(getContext);
-    hexLabel.setText(hex(COLOR_ACCENT));
-    hexLabel.setTextColor(Color.WHITE);
-    hexLabel.setTypeface(fontBold);
-    hexLabel.setTextSize(12f);
-    hexLabel.setGravity(Gravity.CENTER);
-    box.addView(hexLabel);
-
-    // ---- Hint ----
-    TextView hint = new TextView(getContext);
-    hint.setText("Drag the wheel or tap a preset");
-    hint.setTextColor(COLOR_TEXT_MUTED);
-    hint.setTypeface(fontRegular);
-    hint.setTextSize(10f);
-    hint.setGravity(Gravity.CENTER);
-    LinearLayout.LayoutParams hintLp =
-        new LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT);
-hintLp.setMargins(0, dp(6), 0, dp(12));
-hint.setLayoutParams(hintLp);
-box.addView(hint);
+   
 
 // ---- Color Wheel ----
     int availW = screenW() - dp(100);
@@ -3737,64 +3707,7 @@ box.addView(hint);
     });
     box.addView(wheel);
 
-    // ---- Preset swatches (grid) ----
-    Category(box, "Presets");
 
-    final int[] PRESET_COLORS = {
-        0xFF3DDB87, 0xFF5DADE2, 0xFF9B59B6, 0xFFE74C3C,
-        0xFF1ABC9C, 0xFFE67E22, 0xFFFF69B4, 0xFFD8B36C,
-        0xFFF1C40F, 0xFF2ECC71, 0xFF3498DB, 0xFFE91E63
-    };
-    final String[] PRESET_NAMES = {
-        "Green", "Blue", "Purple", "Red",
-        "Cyan", "Orange", "Pink", "Gold",
-        "Yellow", "Emerald", "Sky", "Rose"
-    };
-
-    final int cols = 4;
-    for (int i = 0; i < PRESET_COLORS.length; i += cols) {
-        LinearLayout row = new LinearLayout(getContext);
-        row.setOrientation(LinearLayout.HORIZONTAL);
-        row.setLayoutParams(new LinearLayout.LayoutParams(
-                MATCH_PARENT, WRAP_CONTENT));
-
-        int added = 0;
-        for (int j = 0; j < cols && i + j < PRESET_COLORS.length; j++) {
-            final int c = PRESET_COLORS[i + j];
-
-            View sw = new View(getContext);
-            LinearLayout.LayoutParams slp = new LinearLayout.LayoutParams(
-                    0, dp(48), 1f);
-            slp.setMargins(dp(4), dp(4), dp(4), dp(4));
-            sw.setLayoutParams(slp);
-
-            GradientDrawable sd = new GradientDrawable();
-            sd.setShape(GradientDrawable.OVAL);
-            sd.setColor(c);
-            sd.setStroke(dp(2), 0xFFFFFFFF);
-            sw.setBackground(sd);
-            addPressAnim(sw);
-
-            sw.setOnClickListener(new View.OnClickListener() {
-                @Override
-                public void onClick(View v) {
-                    mCurrentHueF = getHueFromColor(c);
-                    applyMenuColorLive(c);
-
-
-                }
-            });
-
-            row.addView(sw);
-            added++;
-        }
-                for (int k = added; k < cols; k++) {
-            View empty = new View(getContext);
-            empty.setLayoutParams(new LinearLayout.LayoutParams(0, dp(48), 1f));
-            row.addView(empty);
-        }
-        box.addView(row);
-    }
 
     // ---- Button row ----
     LinearLayout btnRow = new LinearLayout(getContext);
