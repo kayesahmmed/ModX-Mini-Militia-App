@@ -511,12 +511,12 @@ hideBtn.setTextColor(lighten(COLOR_DANGER, 0.45f));   // ← softer red text
         hideBtn.setOnClickListener(new View.OnClickListener() {
                 public void onClick(View view) {
                     collapseMenu(0f);
-                    Toast.makeText(view.getContext(), "Icon hidden", Toast.LENGTH_SHORT).show();
+                    Toast.makeText(view.getContext, "Icon hidden", Toast.LENGTH_SHORT).show();
                 }
             });
         hideBtn.setOnLongClickListener(new View.OnLongClickListener() {
                 public boolean onLongClick(View view) {
-                    Toast.makeText(view.getContext(), "Menu killed", Toast.LENGTH_LONG).show();
+                    Toast.makeText(view.getContext, "Menu killed", Toast.LENGTH_LONG).show();
                     stopGlowAnimator();
                     rootFrame.removeView(mRootContainer);
                     mWindowManager.removeView(rootFrame);
@@ -2667,7 +2667,7 @@ toggle.setChecked(initial, false);
             saveFeatureBool(featName, featNum, bool);   // ← explicit save
             switch (featNum) {
                 case -1:
-                    Preferences.with(row.getContext()).writeBoolean(-1, bool);
+                    Preferences.with(row.getContext).writeBoolean(-1, bool);
                     break;
                 case -3:
                     Preferences.isExpanded = bool;
@@ -3669,7 +3669,7 @@ private void showMenuColorPickerDialog() {
     box.addView(title);
 
     // ---- Current color swatch preview ----
-    final View preview = new View(getContext());
+    final View preview = new View(getContext);
     LinearLayout.LayoutParams plp = new LinearLayout.LayoutParams(
             dp(60), dp(60));
     plp.setMargins(0, dp(12), 0, dp(6));
@@ -3681,7 +3681,7 @@ private void showMenuColorPickerDialog() {
     preview.setBackground(prevBg);
     box.addView(preview);
 
-    final TextView hexLabel = new TextView(getContext());
+    final TextView hexLabel = new TextView(getContext);
     hexLabel.setText(hex(COLOR_ACCENT));
     hexLabel.setTextColor(Color.WHITE);
     hexLabel.setTypeface(fontBold);
@@ -3690,7 +3690,7 @@ private void showMenuColorPickerDialog() {
     box.addView(hexLabel);
 
     // ---- Hint ----
-    TextView hint = new TextView(getContext());
+    TextView hint = new TextView(getContext);
     hint.setText("Drag the wheel or tap a preset");
     hint.setTextColor(COLOR_TEXT_MUTED);
     hint.setTypeface(fontRegular);
@@ -3707,7 +3707,7 @@ private void showMenuColorPickerDialog() {
     int wheelSize = Math.min(availW, dp(240));
     if (wheelSize < dp(180)) wheelSize = dp(180);
 
-    ColorWheelView wheel = new ColorWheelView(getContext(), mCurrentHueF);
+    ColorWheelView wheel = new ColorWheelView(getContext, mCurrentHueF);
     LinearLayout.LayoutParams wlp =
             new LinearLayout.LayoutParams(wheelSize, wheelSize);
     wlp.gravity = Gravity.CENTER_HORIZONTAL;
@@ -3734,7 +3734,7 @@ private void showMenuColorPickerDialog() {
         @Override
         public void onColorChanged(int hueDegrees, int color) {
             mCurrentHueF = (float) hueDegrees;
-            getContext().getSharedPreferences("menu_theme", Context.MODE_PRIVATE)
+            getContext.getSharedPreferences("menu_theme", Context.MODE_PRIVATE)
                     .edit().putInt("accent", color).apply();
         }
     });
@@ -3756,7 +3756,7 @@ private void showMenuColorPickerDialog() {
 
     final int cols = 4;
     for (int i = 0; i < PRESET_COLORS.length; i += cols) {
-        LinearLayout row = new LinearLayout(getContext());
+        LinearLayout row = new LinearLayout(getContext);
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setLayoutParams(new LinearLayout.LayoutParams(
                 MATCH_PARENT, WRAP_CONTENT));
@@ -3765,7 +3765,7 @@ private void showMenuColorPickerDialog() {
         for (int j = 0; j < cols && i + j < PRESET_COLORS.length; j++) {
             final int c = PRESET_COLORS[i + j];
 
-            View sw = new View(getContext());
+            View sw = new View(getContext);
             LinearLayout.LayoutParams slp = new LinearLayout.LayoutParams(
                     0, dp(48), 1f);
             slp.setMargins(dp(4), dp(4), dp(4), dp(4));
@@ -3791,7 +3791,7 @@ private void showMenuColorPickerDialog() {
                     preview.setBackground(bg);
                     hexLabel.setText(hex(c));
 
-                    getContext().getSharedPreferences("menu_theme",
+                    getContext.getSharedPreferences("menu_theme",
                             Context.MODE_PRIVATE)
                             .edit().putInt("accent", c).apply();
                 }
@@ -3801,7 +3801,7 @@ private void showMenuColorPickerDialog() {
             added++;
         }
         for (int k = added; k < cols; k++) {
-            View empty = new View(getContext());
+            View empty = new View(getContext);
             empty.setLayoutParams(new LinearLayout.LayoutParams(0, dp(48), 1f));
             row.addView(empty);
         }
@@ -3809,7 +3809,7 @@ private void showMenuColorPickerDialog() {
     }
 
     // ---- Button row ----
-    LinearLayout btnRow = new LinearLayout(getContext());
+    LinearLayout btnRow = new LinearLayout(getContext);
     btnRow.setOrientation(LinearLayout.HORIZONTAL);
     btnRow.setGravity(Gravity.CENTER);
     LinearLayout.LayoutParams btnRowLp =
@@ -3839,7 +3839,7 @@ private void showMenuColorPickerDialog() {
         @Override
         public void onClick(View v) {
             int finalColor = COLOR_ACCENT;
-            getContext().getSharedPreferences("menu_theme",
+            getContext.getSharedPreferences("menu_theme",
                     Context.MODE_PRIVATE)
                     .edit().putInt("accent", finalColor).apply();
 
@@ -3855,7 +3855,7 @@ private void showMenuColorPickerDialog() {
                 }
             });
 
-            Toast.makeText(getContext(),
+            Toast.makeText(getContext,
                     "Menu color saved", Toast.LENGTH_SHORT).show();
         }
     });
@@ -3867,7 +3867,7 @@ private void showMenuColorPickerDialog() {
     scroll.addView(box);
 
     // ---- Show dialog ----
-    AlertDialog.Builder builder = new AlertDialog.Builder(getContext());
+    AlertDialog.Builder builder = new AlertDialog.Builder(getContext);
     builder.setView(scroll);
     AlertDialog dialog = builder.create();
     dialogRef[0] = dialog;
