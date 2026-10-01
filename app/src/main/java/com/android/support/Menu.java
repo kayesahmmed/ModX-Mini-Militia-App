@@ -394,7 +394,7 @@ if (initH < loginMinH && screenH() > loginMinH + effectivePosY) {
         subTitle.setMarqueeRepeatLimit(-1);
         subTitle.setSingleLine(true);
         subTitle.setSelected(true);
-        subTitle.setTextColor(COLOR_TEXT_MUTED);
+        subTitle.setTextColor(Color.WHITE);
         subTitle.setTypeface(fontRegular);
         subTitle.setTextSize(9.5f);
         subTitle.setGravity(Gravity.LEFT | Gravity.CENTER_VERTICAL);
@@ -408,7 +408,7 @@ if (initH < loginMinH && screenH() > loginMinH + effectivePosY) {
         proTitle.setText("PRO");
         proTitle.setTextSize(10);
         proTitle.setGravity(Gravity.CENTER);
-        proTitle.setTextColor(COLOR_SUCCESS);
+        proTitle.setTextColor(Color.WHITE);
         proTitle.setTypeface(fontBold);
         proTitle.setPadding(dp(8), dp(2), dp(8), dp(2));
         proTitle.setBackground(cardBg(withAlpha(COLOR_SUCCESS, 0x1A), withAlpha(COLOR_SUCCESS, 0x99), 8));
@@ -489,10 +489,13 @@ mShimmerViewRef = shimmer;
         LinearLayout.LayoutParams hideLp = new LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f);
         hideLp.setMargins(0, 0, dp(6), 0);
         hideBtn.setLayoutParams(hideLp);
-        hideBtn.setBackground(cardBg(withAlpha(COLOR_DANGER, 0x1C), withAlpha(COLOR_DANGER, 0x77), 10));
-        hideBtn.setText("HIDE/KILL (Hold)");
-        hideBtn.setAllCaps(false);
-        hideBtn.setTextColor(Color.parseColor("#E2938C"));
+        hideBtn.setBackground(cardBg(
+        withAlpha(COLOR_DANGER, 0x1A),     // ← same alpha as MINIMIZE (0x1A)
+        withAlpha(COLOR_DANGER, 0x77),     // ← same stroke alpha
+        10));
+hideBtn.setText("HIDE/KILL (Hold)");
+hideBtn.setAllCaps(false);
+hideBtn.setTextColor(lighten(COLOR_DANGER, 0.45f));   // ← softer red text
         hideBtn.setTextSize(11f);
         hideBtn.setTypeface(fontMedium);
         hideBtn.setSingleLine(true);
@@ -1325,6 +1328,12 @@ new Titanic().start(proTitle);
 
         private final Paint thumbPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
         private final Paint trackPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+            private int accentColor = 0xFF3DDB87;   // dynamic accent
+
+    void setAccentColor(int c) {
+        this.accentColor = c;
+        invalidate();
+    }
         private final RectF rect = new RectF();
         private final float density;
         private int barAlpha = IDLE_ALPHA;
@@ -1394,18 +1403,35 @@ new Titanic().start(proTitle);
             final float thumbTop = trackTop + (trackH - thumbH) * progress;
             final float r = w / 2f;
 
-            trackPaint.setColor(0xFFD8B36C);
+                        trackPaint.setColor(accentColor);
             trackPaint.setAlpha(barAlpha * 26 / 255);
             rect.set(left, trackTop, right, trackTop + trackH);
             canvas.drawRoundRect(rect, r, r, trackPaint);
 
-            thumbPaint.setColor(0xFFD8B36C);
+            thumbPaint.setColor(accentColor);
             thumbPaint.setAlpha(barAlpha);
             rect.set(left, thumbTop, right, thumbTop + thumbH);
             canvas.drawRoundRect(rect, r, r, thumbPaint);
         }
     }
+private static final String FEAT_PREFS = "modx_features";
 
+private void saveFeatureBool(String name, int num, boolean v) {
+    getContext.getSharedPreferences(FEAT_PREFS, Context.MODE_PRIVATE)
+        .edit().putBoolean("b_" + num + "_" + name, v).apply();
+}
+private boolean loadFeatureBool(String name, int num, boolean def) {
+    return getContext.getSharedPreferences(FEAT_PREFS, Context.MODE_PRIVATE)
+        .getBoolean("b_" + num + "_" + name, def);
+}
+private void saveFeatureInt(String name, int num, int v) {
+    getContext.getSharedPreferences(FEAT_PREFS, Context.MODE_PRIVATE)
+        .edit().putInt("i_" + num + "_" + name, v).apply();
+}
+private int loadFeatureInt(String name, int num, int def) {
+    return getContext.getSharedPreferences(FEAT_PREFS, Context.MODE_PRIVATE)
+        .getInt("i_" + num + "_" + name, def);
+}
     // ================================================================
     // Tab icons (drawn in code, no drawable resources needed)
     // ================================================================
@@ -1867,11 +1893,14 @@ if (settingsLay != null) {
     Switch(settingsLay, -1, "Save features preference", Preferences.loadPref);
     Switch(settingsLay, -3, "Auto size", Preferences.isExpanded);
 
-        Category(settingsLay, "Menu Color Theme");
+                Category(settingsLay, "Menu Color Theme");
 
-    // ===== Pick Menu Color (opens pie-chart dialog) =====
-    Button(settingsLay, -29, "🎨  Pick Menu Color");
-    Button(settingsLay, -28, "Reset to Default (Green)");
+    // ===== Pick Menu Color (shows current color + hex) =====
+    settingsLay.addView(makeMenuColorButton(
+            COLOR_ACCENT, "Menu Color", -29));
+    settingsLay.addView(makeMenuColorButton(
+            Color.parseColor("#3DDB87"), "Reset to Default", -28));
+
     Button(settingsLay, -6, "Close Menu");
     }
         setupSidebarTabs();
@@ -2623,28 +2652,29 @@ private void setWindowFocusable(boolean focusable) {
         label.setPadding(dp(12), dp(10), dp(6), dp(10));
 
         final ToggleView toggle = new ToggleView(getContext, ToggleON, COLOR_ACCENT, COLOR_TRACK);
-        boolean initial = Preferences.loadPrefBool(featName, featNum, swiOn);
-        toggle.setChecked(initial, false);
+boolean initial = loadFeatureBool(featName, featNum,
+        Preferences.loadPrefBool(featName, featNum, swiOn));
+toggle.setChecked(initial, false);
         rowBg.setStroke(dp(1), initial ? withAlpha(ToggleON, 0x99) : COLOR_CARD_BORDER);
 
         toggle.setListener(new ToggleView.Listener() {
-                @Override
-                public void onChanged(boolean bool) {
-                    animateStroke(rowBg,
-                                  bool ? COLOR_CARD_BORDER : withAlpha(ToggleON, 0x99),
-                                  bool ? withAlpha(ToggleON, 0x99) : COLOR_CARD_BORDER);
-                    Preferences.changeFeatureBool(featName, featNum, bool);
-                    switch (featNum) {
-                        case -1:
-                            Preferences.with(row.getContext()).writeBoolean(-1, bool);
-                            if (!bool) Preferences.with(row.getContext()).clear();
-                            break;
-                        case -3:
-                            Preferences.isExpanded = bool;
-                            break;
-                    }
-                }
-            });
+        @Override
+        public void onChanged(boolean bool) {
+            animateStroke(rowBg,
+                          bool ? COLOR_CARD_BORDER : withAlpha(ToggleON, 0x99),
+                          bool ? withAlpha(ToggleON, 0x99) : COLOR_CARD_BORDER);
+            Preferences.changeFeatureBool(featName, featNum, bool);
+            saveFeatureBool(featName, featNum, bool);   // ← explicit save
+            switch (featNum) {
+                case -1:
+                    Preferences.with(row.getContext()).writeBoolean(-1, bool);
+                    break;
+                case -3:
+                    Preferences.isExpanded = bool;
+                    break;
+            }
+        }
+    });
 
         row.setOnClickListener(new View.OnClickListener() {
                 @Override
@@ -2660,8 +2690,9 @@ private void setWindowFocusable(boolean focusable) {
     }
 
     private void SeekBar(LinearLayout linLayout, final int featNum, final String featName, final int min, int max) {
-        int loadedProg = Preferences.loadPrefInt(featName, featNum);
-        int startVal = (loadedProg == 0) ? min : loadedProg;
+        int loadedProg = loadFeatureInt(featName, featNum,
+        Preferences.loadPrefInt(featName, featNum));
+int startVal = (loadedProg == 0) ? min : loadedProg;
 
         LinearLayout card = new LinearLayout(getContext);
         card.setOrientation(LinearLayout.VERTICAL);
@@ -2712,7 +2743,8 @@ private void setWindowFocusable(boolean focusable) {
                     int val = i < min ? min : i;
                     if (val != i) seekBar.setProgress(val);
                     Preferences.changeFeatureInt(featName, featNum, val);
-                    chip.setText(String.valueOf(val));
+saveFeatureInt(featName, featNum, val);
+chip.setText(String.valueOf(val));
                 }
             });
 
@@ -2768,19 +2800,57 @@ private void setWindowFocusable(boolean focusable) {
                     return;
                                 case -100: stopChecking = true; break;
 
-                case -29:
-                    showMenuColorPickerDialog();
-                    return;
-
-                case -28:
-                    mCurrentHueF = 145f;
-                    applyMenuColor(Color.parseColor("#3DDB87"));
-                    return;
+                
             }
             Preferences.changeFeatureInt(featName, featNum, 0);
         }
     });
     linLayout.addView(button);
+}
+
+/**
+ * Button যেটা নিজের background এ current color দেখাবে এবং
+ * text এ hex code দেখাবে (ESP color picker এর মতো)।
+ */
+private Button makeMenuColorButton(final int color, final String label,
+                                    final int featNum) {
+    final Button button = new Button(getContext);
+    button.setMinHeight(0);
+    button.setMinimumHeight(0);
+    button.setLayoutParams(rowLp(6, 4, 6, 4));
+    button.setAllCaps(false);
+    button.setTypeface(fontBold);
+    button.setTextSize(12f);
+    button.setPadding(dp(10), dp(13), dp(10), dp(13));
+    flatten(button);
+    addPressAnim(button);
+
+    applyMenuColorButtonStyle(button, label, color);
+
+    button.setOnClickListener(new View.OnClickListener() {
+        @Override
+        public void onClick(View v) {
+            if (featNum == -29) {
+                showMenuColorPickerDialog();
+            } else if (featNum == -28) {
+                mCurrentHueF = 145f;
+                applyMenuColor(Color.parseColor("#3DDB87"));
+            }
+        }
+    });
+    return button;
+}
+
+private void applyMenuColorButtonStyle(Button button, String label, int color) {
+    GradientDrawable bg = new GradientDrawable();
+    bg.setCornerRadius(dp(12));
+    bg.setColor(color);
+    bg.setStroke(dp(2), withAlpha(0xFFFFFF, 0xB0));
+    button.setBackground(bg);
+    int fg = isLight(color) ? Color.BLACK : Color.WHITE;
+    button.setTextColor(fg);
+    button.setText(Html.fromHtml(
+        "<b>" + label + "</b>  " + hex(color)));
 }
 
     private void ButtonLink(LinearLayout linLayout, final String featName, final String url) {
@@ -3044,7 +3114,8 @@ private void setWindowFocusable(boolean focusable) {
         checkBox.setTextSize(12f);
         checkBox.setPadding(dp(10), dp(9), dp(10), dp(9));
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) checkBox.setButtonTintList(ColorStateList.valueOf(CheckBoxColor));
-        boolean initial = Preferences.loadPrefBool(featName, featNum, switchedOn);
+        boolean initial = loadFeatureBool(featName, featNum,
+        Preferences.loadPrefBool(featName, featNum, switchedOn));
         checkBox.setChecked(initial);
         if (initial) cbBg.setStroke(dp(1), withAlpha(CheckBoxColor, 0x99));
         checkBox.setOnCheckedChangeListener(new CompoundButton.OnCheckedChangeListener() {
@@ -3054,6 +3125,7 @@ private void setWindowFocusable(boolean focusable) {
                                   isChecked ? COLOR_CARD_BORDER : withAlpha(CheckBoxColor, 0x99),
                                   isChecked ? withAlpha(CheckBoxColor, 0x99) : COLOR_CARD_BORDER);
                     Preferences.changeFeatureBool(featName, featNum, isChecked);
+                    saveFeatureBool(featName, featNum, isChecked);
                 }
             });
         linLayout.addView(checkBox);
@@ -3354,11 +3426,11 @@ private void updateHeaderColors() {
 
     // ---- PRO badge ----
     if (mProView != null) {
-        mProView.setBackground(cardBg(
-            withAlpha(COLOR_ACCENT, 0x1A),
-            withAlpha(COLOR_ACCENT, 0x99), 8));
-        mProView.setTextColor(COLOR_ACCENT);
-    }
+    mProView.setBackground(cardBg(
+        withAlpha(COLOR_ACCENT, 0x1A),
+        withAlpha(COLOR_ACCENT, 0x99), 8));
+    mProView.setTextColor(Color.WHITE);   // ← white text
+}
 
     // ---- Settings gear icon ----
     if (mSettingsIcon != null) {
@@ -3380,7 +3452,13 @@ private void updateHeaderColors() {
         mMinimizeBtn.setTextColor(COLOR_ACCENT);
     }
 
-    // ---- HIDE/KILL button stays danger-colored (do not change) ----
+    // ---- HIDE/KILL button (keeps red, but reapply to be safe) ----
+    if (mHideBtn != null) {
+        mHideBtn.setBackground(cardBg(
+                withAlpha(COLOR_DANGER, 0x1A),
+                withAlpha(COLOR_DANGER, 0x77), 10));
+        mHideBtn.setTextColor(lighten(COLOR_DANGER, 0.45f));
+    }
 
     // ---- Shimmer line (needs replacement because colors are final) ----
     if (mShimmerViewRef != null && mShimmerViewRef.getParent() instanceof ViewGroup) {
@@ -3407,6 +3485,13 @@ private void updateHeaderColors() {
     // ---- Sidebar divider ----
     if (sidebarDivider != null) {
         sidebarDivider.setBackgroundColor(withAlpha(COLOR_ACCENT, 0x24));
+    }
+        // ---- Scrollbar colors (both sidebar & content) ----
+    if (sidebarScroll instanceof SlimScrollView) {
+        ((SlimScrollView) sidebarScroll).setAccentColor(COLOR_ACCENT);
+    }
+    if (contentScrollView instanceof SlimScrollView) {
+        ((SlimScrollView) contentScrollView).setAccentColor(COLOR_ACCENT);
     }
 }
 // ================================================================
@@ -3558,7 +3643,10 @@ private void showMenuColorPickerDialog() {
 
     final AlertDialog[] dialogRef = new AlertDialog[1];
 
-    // ---- Root container ----
+    // ---- Scrollable root so nothing gets cut ----
+    ScrollView scroll = new ScrollView(getContext);
+    scroll.setVerticalScrollBarEnabled(false);
+
     LinearLayout box = new LinearLayout(getContext);
     box.setOrientation(LinearLayout.VERTICAL);
     box.setGravity(Gravity.CENTER_HORIZONTAL);
@@ -3580,42 +3668,148 @@ private void showMenuColorPickerDialog() {
     title.setGravity(Gravity.CENTER);
     box.addView(title);
 
+    // ---- Current color swatch preview ----
+    final View preview = new View(getContext());
+    LinearLayout.LayoutParams plp = new LinearLayout.LayoutParams(
+            dp(60), dp(60));
+    plp.setMargins(0, dp(12), 0, dp(6));
+    preview.setLayoutParams(plp);
+    GradientDrawable prevBg = new GradientDrawable();
+    prevBg.setShape(GradientDrawable.OVAL);
+    prevBg.setColor(COLOR_ACCENT);
+    prevBg.setStroke(dp(3), 0xFFFFFFFF);
+    preview.setBackground(prevBg);
+    box.addView(preview);
+
+    final TextView hexLabel = new TextView(getContext());
+    hexLabel.setText(hex(COLOR_ACCENT));
+    hexLabel.setTextColor(Color.WHITE);
+    hexLabel.setTypeface(fontBold);
+    hexLabel.setTextSize(12f);
+    hexLabel.setGravity(Gravity.CENTER);
+    box.addView(hexLabel);
+
     // ---- Hint ----
-    TextView hint = new TextView(getContext);
-    hint.setText("Drag around the wheel");
+    TextView hint = new TextView(getContext());
+    hint.setText("Drag the wheel or tap a preset");
     hint.setTextColor(COLOR_TEXT_MUTED);
     hint.setTypeface(fontRegular);
     hint.setTextSize(10f);
     hint.setGravity(Gravity.CENTER);
     LinearLayout.LayoutParams hintLp =
             new LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT);
-    hintLp.setMargins(0, dp(4), 0, dp(14));
+    hintLp.setMargins(0, dp(6), 0, dp(12));
     hint.setLayoutParams(hintLp);
     box.addView(hint);
 
-    // ---- Color wheel ----
+    // ---- Color Wheel ----
     int availW = screenW() - dp(100);
-    int wheelSize = Math.min(availW, dp(260));
+    int wheelSize = Math.min(availW, dp(240));
     if (wheelSize < dp(180)) wheelSize = dp(180);
 
-    ColorWheelView wheel = new ColorWheelView(getContext, mCurrentHueF);
+    ColorWheelView wheel = new ColorWheelView(getContext(), mCurrentHueF);
     LinearLayout.LayoutParams wlp =
             new LinearLayout.LayoutParams(wheelSize, wheelSize);
     wlp.gravity = Gravity.CENTER_HORIZONTAL;
     wheel.setLayoutParams(wlp);
 
-    // Live preview only — no rebuild
+    // Live preview while dragging
     wheel.setListener(new ColorWheelView.Listener() {
         @Override
         public void onColorChanged(int hueDegrees, int color) {
             mCurrentHueF = (float) hueDegrees;
             applyMenuColorLive(color);
+
+            // Update preview swatch & hex label
+            GradientDrawable bg = new GradientDrawable();
+            bg.setShape(GradientDrawable.OVAL);
+            bg.setColor(color);
+            bg.setStroke(dp(3), 0xFFFFFFFF);
+            preview.setBackground(bg);
+            hexLabel.setText(hex(color));
+        }
+    });
+    // Persist on release
+    wheel.setCommitListener(new ColorWheelView.Listener() {
+        @Override
+        public void onColorChanged(int hueDegrees, int color) {
+            mCurrentHueF = (float) hueDegrees;
+            getContext().getSharedPreferences("menu_theme", Context.MODE_PRIVATE)
+                    .edit().putInt("accent", color).apply();
         }
     });
     box.addView(wheel);
 
+    // ---- Preset swatches (grid) ----
+    Category(box, "Presets");
+
+    final int[] PRESET_COLORS = {
+        0xFF3DDB87, 0xFF5DADE2, 0xFF9B59B6, 0xFFE74C3C,
+        0xFF1ABC9C, 0xFFE67E22, 0xFFFF69B4, 0xFFD8B36C,
+        0xFFF1C40F, 0xFF2ECC71, 0xFF3498DB, 0xFFE91E63
+    };
+    final String[] PRESET_NAMES = {
+        "Green", "Blue", "Purple", "Red",
+        "Cyan", "Orange", "Pink", "Gold",
+        "Yellow", "Emerald", "Sky", "Rose"
+    };
+
+    final int cols = 4;
+    for (int i = 0; i < PRESET_COLORS.length; i += cols) {
+        LinearLayout row = new LinearLayout(getContext());
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setLayoutParams(new LinearLayout.LayoutParams(
+                MATCH_PARENT, WRAP_CONTENT));
+
+        int added = 0;
+        for (int j = 0; j < cols && i + j < PRESET_COLORS.length; j++) {
+            final int c = PRESET_COLORS[i + j];
+
+            View sw = new View(getContext());
+            LinearLayout.LayoutParams slp = new LinearLayout.LayoutParams(
+                    0, dp(48), 1f);
+            slp.setMargins(dp(4), dp(4), dp(4), dp(4));
+            sw.setLayoutParams(slp);
+
+            GradientDrawable sd = new GradientDrawable();
+            sd.setShape(GradientDrawable.OVAL);
+            sd.setColor(c);
+            sd.setStroke(dp(2), 0xFFFFFFFF);
+            sw.setBackground(sd);
+            addPressAnim(sw);
+
+            sw.setOnClickListener(new View.OnClickListener() {
+                @Override
+                public void onClick(View v) {
+                    mCurrentHueF = getHueFromColor(c);
+                    applyMenuColorLive(c);
+
+                    GradientDrawable bg = new GradientDrawable();
+                    bg.setShape(GradientDrawable.OVAL);
+                    bg.setColor(c);
+                    bg.setStroke(dp(3), 0xFFFFFFFF);
+                    preview.setBackground(bg);
+                    hexLabel.setText(hex(c));
+
+                    getContext().getSharedPreferences("menu_theme",
+                            Context.MODE_PRIVATE)
+                            .edit().putInt("accent", c).apply();
+                }
+            });
+
+            row.addView(sw);
+            added++;
+        }
+        for (int k = added; k < cols; k++) {
+            View empty = new View(getContext());
+            empty.setLayoutParams(new LinearLayout.LayoutParams(0, dp(48), 1f));
+            row.addView(empty);
+        }
+        box.addView(row);
+    }
+
     // ---- Button row ----
-    LinearLayout btnRow = new LinearLayout(getContext);
+    LinearLayout btnRow = new LinearLayout(getContext());
     btnRow.setOrientation(LinearLayout.HORIZONTAL);
     btnRow.setGravity(Gravity.CENTER);
     LinearLayout.LayoutParams btnRowLp =
@@ -3623,7 +3817,6 @@ private void showMenuColorPickerDialog() {
     btnRowLp.setMargins(0, dp(16), 0, 0);
     btnRow.setLayoutParams(btnRowLp);
 
-    // Cancel button
     Button cancelBtn = dialogButton("Cancel", false);
     LinearLayout.LayoutParams cLp =
             new LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f);
@@ -3632,13 +3825,11 @@ private void showMenuColorPickerDialog() {
     cancelBtn.setOnClickListener(new View.OnClickListener() {
         @Override
         public void onClick(View v) {
-            // Revert to original color
             applyMenuColorLive(mColorPickerOriginalColor);
             if (dialogRef[0] != null) dialogRef[0].dismiss();
         }
     });
 
-    // Apply button
     Button okBtn = dialogButton("Apply", true);
     LinearLayout.LayoutParams oLp =
             new LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f);
@@ -3648,13 +3839,12 @@ private void showMenuColorPickerDialog() {
         @Override
         public void onClick(View v) {
             int finalColor = COLOR_ACCENT;
-            // Persist
-            getContext.getSharedPreferences("menu_theme", Context.MODE_PRIVATE)
+            getContext().getSharedPreferences("menu_theme",
+                    Context.MODE_PRIVATE)
                     .edit().putInt("accent", finalColor).apply();
 
             if (dialogRef[0] != null) dialogRef[0].dismiss();
 
-            // Rebuild UI so all accent elements use the new color
             menuFrame.post(new Runnable() {
                 @Override
                 public void run() {
@@ -3665,7 +3855,7 @@ private void showMenuColorPickerDialog() {
                 }
             });
 
-            Toast.makeText(getContext,
+            Toast.makeText(getContext(),
                     "Menu color saved", Toast.LENGTH_SHORT).show();
         }
     });
@@ -3674,9 +3864,11 @@ private void showMenuColorPickerDialog() {
     btnRow.addView(okBtn);
     box.addView(btnRow);
 
+    scroll.addView(box);
+
     // ---- Show dialog ----
-    AlertDialog.Builder builder = new AlertDialog.Builder(getContext);
-    builder.setView(box);
+    AlertDialog.Builder builder = new AlertDialog.Builder(getContext());
+    builder.setView(scroll);
     AlertDialog dialog = builder.create();
     dialogRef[0] = dialog;
     dialog.setCancelable(true);
@@ -3691,13 +3883,19 @@ private void showMenuColorPickerDialog() {
 
     dialog.show();
 
-    // Enforce max width so it doesn't stretch edge-to-edge
     if (dialog.getWindow() != null) {
         int maxW = Math.min(dp(360), (int)(screenW() * 0.9f));
         WindowManager.LayoutParams lp = dialog.getWindow().getAttributes();
         lp.width = maxW;
-        lp.height = WindowManager.LayoutParams.WRAP_CONTENT;
+        lp.height = WRAP_CONTENT;
         dialog.getWindow().setAttributes(lp);
     }
+}
+
+/** Hex color থেকে hue বের করে (0..360) */
+private static float getHueFromColor(int color) {
+    float[] hsv = new float[3];
+    Color.colorToHSV(color, hsv);
+    return hsv[0];
 }
 }
