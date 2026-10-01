@@ -511,12 +511,12 @@ hideBtn.setTextColor(lighten(COLOR_DANGER, 0.45f));   // ← softer red text
         hideBtn.setOnClickListener(new View.OnClickListener() {
                 public void onClick(View view) {
                     collapseMenu(0f);
-                    Toast.makeText(view.getContext, "Icon hidden", Toast.LENGTH_SHORT).show();
+                    Toast.makeText(view.getContext(), "Icon hidden", Toast.LENGTH_SHORT).show();
                 }
             });
         hideBtn.setOnLongClickListener(new View.OnLongClickListener() {
                 public boolean onLongClick(View view) {
-                    Toast.makeText(view.getContext, "Menu killed", Toast.LENGTH_LONG).show();
+                    Toast.makeText(view.getContext(), "Menu killed", Toast.LENGTH_LONG).show();
                     stopGlowAnimator();
                     rootFrame.removeView(mRootContainer);
                     mWindowManager.removeView(rootFrame);
@@ -2667,7 +2667,7 @@ toggle.setChecked(initial, false);
             saveFeatureBool(featName, featNum, bool);   // ← explicit save
             switch (featNum) {
                 case -1:
-                    Preferences.with(row.getContext).writeBoolean(-1, bool);
+                    Preferences.with(row.getContext()).writeBoolean(-1, bool);
                     break;
                 case -3:
                     Preferences.isExpanded = bool;
