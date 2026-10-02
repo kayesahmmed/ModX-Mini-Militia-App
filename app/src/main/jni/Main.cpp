@@ -726,6 +726,9 @@ std::atomic<bool> g_teleportHooksOk{false};
 static __thread volatile sig_atomic_t tls_bulletRaycast = 0;
 // ★ Forward declaration — ApplyTeleportPosition() এর full definition নিচে আছে
 static bool ApplyTeleportPosition();
+// Forward declarations for teleport map bounds functions
+static void DetectMapBounds();
+static void InvalidateMapBounds();
 // MapManager instance — প্রথম hook call থেকে capture হবে
 static std::atomic<void*> g_mapManagerInstance{nullptr};
 static std::atomic<bool>  g_mapBoundsDetected{false};
