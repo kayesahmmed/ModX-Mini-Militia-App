@@ -282,6 +282,7 @@ namespace Off {
     static const uintptr_t WeaponsModel_getDualWieldUnlockLevel = ENC_OFF(0x01113984);
     // Misc
     static const uintptr_t Stage_update                 = ENC_OFF(0x00f21938);
+        static const uintptr_t PhysicsManager_updateStep = ENC_OFF(0x00f00564);
     static const uintptr_t NetworkMessageDispatcher_updatePeerDamage = ENC_OFF(0x00ef5d60);
     static const uintptr_t NetworkManager_sendWeaponChange = ENC_OFF(0x00ef3ec4);
     static const uintptr_t CCNode_convertToWorldSpaceAR = ENC_OFF(0x00f88018);
@@ -369,6 +370,7 @@ typedef void  (*RemoteUpdateStep_t)(void*, float);
 typedef void  (*AIUpdateStep_t)(void*, float);
 typedef void  (*EnemyMgrUpdateStep_t)(void*, float);
 typedef void  (*StageUpdate_t)(void*, float);
+typedef void  (*PhysicsMgrUpdate_t)(void*, float);
 typedef void  (*LocalActivate_t)(void*);
 typedef void* (*getLocalController_t)(void*);
 typedef void  (*getBodyPosition_t)(cpVect*, void*);
@@ -446,6 +448,8 @@ RemoteUpdateStep_t     old_RemoteUpdateStep     = nullptr;
 AIUpdateStep_t         old_AIUpdateStep         = nullptr;
 EnemyMgrUpdateStep_t   old_EnemyMgrUpdateStep   = nullptr;
 StageUpdate_t          old_StageUpdate          = nullptr;
+PhysicsMgrUpdate_t     old_physicsUpdate        = nullptr;
+std::atomic<bool>      g_physHookOk{false};
 LocalActivate_t        old_LocalActivate        = nullptr;
 soldierAddDamage_t     old_addDamage            = nullptr;
 soldierAddDamage_t     old_localAddDamage       = nullptr;
@@ -1142,6 +1146,8 @@ void soldierLocalUpdateStep_Hook(void* self, float dt, cpVect a, cpVect b, float
         if (old_soldierLocalUpdateStep) old_soldierLocalUpdateStep(self, dt, a, b, c);
         return;
     }
+
+    // ★ Character speed boost (আগের মতোই)
     if (g_charSpeedOn.load()) {
         int mul = g_charSpeedMul.load();
         if (mul < 1) mul = 1; if (mul > 20) mul = 20;
@@ -1149,10 +1155,20 @@ void soldierLocalUpdateStep_Hook(void* self, float dt, cpVect a, cpVect b, float
         a.x *= (double)f; a.y *= (double)f;
         b.x *= (double)f; b.y *= (double)f;
     }
+
+    // ★ গেমের নিজের update logic আগে চলুক
     if (old_soldierLocalUpdateStep) old_soldierLocalUpdateStep(self, dt, a, b, c);
+
+    // ★ এরপর unlimited power
     if (g_unlimitedFlyPower.load() && fn_setPowerF) {
         if (GUARD_ENTER()) { GUARD_SET(); fn_setPowerF(self, 9999.0f); GUARD_CLR(); }
         else GUARD_CLR();
+    }
+
+    // ★ সবশেষে teleport position — যাতে game logic আর physics
+    //   এটাকে overwrite করতে না পারে
+    if (g_teleportActive.load() && !g_teleportFollowAim.load()) {
+        ApplyTeleportPosition();
     }
 }
 
@@ -1358,6 +1374,70 @@ static void TryDiscoverBodyPointer(void* self) {
 // ==================================================================
 // getBodyPosition hooks — v116 CRASH FIX
 // ==================================================================
+
+// ==================================================================
+// Teleport Apply — প্রতি frame physics step-এর পরে call হবে
+// ==================================================================
+static bool ApplyTeleportPosition() {
+    if (!g_teleportActive.load())       return false;
+    if (!g_bodyDiscoveryDone.load())    return false;
+
+    void* local = g_localInstance.load();
+    if (!PlausiblePtr(local))           return false;
+    if (g_localDead.load())             return false;
+
+    float tx = g_teleportX.load();
+    float ty = g_teleportY.load();
+    if (!std::isfinite(tx) || !std::isfinite(ty)) return false;
+
+    uintptr_t selfOff   = g_bodyOffsetFromSelf.load();
+    int       posOffRaw = g_posOffsetInBody.load();
+    if (selfOff == (uintptr_t)-1 || posOffRaw < 0) return false;
+
+    // Case 1: position inline in SoldierController
+    if (posOffRaw & 0x40000000) {
+        int off = posOffRaw & ~0x40000000;
+        uintptr_t pAddr = (uintptr_t)local + off;
+        if ((pAddr & 0x7) != 0) return false;
+        if (!IsAddressMapped(pAddr) || !IsAddressMapped(pAddr + 24)) return false;
+        if (GUARD_ENTER()) {
+            GUARD_SET();
+            *(double*)(pAddr)      = (double)tx;
+            *(double*)(pAddr + 8)  = (double)ty;
+            *(double*)(pAddr + 16) = 0.0;   // v.x = 0
+            *(double*)(pAddr + 24) = 0.0;   // v.y = 0
+            GUARD_CLR();
+            return true;
+        }
+        GUARD_CLR();
+        return false;
+    }
+
+    // Case 2: SoldierController -> body pointer -> position
+    uintptr_t fieldAddr = (uintptr_t)local + selfOff;
+    if (!IsAddressMapped(fieldAddr)) return false;
+
+    void* body = nullptr;
+    if (GUARD_ENTER()) { GUARD_SET(); body = *(void**)fieldAddr; GUARD_CLR(); }
+    else { GUARD_CLR(); return false; }
+    if (!PlausiblePtr(body)) return false;
+
+    uintptr_t pAddr = (uintptr_t)body + posOffRaw;
+    if ((pAddr & 0x7) != 0) return false;
+    if (!IsAddressMapped(pAddr) || !IsAddressMapped(pAddr + 24)) return false;
+
+    if (GUARD_ENTER()) {
+        GUARD_SET();
+        *(double*)(pAddr)      = (double)tx;
+        *(double*)(pAddr + 8)  = (double)ty;
+        *(double*)(pAddr + 16) = 0.0;   // v.x = 0 (থামিয়ে দেয়)
+        *(double*)(pAddr + 24) = 0.0;   // v.y = 0
+        GUARD_CLR();
+        return true;
+    }
+    GUARD_CLR();
+    return false;
+}
 void getBodyPosition_Hooked(cpVect* out, void* self) {
     if (g_gbpCallLogs.load() < 5) {
         if (g_gbpCallLogs.fetch_add(1) < 5) {
@@ -1369,74 +1449,32 @@ void getBodyPosition_Hooked(cpVect* out, void* self) {
     if (!out) return;
 
     void* local = g_localInstance.load();
+
+    // Discovery: local player এর body pointer একবারই খুঁজি
     if (local && self == local && !g_bodyDiscoveryDone.load()) {
         TryDiscoverBodyPointer(self);
     }
 
-    if (!g_teleportActive.load()) return;
-    if (!local || self != local) return;
-
-    float tx = g_teleportX.load();
-    float ty = g_teleportY.load();
-
-    uintptr_t selfOff = g_bodyOffsetFromSelf.load();
-    int       posOffRaw = g_posOffsetInBody.load();
-
-    // CRITICAL: do NOT force out on failed discovery — prevents SIG 11
-    if (selfOff == (uintptr_t)-1 || posOffRaw < 0) return;
-
-    if (posOffRaw & 0x40000000) {
-        int off = posOffRaw & ~0x40000000;
-        uintptr_t pAddr = (uintptr_t)self + off;
-        if ((pAddr & 0x7) == 0 && IsAddressMapped(pAddr) && IsAddressMapped(pAddr + 24)) {
-            if (GUARD_ENTER()) {
-                GUARD_SET();
-                *(double*)(pAddr)      = (double)tx;
-                *(double*)(pAddr + 8)  = (double)ty;
-                *(double*)(pAddr + 16) = 0.0;
-                *(double*)(pAddr + 24) = 0.0;
-                GUARD_CLR();
-            } else GUARD_CLR();
-        }
-    } else {
-        uintptr_t fieldAddr = (uintptr_t)self + selfOff;
-        if (IsAddressMapped(fieldAddr)) {
-            void* body = nullptr;
-            if (GUARD_ENTER()) { GUARD_SET(); body = *(void**)fieldAddr; GUARD_CLR(); }
-            else GUARD_CLR();
-            if (PlausiblePtr(body)) {
-                uintptr_t pAddr = (uintptr_t)body + posOffRaw;
-                if ((pAddr & 0x7) == 0 && IsAddressMapped(pAddr) && IsAddressMapped(pAddr + 24)) {
-                    if (GUARD_ENTER()) {
-                        GUARD_SET();
-                        *(double*)(pAddr)      = (double)tx;
-                        *(double*)(pAddr + 8)  = (double)ty;
-                        *(double*)(pAddr + 16) = 0.0;
-                        *(double*)(pAddr + 24) = 0.0;
-                        GUARD_CLR();
-                    } else GUARD_CLR();
-                }
-            }
-        }
-    }
-
-    if (g_bodyDiscoveryDone.load()) {
-        out->x = (double)tx;
-        out->y = (double)ty;
+    // ★ Position write এখন ApplyTeleportPosition() এ centralize করা হয়েছে
+    //   এখানে শুধু return value override করি যাতে game-এর physics
+    //   আমাদের write কে আবার সঠিকভাবে read করে।
+    if (g_teleportActive.load()
+        && g_bodyDiscoveryDone.load()
+        && local && self == local
+        && !g_localDead.load()) {
+        out->x = (double)g_teleportX.load();
+        out->y = (double)g_teleportY.load();
     }
 }
 
 void getBodyPosition_Coll_Hooked(cpVect* out, void* self) {
     if (old_collGetBody) old_collGetBody(out, self);
     if (!out) return;
-    if (!g_teleportActive.load()) return;
+    if (!g_teleportActive.load() || !g_bodyDiscoveryDone.load()) return;
     void* local = g_localInstance.load();
-    if (!local || self != local) return;
-    // Only force on successful discovery
-    if (g_bodyDiscoveryDone.load()) {
-        out->x = (double)g_teleportX.load();
-        out->y = (double)g_teleportY.load();
-    }
+    if (!local || self != local || g_localDead.load()) return;
+    out->x = (double)g_teleportX.load();
+    out->y = (double)g_teleportY.load();
 }
 
 // ==================================================================
@@ -1685,6 +1723,10 @@ void StageUpdate_Hook(void* self, float dt) {
         }
         ComputeAimTarget(local);
         ExecuteAutoFire(local);
+                // ★ Teleport write — প্রতি frame physics-এর পরে force করি
+        if (!g_teleportFollowAim.load()) {
+            ApplyTeleportPosition();
+        }
         if (g_teleportFollowAim.load() && g_hasAimTarget.load()) {
             float tx = g_aimTargetRawX.load();
             float ty = g_aimTargetRawY.load();
@@ -1709,6 +1751,17 @@ void StageUpdate_Hook(void* self, float dt) {
     }
 }
 
+// ==================================================================
+// PhysicsManager::updateStep hook — physics step শেষে position force
+// এটাই teleport-এর মূল চাবিকাঠি। physics integration হওয়ার পরেই
+// আমরা position reset করি, তাই পরের frame physics আর সরাতে পারবে না।
+// ==================================================================
+void physicsUpdate_Hook(void* self, float dt) {
+    if (old_physicsUpdate) old_physicsUpdate(self, dt);
+    if (g_teleportActive.load() && !g_teleportFollowAim.load()) {
+        ApplyTeleportPosition();
+    }
+}
 // ==================================================================
 // Soldier manager hooks
 // ==================================================================
@@ -1873,6 +1926,10 @@ static void InstallHooksIfNeeded() {
     if (!g_bombGasHooksOk.load()) {
         SAFE_HOOK(Off::EffectsManager_addExplosionAt, addExplosionAt_Hook, old_addExplosionAt, g_bombGasHooksOk);
         crashLog("HOOK", "Bomb/gas hooks OK");
+    }
+        if (!g_physHookOk.load()) {
+        SAFE_HOOK(Off::PhysicsManager_updateStep, physicsUpdate_Hook, old_physicsUpdate, g_physHookOk);
+        crashLog("HOOK", "Physics hook OK");
     }
 
     if (!g_mgrHooksOk.load()) {
