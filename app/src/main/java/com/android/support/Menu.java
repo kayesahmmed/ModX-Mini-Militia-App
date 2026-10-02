@@ -238,6 +238,9 @@ private int effectivePosY = POS_Y;
     native boolean IsGameLibLoaded();
 
     public static native void Draw(ESPView espView, Canvas canvas);
+    public static native void SetTeleportTargetNorm(float nx, float ny);
+public static native boolean GetTeleportEnabled();
+public static native float GetTeleportRadius();
     public static native boolean TeleportPadTouch(int x, int y, int action);
 
     public Menu(Context context) {
@@ -1909,6 +1912,7 @@ private int loadFeatureInt(String name, int num, int def) {
                     case "RichTextView": TextView(targetLayout, featName); break;
                     case "RichWebView": WebTextView(targetLayout, featName); break;
                     case "ColorPicker": ColorPicker(targetLayout, featNum, featName, strSplit.length > 2 ? strSplit[2] : "#00FF88"); break;
+                    case "TeleportPadWidget": TeleportPad(targetLayout); break;
                 }
             }
         }
@@ -3920,6 +3924,204 @@ private static class TeleportPadTouchView extends View {
         } catch (Throwable t) {
             return false;
         }
+    }
+}
+// ==================================================================
+// Teleport Pad Widget — 4-quadrant mini-map, tap to teleport
+// ==================================================================
+private void TeleportPad(LinearLayout linLayout) {
+    TeleportPadView pad = new TeleportPadView(getContext);
+    LinearLayout.LayoutParams lp =
+            new LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT);
+    lp.setMargins(dp(6), dp(6), dp(6), dp(6));
+    pad.setLayoutParams(lp);
+    linLayout.addView(pad);
+}
+
+private class TeleportPadView extends View {
+    private final Paint framePaint   = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint crossPaint   = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint thickPaint   = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint markerPaint  = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint glowPaint    = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint whitePaint   = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint labelPaint   = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint coordPaint   = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final RectF rect         = new RectF();
+
+    private float markerNX = -1f;   // 0..1, -1 = no marker
+    private float markerNY = -1f;
+
+    TeleportPadView(Context ctx) {
+        super(ctx);
+
+        framePaint.setStyle(Paint.Style.STROKE);
+        framePaint.setStrokeWidth(dp(2));
+        framePaint.setColor(COLOR_ACCENT);
+
+        crossPaint.setStyle(Paint.Style.STROKE);
+        crossPaint.setStrokeWidth(dp(1.5f));
+        crossPaint.setColor(withAlpha(COLOR_ACCENT, 0xB0));
+
+        thickPaint.setStyle(Paint.Style.STROKE);
+        thickPaint.setStrokeWidth(dp(3));
+        thickPaint.setColor(COLOR_ACCENT);
+
+        markerPaint.setStyle(Paint.Style.FILL);
+        markerPaint.setColor(COLOR_ACCENT);
+
+        glowPaint.setStyle(Paint.Style.STROKE);
+        glowPaint.setStrokeWidth(dp(3));
+        glowPaint.setColor(withAlpha(COLOR_ACCENT, 0x66));
+
+        whitePaint.setStyle(Paint.Style.FILL);
+        whitePaint.setColor(0xFFFFFFFF);
+
+        labelPaint.setColor(COLOR_TEXT_MUTED);
+        labelPaint.setTextSize(dp(11));
+        labelPaint.setTypeface(fontMedium);
+
+        coordPaint.setColor(0xFFFFFFFF);
+        coordPaint.setTextSize(dp(11));
+        coordPaint.setTextAlign(Paint.Align.CENTER);
+        coordPaint.setTypeface(fontBold);
+
+        setBackgroundColor(0x0A000000);
+        setClickable(true);
+    }
+
+    @Override
+    protected void onMeasure(int wSpec, int hSpec) {
+        int w = MeasureSpec.getSize(wSpec);
+        if (w <= 0) w = dp(240);
+        int maxH = dp(280);
+        int size = Math.min(w, maxH);
+        if (size < dp(180)) size = dp(180);
+        setMeasuredDimension(w, size);
+    }
+
+    @Override
+    protected void onDraw(Canvas canvas) {
+        super.onDraw(canvas);
+        int w = getWidth();
+        int h = getHeight();
+        if (w <= 0 || h <= 0) return;
+
+        float pad = dp(3);
+        rect.set(pad, pad, w - pad, h - pad);
+
+        // Outer frame
+        canvas.drawRect(rect, framePaint);
+
+        // Crosshair (divides into 4 quadrants)
+        float cx = w / 2f;
+        float cy = h / 2f;
+        canvas.drawLine(rect.left, cy, rect.right, cy, crossPaint);
+        canvas.drawLine(cx, rect.top, cx, rect.bottom, crossPaint);
+
+        // Corner ticks
+        float tick = dp(12);
+        canvas.drawLine(rect.left,  rect.top,    rect.left + tick, rect.top,    thickPaint);
+        canvas.drawLine(rect.left,  rect.top,    rect.left, rect.top + tick,    thickPaint);
+        canvas.drawLine(rect.right, rect.top,    rect.right - tick, rect.top,   thickPaint);
+        canvas.drawLine(rect.right, rect.top,    rect.right, rect.top + tick,   thickPaint);
+        canvas.drawLine(rect.left,  rect.bottom, rect.left + tick, rect.bottom, thickPaint);
+        canvas.drawLine(rect.left,  rect.bottom, rect.left, rect.bottom - tick, thickPaint);
+        canvas.drawLine(rect.right, rect.bottom, rect.right - tick, rect.bottom,thickPaint);
+        canvas.drawLine(rect.right, rect.bottom, rect.right, rect.bottom - tick,thickPaint);
+
+        // Quadrant labels
+        float lp = dp(8);
+        canvas.drawText("NW", rect.left + lp, rect.top + dp(20), labelPaint);
+        canvas.drawText("NE", rect.right - lp - labelPaint.measureText("NE"),
+                        rect.top + dp(20), labelPaint);
+        canvas.drawText("SW", rect.left + lp, rect.bottom - dp(8), labelPaint);
+        canvas.drawText("SE", rect.right - lp - labelPaint.measureText("SE"),
+                        rect.bottom - dp(8), labelPaint);
+
+        // Center "0,0" hint
+        Paint centerHint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        centerHint.setColor(withAlpha(COLOR_ACCENT, 0x80));
+        centerHint.setTextSize(dp(10));
+        centerHint.setTextAlign(Paint.Align.CENTER);
+        canvas.drawText("0,0", cx, cy - dp(5), centerHint);
+
+        // Marker circle
+        if (markerNX >= 0f && markerNY >= 0f) {
+            float mx = rect.left + markerNX * rect.width();
+            float my = rect.top  + markerNY * rect.height();
+
+            // Glow
+            canvas.drawCircle(mx, my, dp(18), glowPaint);
+            canvas.drawCircle(mx, my, dp(11), markerPaint);
+            canvas.drawCircle(mx, my, dp(4.5f), whitePaint);
+
+            // World coord above marker
+            float R = 5000f;
+            try { R = Menu.GetTeleportRadius(); } catch (Throwable ignored) { }
+            if (R < 1000f || R > 50000f) R = 5000f;
+            float wx = (markerNX - 0.5f) * 2f * R;
+            float wy = (0.5f - markerNY) * 2f * R;
+            String s = String.format("%.0f,%.0f", wx, wy);
+            canvas.drawText(s, mx, my - dp(22), coordPaint);
+        }
+    }
+
+    @Override
+    public boolean onTouchEvent(MotionEvent e) {
+        int w = getWidth();
+        int h = getHeight();
+        if (w <= 0 || h <= 0) return false;
+
+        boolean enabled = false;
+        try { enabled = Menu.GetTeleportEnabled(); }
+        catch (Throwable ignored) { }
+        if (!enabled) return false;
+
+        float pad = dp(3);
+        float innerW = w - 2f * pad;
+        float innerH = h - 2f * pad;
+        if (innerW <= 0f || innerH <= 0f) return false;
+
+        switch (e.getActionMasked()) {
+            case MotionEvent.ACTION_DOWN:
+                // prevent ScrollView from stealing the gesture
+                if (getParent() != null)
+                    getParent().requestDisallowInterceptTouchEvent(true);
+                handleTouch(e.getX(), e.getY(), pad, innerW, innerH);
+                return true;
+
+            case MotionEvent.ACTION_MOVE:
+                handleTouch(e.getX(), e.getY(), pad, innerW, innerH);
+                return true;
+
+            case MotionEvent.ACTION_UP:
+            case MotionEvent.ACTION_CANCEL:
+                if (getParent() != null)
+                    getParent().requestDisallowInterceptTouchEvent(false);
+                return true;
+        }
+        return super.onTouchEvent(e);
+    }
+
+    private void handleTouch(float x, float y,
+                             float pad, float innerW, float innerH) {
+        // clamp inside pad
+        if (x < pad) x = pad;
+        if (x > pad + innerW) x = pad + innerW;
+        if (y < pad) y = pad;
+        if (y > pad + innerH) y = pad + innerH;
+
+        float nx = (x - pad) / innerW;
+        float ny = (y - pad) / innerH;
+
+        markerNX = nx;
+        markerNY = ny;
+        invalidate();
+
+        try {
+            Menu.SetTeleportTargetNorm(nx, ny);
+        } catch (Throwable ignored) { }
     }
 }
 }
