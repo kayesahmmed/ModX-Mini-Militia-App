@@ -724,6 +724,8 @@ std::atomic<bool> g_wallHooksOk{false};
 std::atomic<bool> g_teleportHooksOk{false};
 
 static __thread volatile sig_atomic_t tls_bulletRaycast = 0;
+// ★ Forward declaration — ApplyTeleportPosition() এর full definition নিচে আছে
+static bool ApplyTeleportPosition();
 
 // ==================================================================
 // Teleport discovery state
