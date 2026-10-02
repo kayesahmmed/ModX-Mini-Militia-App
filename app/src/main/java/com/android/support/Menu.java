@@ -196,6 +196,13 @@ private Button          mHideBtn        = null;
 private TextView        mProBadgeText   = null;
 private int             mColorPickerOriginalColor = 0;
 
+// ===== Teleport Pad touch overlay =====
+private View tpPadView = null;
+private WindowManager tpPadWindowManager = null;
+private WindowManager.LayoutParams tpPadParams = null;
+
+public static Menu instance = null;
+
     // Typography (loaded from assets/fonts if present, otherwise clean system sans)
     private Typeface fontRegular;
     private Typeface fontMedium;
@@ -231,8 +238,10 @@ private int effectivePosY = POS_Y;
     native boolean IsGameLibLoaded();
 
     public static native void Draw(ESPView espView, Canvas canvas);
+    public static native boolean TeleportPadTouch(int x, int y, int action);
 
     public Menu(Context context) {
+    instance = this;
         getContext = context;
         Preferences.context = context;
         
@@ -616,6 +625,34 @@ mExpanded.addView(shimmer);
             Log.e(TAG, "ESPView add failed: " + e);
         }
         // ==================================================================
+        
+        try {
+    tpPadView = new TeleportPadTouchView(context);
+    WindowManager tpWm = (WindowManager) context.getSystemService(context.WINDOW_SERVICE);
+
+    int tpType = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
+        ? WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+        : WindowManager.LayoutParams.TYPE_PHONE;
+
+    tpPadParams = new WindowManager.LayoutParams(
+        WindowManager.LayoutParams.WRAP_CONTENT,
+        WindowManager.LayoutParams.WRAP_CONTENT,
+        tpType,
+        WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
+        | WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL
+        | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
+        | WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS
+        | WindowManager.LayoutParams.FLAG_TRANSLUCENT_STATUS,
+        PixelFormat.TRANSPARENT);
+    tpPadParams.gravity = Gravity.TOP | Gravity.START;
+    tpPadParams.x = 24;
+    tpPadParams.y = 0;   // onLayout এ recalculate হবে
+
+    tpWm.addView(tpPadView, tpPadParams);
+    tpPadWindowManager = tpWm;
+} catch (Exception e) {
+    Log.e(TAG, "TPPad add failed: " + e);
+}
 
         Init(context, title, subTitle);
 new Titanic().start(title);
@@ -2326,6 +2363,10 @@ private void setWindowFocusable(boolean focusable) {
     if (espview != null && espWindowManager != null) {
         try { espWindowManager.removeView(espview); } catch (Exception e) {}
     }
+    if (tpPadView != null && tpPadWindowManager != null) {
+        try { tpPadWindowManager.removeView(tpPadView); } catch (Exception e) {}
+    }
+    instance = null;
 }
 
     // ================================================================
@@ -3804,5 +3845,81 @@ private static float getHueFromColor(int color) {
     float[] hsv = new float[3];
     Color.colorToHSV(color, hsv);
     return hsv[0];
+}
+// ==================================================================
+// Teleport Pad Touch Overlay
+// ---------------------------------------------------------------
+// Pad-টি native ESP overlay-এ আঁকা হয় (bottom-left corner)।
+// এই View টি ঠিক সেই position/size এ বসে এবং touches গুলো native
+// এর TeleportPadTouch() এ forward করে। Pad-এর বাইরের কোনো touch
+// consume করে না (FLAG_NOT_TOUCH_MODAL)।
+// ==================================================================
+private static class TeleportPadTouchView extends View {
+
+    TeleportPadTouchView(Context ctx) {
+        super(ctx);
+        setBackgroundColor(0x00000000);
+    }
+
+    @Override
+    protected void onMeasure(int wSpec, int hSpec) {
+        int sw = getResources().getDisplayMetrics().widthPixels;
+        int sh = getResources().getDisplayMetrics().heightPixels;
+
+        // Must match native ComputePadRect():
+        //   size = min(sw,sh) * 0.36, clamp 220..620
+        //   x=24, y=sh-size-24
+        float size = Math.min(sw, sh) * 0.36f;
+        if (size < 220f) size = 220f;
+        if (size > 620f) size = 620f;
+
+        setMeasuredDimension((int) size, (int) size);
+    }
+
+    @Override
+    protected void onLayout(boolean changed, int l, int t, int r, int b) {
+        super.onLayout(changed, l, t, r, b);
+
+        // Reposition overlay to bottom-left to match native drawing
+        if (Menu.instance != null
+                && Menu.instance.tpPadWindowManager != null
+                && Menu.instance.tpPadParams != null) {
+            int sw = getResources().getDisplayMetrics().widthPixels;
+            int sh = getResources().getDisplayMetrics().heightPixels;
+            float size = Math.min(sw, sh) * 0.36f;
+            if (size < 220f) size = 220f;
+            if (size > 620f) size = 620f;
+
+            int newY = (int) (sh - size - 24);
+            if (Menu.instance.tpPadParams.y != newY) {
+                Menu.instance.tpPadParams.y = newY;
+                try {
+                    Menu.instance.tpPadWindowManager
+                        .updateViewLayout(this, Menu.instance.tpPadParams);
+                } catch (Exception ignored) { }
+            }
+        }
+    }
+
+    private int actionFrom(MotionEvent e) {
+        switch (e.getActionMasked()) {
+            case MotionEvent.ACTION_DOWN:   return 0;
+            case MotionEvent.ACTION_MOVE:   return 1;
+            case MotionEvent.ACTION_UP:     return 2;
+            case MotionEvent.ACTION_CANCEL: return 3;
+            default: return -1;
+        }
+    }
+
+    @Override
+    public boolean onTouchEvent(MotionEvent e) {
+        int a = actionFrom(e);
+        if (a < 0) return false;
+        try {
+            return Menu.TeleportPadTouch((int) e.getX(), (int) e.getY(), a);
+        } catch (Throwable t) {
+            return false;
+        }
+    }
 }
 }
