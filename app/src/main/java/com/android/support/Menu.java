@@ -1457,21 +1457,38 @@ new Titanic().start(proTitle);
     }
 private static final String FEAT_PREFS = "modx_features";
 
+// ================================================================
+// Feature persistence — ONLY active when "Save features preference" is ON
+// ================================================================
 private void saveFeatureBool(String name, int num, boolean v) {
+    if (!Preferences.loadPref) return;   // ★ pref OFF হলে save করি না
     getContext.getSharedPreferences(FEAT_PREFS, Context.MODE_PRIVATE)
         .edit().putBoolean("b_" + num + "_" + name, v).apply();
 }
 private boolean loadFeatureBool(String name, int num, boolean def) {
+    if (!Preferences.loadPref) return def;   // ★ pref OFF হলে default ফেরত
     return getContext.getSharedPreferences(FEAT_PREFS, Context.MODE_PRIVATE)
         .getBoolean("b_" + num + "_" + name, def);
 }
 private void saveFeatureInt(String name, int num, int v) {
+    if (!Preferences.loadPref) return;
     getContext.getSharedPreferences(FEAT_PREFS, Context.MODE_PRIVATE)
         .edit().putInt("i_" + num + "_" + name, v).apply();
 }
 private int loadFeatureInt(String name, int num, int def) {
+    if (!Preferences.loadPref) return def;
     return getContext.getSharedPreferences(FEAT_PREFS, Context.MODE_PRIVATE)
         .getInt("i_" + num + "_" + name, def);
+}
+private void saveFeatureLong(String name, int num, long v) {
+    if (!Preferences.loadPref) return;
+    getContext.getSharedPreferences(FEAT_PREFS, Context.MODE_PRIVATE)
+        .edit().putLong("l_" + num + "_" + name, v).apply();
+}
+private long loadFeatureLong(String name, int num, long def) {
+    if (!Preferences.loadPref) return def;
+    return getContext.getSharedPreferences(FEAT_PREFS, Context.MODE_PRIVATE)
+        .getLong("l_" + num + "_" + name, def);
 }
     // ================================================================
     // Tab icons (drawn in code, no drawable resources needed)
@@ -2552,7 +2569,9 @@ private void setWindowFocusable(boolean focusable) {
         }
 
         applyColorButton(button, featName, savedColor);
-        Preferences.changeFeatureInt(featName, featNum, savedColor);
+        if (Preferences.loadPref) {
+            Preferences.changeFeatureInt(featName, featNum, savedColor);
+        }
 
         button.setOnClickListener(new View.OnClickListener() {
                 @Override
@@ -2731,6 +2750,10 @@ toggle.setChecked(initial, false);
                 }
             });
         addPressAnim(row);
+                // ★ Native-এ initial state পাঠাই যাতে app restart-এ hooks apply হয়
+        if (Preferences.loadPref) {
+            Preferences.changeFeatureBool(featName, featNum, initial);
+        }
 
         row.addView(label);
         row.addView(toggle);
@@ -2783,6 +2806,10 @@ int startVal = (loadedProg == 0) ? min : loadedProg;
         seekBar.setThumb(makeSeekThumb());
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) seekBar.setSplitTrack(false);
         seekBar.setProgress(startVal);
+                // ★ Native-এ initial value
+        if (Preferences.loadPref) {
+            Preferences.changeFeatureInt(featName, featNum, startVal);
+        }
         seekBar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
                 @Override public void onStartTrackingTouch(SeekBar s) { }
                 @Override public void onStopTrackingTouch(SeekBar s)  { }
@@ -2955,6 +2982,10 @@ private void applyMenuColorButtonStyle(Button button, String label, int color) {
 loadFeatureBool(finalfeatName, featNum,
         Preferences.loadPrefBool(finalfeatName, featNum, switchedOn)) };
         applyOnOffStyle(button, finalfeatName, state[0]);
+                // ★ Native-এ initial state
+        if (Preferences.loadPref) {
+            Preferences.changeFeatureBool(finalfeatName, featNum, state[0]);
+        }
 
         button.setOnClickListener(new View.OnClickListener() {
                 @Override
@@ -3168,6 +3199,10 @@ applyOnOffStyle(button, finalfeatName, state[0]);
         boolean initial = loadFeatureBool(featName, featNum,
         Preferences.loadPrefBool(featName, featNum, switchedOn));
         checkBox.setChecked(initial);
+                // ★ Native-এ initial state
+        if (Preferences.loadPref) {
+            Preferences.changeFeatureBool(featName, featNum, initial);
+        }
         if (initial) cbBg.setStroke(dp(1), withAlpha(CheckBoxColor, 0x99));
         checkBox.setOnCheckedChangeListener(new CompoundButton.OnCheckedChangeListener() {
                 @Override
