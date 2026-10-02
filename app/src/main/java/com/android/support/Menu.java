@@ -3960,7 +3960,7 @@ private class TeleportPadView extends View {
         framePaint.setColor(COLOR_ACCENT);
 
         crossPaint.setStyle(Paint.Style.STROKE);
-        crossPaint.setStrokeWidth(dp(1.5f));
+        crossPaint.setStrokeWidth(dpf(1.5f));
         crossPaint.setColor(withAlpha(COLOR_ACCENT, 0xB0));
 
         thickPaint.setStyle(Paint.Style.STROKE);
@@ -4054,7 +4054,7 @@ private class TeleportPadView extends View {
             // Glow
             canvas.drawCircle(mx, my, dp(18), glowPaint);
             canvas.drawCircle(mx, my, dp(11), markerPaint);
-            canvas.drawCircle(mx, my, dp(4.5f), whitePaint);
+            canvas.drawCircle(mx, my, dpf(4.5f), whitePaint);
 
             // World coord above marker
             float R = 5000f;
