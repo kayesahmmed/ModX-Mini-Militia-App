@@ -1,9 +1,11 @@
 // ================================================================
-// Mini Militia — Main.cpp v115.0 (Secure)
+// Mini Militia — Main.cpp v116.0 (Secure + Teleport Pad)
 //  - Offset encryption (XOR runtime-decrypted)
 //  - String obfuscation via OBFUSCATE()
-//  - Teleport: recursion-guarded body-pointer discovery
+//  - Teleport: recursion-guarded body-pointer discovery (wider scan)
 //  - Dual hook: Soldier + CollisionObject getBodyPosition
+//  - CRASH FIX: force-`out` ONLY after discovery success
+//  - NEW: 4-quadrant on-screen Teleport Pad (tap to teleport)
 // ================================================================
 
 #include <list>
@@ -16,6 +18,7 @@
 #include <cmath>
 #include <cstdint>
 #include <cctype>
+#include <algorithm>
 #include <pthread.h>
 #include <thread>
 #include <string>
@@ -57,27 +60,19 @@ static constexpr float RAD2DEG = 57.29577951f;
 static constexpr float DEG2RAD = 0.01745329252f;
 
 // ==================================================================
-// 🔒 OFFSET ENCRYPTION LAYER
-// ---------------------------------------------------------------
-// All game offsets are XOR-encrypted at compile time. The plaintext
-// values are only recoverable via SecOff::dec() at runtime — which
-// uses noinline + volatile to defeat compiler constant folding.
+// OFFSET ENCRYPTION
 // ==================================================================
 namespace SecOff {
-    // 🔑 CHANGE THIS to your own unique 64-bit value
     static constexpr uint64_t KEY = 0xB4E7A1C3D9F20586ULL;
-
     static constexpr uintptr_t enc(uintptr_t v) {
         return v ^ (uintptr_t)(KEY & 0x0000FFFFFFFFFFFFULL);
     }
-
     __attribute__((noinline))
     static uintptr_t dec(uintptr_t v) {
         volatile uint64_t k = KEY;
         return v ^ (uintptr_t)(k & 0x0000FFFFFFFFFFFFULL);
     }
 }
-
 #define ENC_OFF(v) SecOff::enc(v)
 #define DEC_OFF(v) SecOff::dec(v)
 
@@ -151,7 +146,7 @@ static void native_crash_handler(int sig, siginfo_t* info, void*) {
 }
 static void install_crash_handler() {
     ensureLogFd();
-    __android_log_print(ANDROID_LOG_INFO, LOG_TAG, "=== MMMod v115.0 (Secure) boot ===");
+    __android_log_print(ANDROID_LOG_INFO, LOG_TAG, "=== MMMod v116.0 boot ===");
     crashLog("BOOT", "Crash handler installed");
     struct sigaction sa; memset(&sa, 0, sizeof(sa));
     sa.sa_sigaction = native_crash_handler;
@@ -161,7 +156,6 @@ static void install_crash_handler() {
     sigaction(SIGBUS,  &sa, nullptr); sigaction(SIGILL,  &sa, nullptr);
     sigaction(SIGFPE,  &sa, nullptr);
 }
-
 #define GUARD_ENTER() (sigsetjmp(tls_guard, 1) == 0)
 #define GUARD_SET()   (tls_guardActive = 1)
 #define GUARD_CLR()   (tls_guardActive = 0)
@@ -192,10 +186,10 @@ extern "C" JNIEXPORT void JNICALL
 Java_com_android_support_Main_setNativeCrashDir(JNIEnv*, jclass, jstring) {}
 
 // ==================================================================
-// 🔒 ENCRYPTED OFFSETS
+// ENCRYPTED OFFSETS
 // ==================================================================
 namespace Off {
-    // -------- Weapon --------
+    // Weapon
     static const uintptr_t Weapon_getRandomFiringAngle     = ENC_OFF(0x00f40ad0);
     static const uintptr_t Weapon_getBulletSpeed           = ENC_OFF(0x00f40ab0);
     static const uintptr_t Weapon_getRange                 = ENC_OFF(0x00f40784);
@@ -221,8 +215,7 @@ namespace Off {
     static const uintptr_t Weapon_getZoomScale             = ENC_OFF(0x00f408f4);
     static const uintptr_t Weapon_getMeleeDamage           = ENC_OFF(0x00f40774);
     static const uintptr_t Weapon_getMeleeLength           = ENC_OFF(0x00f4077c);
-
-    // -------- MapManager --------
+    // MapManager
     static const uintptr_t MapManager_addStaticBodyShape   = ENC_OFF(0x00eeb038);
     static const uintptr_t MapManager_addStaticBodyPoly    = ENC_OFF(0x00eeac7c);
     static const uintptr_t MapManager_isCollisionTile      = ENC_OFF(0x00eec664);
@@ -230,20 +223,17 @@ namespace Off {
     static const uintptr_t MapManager_isBoundryTile        = ENC_OFF(0x00eece3c);
     static const uintptr_t MapManager_getMaxPower          = ENC_OFF(0x00eea748);
     static const uintptr_t MapManager_getGravityFactor     = ENC_OFF(0x00eea740);
-
-    // -------- EffectsManager --------
+    // EffectsManager
     static const uintptr_t EffectsManager_addExplosionAt   = ENC_OFF(0x00eb1f20);
     static const uintptr_t EffectsManager_addGasCloudAt    = ENC_OFF(0x00eb2360);
-
-    // -------- ProjectileManager --------
+    // ProjectileManager
     static const uintptr_t ProjectileManager_addBullet     = ENC_OFF(0x00f04b7c);
     static const uintptr_t ProjectileManager_addShell      = ENC_OFF(0x00f052d8);
     static const uintptr_t ProjectileManager_addRocket     = ENC_OFF(0x00f05008);
     static const uintptr_t ProjectileManager_addGrenade    = ENC_OFF(0x00f04d58);
     static const uintptr_t ProjectileManager_addSaw        = ENC_OFF(0x00f05750);
     static const uintptr_t ProjectileManager_addFlame      = ENC_OFF(0x00f055a4);
-
-    // -------- SoldierController --------
+    // SoldierController
     static const uintptr_t SoldierController_getBodyPosition    = ENC_OFF(0x00f13828);
     static const uintptr_t SoldierController_getHP              = ENC_OFF(0x00f137d4);
     static const uintptr_t SoldierController_setHP              = ENC_OFF(0x00f137e4);
@@ -257,20 +247,17 @@ namespace Off {
     static const uintptr_t SoldierController_getSideWeapon      = ENC_OFF(0x00f13234);
     static const uintptr_t SoldierController_fire               = ENC_OFF(0x00f1323c);
     static const uintptr_t SoldierController_setThrust          = ENC_OFF(0x00f13044);
-
-    // -------- Collision --------
+    // Collision
     static const uintptr_t CollisionObject_getBodyPosition      = ENC_OFF(0x00eac428);
     static const uintptr_t CollisionObject_getTeamId            = ENC_OFF(0x00eac4f0);
-
-    // -------- SoldierLocalController --------
+    // SoldierLocalController
     static const uintptr_t SoldierLocalController_updateStep            = ENC_OFF(0x00f14478);
     static const uintptr_t SoldierLocalController_addDamage             = ENC_OFF(0x00f18c64);
     static const uintptr_t SoldierLocalController_activatePlayer        = ENC_OFF(0x00f17bb4);
     static const uintptr_t SoldierLocalController_setPower              = ENC_OFF(0x00f156b4);
     static const uintptr_t SoldierLocalController_switchPrimaryToDual   = ENC_OFF(0x00f17760);
     static const uintptr_t SoldierLocalController_switchSecondaryToDual = ENC_OFF(0x00f178b8);
-
-    // -------- SoldierManager --------
+    // SoldierManager
     static const uintptr_t SoldierManager_getLocalController   = ENC_OFF(0x00f1aa00);
     static const uintptr_t SoldierManager_updateRemoteSoldiers = ENC_OFF(0x00f1a888);
     static const uintptr_t SoldierManager_updateStep           = ENC_OFF(0x00f1a348);
@@ -278,26 +265,22 @@ namespace Off {
     static const uintptr_t SoldierManager_respawnPlayer        = ENC_OFF(0x00f19f78);
     static const uintptr_t SoldierManager_getRespawnTime       = ENC_OFF(0x00f1b24c);
     static const uintptr_t SoldierManager_isRespawning         = ENC_OFF(0x00f1b254);
-
-    // -------- Controllers --------
+    // Controllers
     static const uintptr_t SoldierRemoteController_updateStep = ENC_OFF(0x00f1d620);
     static const uintptr_t SoldierAIController_updateStep     = ENC_OFF(0x00f0fd80);
     static const uintptr_t EnemyManager_updateStep            = ENC_OFF(0x00eb4d18);
-
-    // -------- Drones --------
+    // Drones
     static const uintptr_t HumanoidDrone_addDamage    = ENC_OFF(0x00edf408);
     static const uintptr_t HawkDrone_addDamage        = ENC_OFF(0x00eddc44);
     static const uintptr_t WormDrone_addDamage        = ENC_OFF(0x00f4b320);
     static const uintptr_t HumanoidDrone_updateStep   = ENC_OFF(0x00edf000);
     static const uintptr_t HawkDrone_updateStep       = ENC_OFF(0x00edd640);
     static const uintptr_t WormDrone_updateStep       = ENC_OFF(0x00f4aaa8);
-
-    // -------- WeaponsModel --------
+    // WeaponsModel
     static const uintptr_t WeaponsModel_isUnlockable            = ENC_OFF(0x01113a88);
     static const uintptr_t WeaponsModel_isUpgradable            = ENC_OFF(0x01113a60);
     static const uintptr_t WeaponsModel_getDualWieldUnlockLevel = ENC_OFF(0x01113984);
-
-    // -------- Misc --------
+    // Misc
     static const uintptr_t Stage_update                 = ENC_OFF(0x00f21938);
     static const uintptr_t NetworkMessageDispatcher_updatePeerDamage = ENC_OFF(0x00ef5d60);
     static const uintptr_t NetworkManager_sendWeaponChange = ENC_OFF(0x00ef3ec4);
@@ -308,8 +291,7 @@ namespace Off {
     static const uintptr_t Joypad_getDirectionVector    = ENC_OFF(0x00ee2aa0);
     static const uintptr_t SoldierView_setPlayerHealth  = ENC_OFF(0x00f20960);
     static const uintptr_t SoldierView_getPlayerName    = ENC_OFF(0x00f20994);
-
-    // -------- Weapon Sprayers --------
+    // Weapon sprayers
     static const uintptr_t AK47_triggerPull    = ENC_OFF(0x00ea2e74);
     static const uintptr_t AA12_triggerPull    = ENC_OFF(0x00ea2128);
     static const uintptr_t DEAGLE_triggerPull  = ENC_OFF(0x00eacaf0);
@@ -327,8 +309,7 @@ namespace Off {
     static const uintptr_t SMAW_triggerPull    = ENC_OFF(0x00f0cb2c);
     static const uintptr_t XM8_triggerPull     = ENC_OFF(0x00f4b834);
     static const uintptr_t PHASR_triggerPull   = ENC_OFF(0x00ef921c);
-
-    // -------- Enemy/Explosion --------
+    // Enemy / Explosion
     static const uintptr_t Enemy_canSeeTarget          = ENC_OFF(0x00eb3940);
     static const uintptr_t Explosion_applyDamage       = ENC_OFF(0x00eb7ac8);
     static const uintptr_t GasCloud_applyDamage        = ENC_OFF(0x00ed5808);
@@ -337,8 +318,7 @@ namespace Off {
     static const uintptr_t SAW_updateItemStep          = ENC_OFF(0x00f0a2a8);
     static const uintptr_t ProxyMine_updateStep        = ENC_OFF(0x00f05db8);
     static const uintptr_t ProxyMine_reset             = ENC_OFF(0x00f05c98);
-
-    // -------- Special offsets (not in original namespace) --------
+    // Special
     static const uintptr_t MaxLevel_patch              = ENC_OFF(0x011bae9c);
 }
 
@@ -371,7 +351,6 @@ static void ApplyModByIndex(int idx, bool on) {
     if (!g_libReady.load()) return;
     ModDef& m = g_mods[idx];
     if (!m.init) {
-        // 🔥 Decrypt offset at runtime
         m.patch = MemoryPatch::createWithHex(g_libBase + DEC_OFF(m.offset), m.patchHex);
         m.init = true;
     }
@@ -459,7 +438,6 @@ typedef int   (*isRespawning_t)(void*);
 typedef void  (*addStaticShape_t)(void*, int, int);
 typedef void  (*addStaticPoly_t)(void*, void*);
 
-// Originals
 MgrUpdateRemote_t      old_MgrUpdateRemote      = nullptr;
 MgrUpdateStep_t        old_MgrUpdateStep        = nullptr;
 MgrSpawnPlayer_t       old_MgrSpawnPlayer       = nullptr;
@@ -524,7 +502,6 @@ getBodyPosition_t           old_collGetBody               = nullptr;
 addStaticShape_t            old_addStaticBodyShape        = nullptr;
 addStaticPoly_t             old_addStaticBodyPoly         = nullptr;
 
-// Direct call pointers
 getLocalController_t   fn_getLocalController = nullptr;
 getBodyPosition_t      fn_getBodyPosition    = nullptr;
 getHP_t                fn_getHP              = nullptr;
@@ -687,6 +664,18 @@ std::atomic<bool>  g_teleportActive{false};
 std::atomic<float> g_teleportX{0.f};
 std::atomic<float> g_teleportY{0.f};
 std::atomic<bool>  g_teleportFollowAim{false};
+
+// ==================================================================
+// Teleport Pad (4-quadrant on-screen pad)
+// ==================================================================
+std::atomic<bool>  g_tpPadEnabled{false};   // feature toggle
+std::atomic<bool>  g_tpPadVisible{false};   // draw + accept touches
+std::atomic<float> g_tpPadNormX{-1.f};      // [0..1] in pad, -1 = no marker
+std::atomic<float> g_tpPadNormY{-1.f};
+std::atomic<float> g_tpPadWorldRadius{5000.f};  // map half-extent
+std::atomic<int>   g_tpPadScreenW{0};       // cached from Menu_Draw
+std::atomic<int>   g_tpPadScreenH{0};
+std::atomic<bool>  g_tpPadActiveTouch{false};
 
 std::atomic<bool> g_lagAntiLagMode    {false};
 std::atomic<int>  g_lagEspUpdateHz    {60};
@@ -1272,7 +1261,7 @@ static void ExecuteAutoFire(void* localController) {
 }
 
 // ==================================================================
-// Teleport discovery
+// Teleport discovery — v116 WIDER SCAN + dual pass
 // ==================================================================
 static void TryDiscoverBodyPointer(void* self) {
     if (g_bodyDiscoveryDone.load()) return;
@@ -1287,13 +1276,22 @@ static void TryDiscoverBodyPointer(void* self) {
     if (GUARD_ENTER()) { GUARD_SET(); old_getBodyPosition_hook(&want, self); GUARD_CLR(); }
     else { GUARD_CLR(); return; }
 
+    if (!std::isfinite(want.x) || !std::isfinite(want.y)) return;
     if (std::fabs(want.x) < 30.0 && std::fabs(want.y) < 30.0) return;
+    if (std::fabs(want.x) > 15000.0 || std::fabs(want.y) > 15000.0) return;
 
-    traceLog("TELEPORT scan: self=%p want=(%.1f,%.1f)", self, want.x, want.y);
+    // Throttled log
+    static std::atomic<uint64_t> s_lastLog{0};
+    uint64_t nowMs = NowMs();
+    uint64_t prevLog = s_lastLog.load();
+    if (nowMs - prevLog > 1000 && s_lastLog.compare_exchange_strong(prevLog, nowMs)) {
+        traceLog("TELEPORT scan: self=%p want=(%.1f,%.1f)", self, want.x, want.y);
+    }
 
     uintptr_t selfAddr = (uintptr_t)self;
 
-    for (int selfOff = 4; selfOff <= 60; selfOff += 4) {
+    // PASS A: body pointer inside self
+    for (int selfOff = 0; selfOff <= 512; selfOff += 4) {
         uintptr_t fieldAddr = selfAddr + selfOff;
         if (!IsAddressMapped(fieldAddr)) continue;
 
@@ -1303,9 +1301,9 @@ static void TryDiscoverBodyPointer(void* self) {
         if (!PlausiblePtr(cand)) continue;
 
         uintptr_t cbase = (uintptr_t)cand;
-        if (cbase & 0x7) continue;
+        if (cbase & 0x3) continue;
 
-        for (int posOff = 0; posOff <= 120; posOff += 8) {
+        for (int posOff = 0; posOff <= 1024; posOff += 8) {
             uintptr_t dAddr = cbase + posOff;
             if (dAddr & 0x7) continue;
             if (!IsAddressMapped(dAddr)) continue;
@@ -1319,20 +1317,46 @@ static void TryDiscoverBodyPointer(void* self) {
                 GUARD_CLR();
             } else { GUARD_CLR(); continue; }
 
-            if (std::fabs(px - want.x) < 1.0 && std::fabs(py - want.y) < 1.0) {
+            if (!std::isfinite(px) || !std::isfinite(py)) continue;
+            if (std::fabs(px - want.x) < 3.0 && std::fabs(py - want.y) < 3.0) {
                 g_bodyOffsetFromSelf.store((uintptr_t)selfOff);
                 g_posOffsetInBody.store(posOff);
                 g_bodyDiscoveryDone.store(true);
-                traceLog("TELEPORT FOUND: body at self+0x%x, p at +0x%x", selfOff, posOff);
+                traceLog("TELEPORT FOUND: body self+0x%x, p +0x%x (%.2f,%.2f)",
+                         selfOff, posOff, px, py);
                 return;
             }
         }
     }
-    traceLog("TELEPORT scan: no body found yet, retry later");
+
+    // PASS B: position inline in self
+    for (int off = 0; off <= 1024; off += 8) {
+        uintptr_t dAddr = selfAddr + off;
+        if (dAddr & 0x7) continue;
+        if (!IsAddressMapped(dAddr)) continue;
+        if (!IsAddressMapped(dAddr + 8)) continue;
+
+        double px = 0, py = 0;
+        if (GUARD_ENTER()) {
+            GUARD_SET();
+            px = *(double*)dAddr;
+            py = *(double*)(dAddr + 8);
+            GUARD_CLR();
+        } else { GUARD_CLR(); continue; }
+
+        if (!std::isfinite(px) || !std::isfinite(py)) continue;
+        if (std::fabs(px - want.x) < 3.0 && std::fabs(py - want.y) < 3.0) {
+            g_bodyOffsetFromSelf.store(0);
+            g_posOffsetInBody.store(off | 0x40000000);
+            g_bodyDiscoveryDone.store(true);
+            traceLog("TELEPORT FOUND (inline): p self+0x%x (%.2f,%.2f)", off, px, py);
+            return;
+        }
+    }
 }
 
 // ==================================================================
-// getBodyPosition hooks
+// getBodyPosition hooks — v116 CRASH FIX
 // ==================================================================
 void getBodyPosition_Hooked(cpVect* out, void* self) {
     if (g_gbpCallLogs.load() < 5) {
@@ -1356,17 +1380,32 @@ void getBodyPosition_Hooked(cpVect* out, void* self) {
     float ty = g_teleportY.load();
 
     uintptr_t selfOff = g_bodyOffsetFromSelf.load();
-    int       posOff  = g_posOffsetInBody.load();
+    int       posOffRaw = g_posOffsetInBody.load();
 
-    if (selfOff != (uintptr_t)-1 && posOff >= 0) {
+    // CRITICAL: do NOT force out on failed discovery — prevents SIG 11
+    if (selfOff == (uintptr_t)-1 || posOffRaw < 0) return;
+
+    if (posOffRaw & 0x40000000) {
+        int off = posOffRaw & ~0x40000000;
+        uintptr_t pAddr = (uintptr_t)self + off;
+        if ((pAddr & 0x7) == 0 && IsAddressMapped(pAddr) && IsAddressMapped(pAddr + 24)) {
+            if (GUARD_ENTER()) {
+                GUARD_SET();
+                *(double*)(pAddr)      = (double)tx;
+                *(double*)(pAddr + 8)  = (double)ty;
+                *(double*)(pAddr + 16) = 0.0;
+                *(double*)(pAddr + 24) = 0.0;
+                GUARD_CLR();
+            } else GUARD_CLR();
+        }
+    } else {
         uintptr_t fieldAddr = (uintptr_t)self + selfOff;
         if (IsAddressMapped(fieldAddr)) {
             void* body = nullptr;
             if (GUARD_ENTER()) { GUARD_SET(); body = *(void**)fieldAddr; GUARD_CLR(); }
             else GUARD_CLR();
-
             if (PlausiblePtr(body)) {
-                uintptr_t pAddr = (uintptr_t)body + posOff;
+                uintptr_t pAddr = (uintptr_t)body + posOffRaw;
                 if ((pAddr & 0x7) == 0 && IsAddressMapped(pAddr) && IsAddressMapped(pAddr + 24)) {
                     if (GUARD_ENTER()) {
                         GUARD_SET();
@@ -1381,8 +1420,10 @@ void getBodyPosition_Hooked(cpVect* out, void* self) {
         }
     }
 
-    out->x = (double)tx;
-    out->y = (double)ty;
+    if (g_bodyDiscoveryDone.load()) {
+        out->x = (double)tx;
+        out->y = (double)ty;
+    }
 }
 
 void getBodyPosition_Coll_Hooked(cpVect* out, void* self) {
@@ -1391,8 +1432,11 @@ void getBodyPosition_Coll_Hooked(cpVect* out, void* self) {
     if (!g_teleportActive.load()) return;
     void* local = g_localInstance.load();
     if (!local || self != local) return;
-    out->x = (double)g_teleportX.load();
-    out->y = (double)g_teleportY.load();
+    // Only force on successful discovery
+    if (g_bodyDiscoveryDone.load()) {
+        out->x = (double)g_teleportX.load();
+        out->y = (double)g_teleportY.load();
+    }
 }
 
 // ==================================================================
@@ -1772,7 +1816,7 @@ static void InstallHooksIfNeeded() {
             HOOK_ABS((void*)_a, getBodyPosition_Coll_Hooked, old_collGetBody);
         }
         if (old_getBodyPosition_hook) fn_getBodyPosition = old_getBodyPosition_hook;
-        crashLog("HOOK", "Teleport hooks OK");
+        crashLog("HOOK", "Teleport hooks OK [trampoline fixed]");
     }
 
     if (!g_wpnHooksOk.load()) {
@@ -2008,12 +2052,185 @@ static void DrawPremiumBox(JNIEnv* env, jobject v, jobject c,
     DrawLineColored(env, v, c, 255, cr, cg, cb, cw, x + w, y + h, x + w, y + h - cLen);
 }
 
+// ==================================================================
+// Teleport Pad — geometry + draw
+// ==================================================================
+static void ComputePadRect(int sw, int sh, float& px, float& py, float& pw, float& ph) {
+    float size = (float)std::min(sw, sh) * 0.36f;
+    if (size < 220.f) size = 220.f;
+    if (size > 620.f) size = 620.f;
+    px = 24.f;
+    py = (float)sh - size - 24.f;
+    pw = size;
+    ph = size;
+}
+
+// Map pad norm [0..1]x[0..1]  ->  world coord (relative to origin)
+// pad top-left (0,0)  -> world (-R, +R)
+// pad bot-right(1,1)  -> world (+R, -R)
+static inline void PadNormToWorld(float nx, float ny, float R, float& wx, float& wy) {
+    wx = (nx - 0.5f) * 2.0f * R;
+    wy = (0.5f - ny) * 2.0f * R;
+}
+
+static void DrawTeleportPad(JNIEnv* env, jobject v, jobject c, int sw, int sh) {
+    if (!g_tpPadEnabled.load()) return;
+    if (!g_espClass || !g_espDrawLine || !g_espDrawRect || !g_espDrawText) return;
+
+    float px, py, pw, ph;
+    ComputePadRect(sw, sh, px, py, pw, ph);
+    float cx = px + pw * 0.5f;
+    float cy = py + ph * 0.5f;
+
+    int cr = SKY_R, cg = SKY_G, cb = SKY_B;
+
+    // Outer frame (2px thick, 4 lines)
+    float bThick = 3.0f;
+    DrawLineColored(env, v, c, 220, cr, cg, cb, bThick, px,      py,      px + pw, py);
+    DrawLineColored(env, v, c, 220, cr, cg, cb, bThick, px,      py + ph, px + pw, py + ph);
+    DrawLineColored(env, v, c, 220, cr, cg, cb, bThick, px,      py,      px,      py + ph);
+    DrawLineColored(env, v, c, 220, cr, cg, cb, bThick, px + pw, py,      px + pw, py + ph);
+
+    // Inner crosshair (divides into 4 quadrants)
+    float crThick = 2.0f;
+    DrawLineColored(env, v, c, 180, cr, cg, cb, crThick, px, cy, px + pw, cy);
+    DrawLineColored(env, v, c, 180, cr, cg, cb, crThick, cx, py, cx,      py + ph);
+
+    // Corner ticks
+    float tick = 14.f;
+    DrawLineColored(env, v, c, 255, cr, cg, cb, 4.f, px, py, px + tick, py);
+    DrawLineColored(env, v, c, 255, cr, cg, cb, 4.f, px, py, px, py + tick);
+    DrawLineColored(env, v, c, 255, cr, cg, cb, 4.f, px + pw, py, px + pw - tick, py);
+    DrawLineColored(env, v, c, 255, cr, cg, cb, 4.f, px + pw, py, px + pw, py + tick);
+    DrawLineColored(env, v, c, 255, cr, cg, cb, 4.f, px, py + ph, px + tick, py + ph);
+    DrawLineColored(env, v, c, 255, cr, cg, cb, 4.f, px, py + ph, px, py + ph - tick);
+    DrawLineColored(env, v, c, 255, cr, cg, cb, 4.f, px + pw, py + ph, px + pw - tick, py + ph);
+    DrawLineColored(env, v, c, 255, cr, cg, cb, 4.f, px + pw, py + ph, px + pw, py + ph - tick);
+
+    // Quadrant labels (tiny "NW/NE/SW/SE" markers)
+    const float fsz = 22.f;
+    struct QLabel { const char* t; float tx, ty; };
+    QLabel ql[4] = {
+        { "NW", px + 10.f,                py + 26.f },
+        { "NE", px + pw - 10.f - 30.f,    py + 26.f },
+        { "SW", px + 10.f,                py + ph - 8.f },
+        { "SE", px + pw - 10.f - 30.f,    py + ph - 8.f }
+    };
+    for (auto& q : ql) {
+        jstring jq = env->NewStringUTF(q.t);
+        if (jq) {
+            env->CallVoidMethod(v, g_espDrawText, c, jq, q.tx, q.ty,
+                                170, cr, cg, cb, fsz);
+            env->DeleteLocalRef(jq);
+        }
+    }
+
+    // Marker + world coords
+    float nx = g_tpPadNormX.load();
+    float ny = g_tpPadNormY.load();
+    if (nx >= 0.f && ny >= 0.f && nx <= 1.f && ny <= 1.f) {
+        float mX = px + nx * pw;
+        float mY = py + ny * ph;
+
+        // Outer glow ring
+        DrawRing(env, v, c, mX, mY, 22.f, 90,  cr, cg, cb, 3.f);
+        DrawRing(env, v, c, mX, mY, 14.f, 180, cr, cg, cb, 3.f);
+        DrawRing(env, v, c, mX, mY, 8.f,  255, 255, 255, 255, 2.5f);
+        // Center fill via tiny cross
+        DrawLineColored(env, v, c, 255, 255, 255, 255, 2.f, mX - 5.f, mY, mX + 5.f, mY);
+        DrawLineColored(env, v, c, 255, 255, 255, 255, 2.f, mX, mY - 5.f, mX, mY + 5.f);
+
+        // Show world coords below marker
+        float R = g_tpPadWorldRadius.load();
+        float wx, wy;
+        PadNormToWorld(nx, ny, R, wx, wy);
+        char buf[48];
+        snprintf(buf, sizeof(buf), "%.0f,%.0f", wx, wy);
+        jstring jw = env->NewStringUTF(buf);
+        if (jw) {
+            env->CallVoidMethod(v, g_espDrawText, c, jw, px + 8.f, py + ph + 22.f,
+                                255, 255, 255, 255, 24.f);
+            env->DeleteLocalRef(jw);
+        }
+    }
+}
+
+// ==================================================================
+// Teleport Pad — JNI touch handler
+// Java calls this from ESP view's onTouchEvent.
+// Returns true if the touch was consumed by the pad.
+// action: 0=DOWN, 1=MOVE, 2=UP, 3=CANCEL
+// ==================================================================
+extern "C" JNIEXPORT jboolean JNICALL
+Java_com_android_support_Menu_TeleportPadTouch(JNIEnv*, jclass,
+        jint x, jint y, jint action) {
+    if (!g_tpPadEnabled.load()) return JNI_FALSE;
+
+    int sw = g_tpPadScreenW.load();
+    int sh = g_tpPadScreenH.load();
+    if (sw <= 0 || sh <= 0) return JNI_FALSE;
+
+    float px, py, pw, ph;
+    ComputePadRect(sw, sh, px, py, pw, ph);
+
+    float fx = (float)x, fy = (float)y;
+    bool inside = (fx >= px && fx <= px + pw && fy >= py && fy <= py + ph);
+
+    if (action == 0) { // DOWN
+        if (!inside) { g_tpPadActiveTouch.store(false); return JNI_FALSE; }
+        g_tpPadActiveTouch.store(true);
+    } else if (action == 3) { // CANCEL
+        g_tpPadActiveTouch.store(false);
+        return JNI_FALSE;
+    } else if (action == 2) { // UP
+        bool was = g_tpPadActiveTouch.load();
+        g_tpPadActiveTouch.store(false);
+        // fallthrough to compute final pos
+        if (!inside && !was) return JNI_FALSE;
+    } else { // MOVE
+        if (!g_tpPadActiveTouch.load() && !inside) return JNI_FALSE;
+    }
+
+    if (action == 1 && !g_tpPadActiveTouch.load() && !inside) return JNI_FALSE;
+
+    // Clamp to pad
+    float cx = fx;
+    float cy = fy;
+    if (cx < px) cx = px;
+    if (cx > px + pw) cx = px + pw;
+    if (cy < py) cy = py;
+    if (cy > py + ph) cy = py + ph;
+
+    float nx = (cx - px) / pw;
+    float ny = (cy - py) / ph;
+
+    g_tpPadNormX.store(nx);
+    g_tpPadNormY.store(ny);
+
+    float R = g_tpPadWorldRadius.load();
+    float wx, wy;
+    PadNormToWorld(nx, ny, R, wx, wy);
+
+    g_teleportX.store(wx);
+    g_teleportY.store(wy);
+    g_teleportActive.store(true);
+
+    traceLog("TP PAD tap norm=(%.2f,%.2f) world=(%.0f,%.0f) a=%d",
+             nx, ny, wx, wy, (int)action);
+
+    return JNI_TRUE;
+}
+
+// ==================================================================
+// Menu Draw
+// ==================================================================
 extern "C" JNIEXPORT void JNICALL
 Java_com_android_support_Menu_Draw(JNIEnv* env, jclass, jobject espView, jobject canvas) {
     if (!espView || !canvas) return;
     bool espOn    = g_espEnabled.load();
     bool fovWants = g_drawFovCircle.load();
-    if (!espOn && !fovWants) return;
+    bool padOn    = g_tpPadEnabled.load();
+    if (!espOn && !fovWants && !padOn) return;
     CacheESPMethods(env, espView);
     if (!g_espClass || !g_espDrawLine || !g_espDrawRect || !g_espDrawText) return;
 
@@ -2026,6 +2243,10 @@ Java_com_android_support_Menu_Draw(JNIEnv* env, jclass, jobject espView, jobject
     if (env->ExceptionCheck()) env->ExceptionClear();
     env->DeleteLocalRef(canvasCls);
     if (sw <= 0 || sh <= 0) return;
+
+    // Cache for touch handler
+    g_tpPadScreenW.store(sw);
+    g_tpPadScreenH.store(sh);
 
     if (!g_designValid.load()) RefreshDesignSize();
     float designW = g_designW.load(), designH = g_designH.load();
@@ -2040,6 +2261,11 @@ Java_com_android_support_Menu_Draw(JNIEnv* env, jclass, jobject espView, jobject
     float timeSec = (float)(nowMs % 100000) * 0.001f;
     float pulse = 0.5f + 0.5f * sinf(timeSec * 4.0f);
     int pulseAlpha = 180 + (int)(75.f * pulse);
+
+    // -------- Teleport pad (independent of ESP) --------
+    if (padOn) {
+        DrawTeleportPad(env, espView, canvas, sw, sh);
+    }
 
     if (fovWants) {
         float cx = (float)sw * 0.5f, cy = (float)sh * 0.5f;
@@ -2267,7 +2493,12 @@ jobjectArray GetFeatureList(JNIEnv* env, jobject) {
         OBFUSCATE("120_Toggle_Draw FOV Circle"),
         OBFUSCATE("121_SeekBar_FOV Size (px)_60_350"),
 
-        OBFUSCATE("Category_Teleport"),
+        OBFUSCATE("Category_Teleport Pad"),
+        OBFUSCATE("710_Toggle_Show Teleport Pad (4-Quadrant)"),
+        OBFUSCATE("711_SeekBar_Map Half-Size (radius)_1000_10000"),
+        OBFUSCATE("712_Button_Reset Marker"),
+
+        OBFUSCATE("Category_Teleport Legacy"),
         OBFUSCATE("700_Toggle_Teleport Freeze at X/Y"),
         OBFUSCATE("704_SeekBar_Teleport X (offset -5000..+5000)_0_100"),
         OBFUSCATE("705_SeekBar_Teleport Y (offset -5000..+5000)_0_100"),
@@ -2447,6 +2678,29 @@ void Changes(JNIEnv*, jclass, jobject, jint featNum, jstring, jint value, jlong,
         case 705:
             g_teleportY.store(-5000.f + (float)value * 100.f);
             traceLog("TELEPORT Y = %.1f", g_teleportY.load());
+            break;
+
+        // ===== Teleport Pad =====
+        case 710:
+            g_tpPadEnabled.store(boolean);
+            traceLog("TP PAD enabled=%d", (int)boolean);
+            if (!boolean) {
+                g_tpPadNormX.store(-1.f);
+                g_tpPadNormY.store(-1.f);
+            }
+            break;
+        case 711: {
+            // value 1..100  -> 1000..10000
+            float r = 1000.f + (float)(value - 1) * (9000.f / 99.f);
+            if (r < 1000.f) r = 1000.f;
+            if (r > 10000.f) r = 10000.f;
+            g_tpPadWorldRadius.store(r);
+            traceLog("TP PAD radius=%.0f", r);
+        } break;
+        case 712:
+            g_tpPadNormX.store(-1.f);
+            g_tpPadNormY.store(-1.f);
+            traceLog("TP PAD marker reset");
             break;
 
         case 200: g_wpnUnlimitedAmmo = boolean; break;
