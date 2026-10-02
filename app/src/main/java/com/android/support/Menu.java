@@ -247,6 +247,8 @@ public static native float GetTeleportRadius();
     instance = this;
         getContext = context;
         Preferences.context = context;
+        // ★ SavePref state disk থেকে read করে static-এ রাখি — feature build-এর আগেই
+Preferences.init(context);
         
         // ==== Load saved theme color ====
 try {
@@ -2733,13 +2735,14 @@ toggle.setChecked(initial, false);
             Preferences.changeFeatureBool(featName, featNum, bool);
             saveFeatureBool(featName, featNum, bool);   // ← explicit save
             switch (featNum) {
-                case -1:
-                    Preferences.with(row.getContext()).writeBoolean(-1, bool);
-                    break;
-                case -3:
-                    Preferences.isExpanded = bool;
-                    break;
-            }
+    case -1:
+        Preferences.loadPref = bool;   // ★ STATIC VAR IMMEDIATELY UPDATE
+        Preferences.with(row.getContext()).writeBoolean(-1, bool);
+        break;
+    case -3:
+        Preferences.isExpanded = bool;
+        break;
+}
         }
     });
 

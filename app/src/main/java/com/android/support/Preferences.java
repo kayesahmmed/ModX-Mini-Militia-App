@@ -16,77 +16,130 @@ public class Preferences {
 
     private static final String LENGTH = "_length";
     private static final String DEFAULT_STRING_VALUE = "";
-    private static final int DEFAULT_INT_VALUE = 0; //-1
-    private static final double DEFAULT_DOUBLE_VALUE = 0d; //-1d
-    private static final float DEFAULT_FLOAT_VALUE = 0f; //-1f
-    private static final long DEFAULT_LONG_VALUE = 0L; //-1L
+    private static final int DEFAULT_INT_VALUE = 0;
+    private static final double DEFAULT_DOUBLE_VALUE = 0d;
+    private static final float DEFAULT_FLOAT_VALUE = 0f;
+    private static final long DEFAULT_LONG_VALUE = 0L;
     private static final boolean DEFAULT_BOOLEAN_VALUE = false;
 
-    public static native void Changes(Context context, int featNum, String featName, int value, long Lvalue, boolean isOn, String inputText);
+    public static native void Changes(Context context, int featNum, String featName,
+                                      int value, long Lvalue, boolean isOn, String inputText);
 
+    // ================================================================
+    // ★ NEW: App start-এ একবার call হবে — সব feature build হওয়ার আগে।
+    //   এটা নিশ্চিত করে loadPref static field disk-এর actual value থেকে
+    //   set হয়, যাতে Menu constructor-এর feature widget গুলো সঠিকভাবে
+    //   load/save করতে পারে।
+    // ================================================================
+    public static void init(Context ctx) {
+        context = ctx;
+        try {
+            sharedPreferences = ctx.getApplicationContext().getSharedPreferences(
+                    ctx.getPackageName() + "_preferences",
+                    Context.MODE_PRIVATE
+            );
+            // ★ SavePref state disk থেকে সাথে সাথে read করে static-এ রাখি
+            loadPref = sharedPreferences.getBoolean("-1", false);
+            isExpanded = sharedPreferences.getBoolean("-3", false);
+        } catch (Exception ignored) {
+            loadPref = false;
+            isExpanded = false;
+        }
+    }
+
+    // ================================================================
+    // Feature write helpers
+    // ★ SavePref OFF থাকলে disk-এ write করি না।
+    //   তবে native `Changes()` সবসময় call করি, যাতে runtime-এ hook apply হয়।
+    // ================================================================
     public static void changeFeatureInt(String featureName, int featureNum, int value) {
-        Preferences.with(context).writeInt(featureNum, value);
+        if (loadPref) {
+            Preferences.with(context).writeInt(featureNum, value);
+        }
         Changes(context, featureNum, featureName, value, 0, false, null);
     }
 
     public static void changeFeatureLong(String featureName, int featureNum, long Lvalue) {
-        Preferences.with(context).writeLong(String.valueOf(featureNum), Lvalue);
+        if (loadPref) {
+            Preferences.with(context).writeLong(String.valueOf(featureNum), Lvalue);
+        }
         Changes(context, featureNum, featureName, 0, Lvalue, false, null);
     }
 
     public static void changeFeatureString(String featureName, int featureNum, String inputString) {
-        Preferences.with(context).writeString(featureNum, inputString);
+        if (loadPref) {
+            Preferences.with(context).writeString(featureNum, inputString);
+        }
         Changes(context, featureNum, featureName, 0, 0, false, inputString);
     }
 
     public static void changeFeatureBool(String featureName, int featureNum, boolean bool) {
-        Preferences.with(context).writeBoolean(featureNum, bool);
+        if (loadPref) {
+            Preferences.with(context).writeBoolean(featureNum, bool);
+        }
         Changes(context, featureNum, featureName, 0, 0, bool, null);
     }
 
+    // ================================================================
+    // Feature load helpers
+    // ★ SavePref OFF থাকলে all-time 0 / default return করি,
+    //   নাহলে disk-এ save করা value read করি।
+    // ================================================================
     public static int loadPrefInt(String featureName, int featureNum) {
-        if (loadPref) {
-            int value = Preferences.with(context).readInt(featureNum);
-            Changes(context, featureNum, featureName, value , 0, false, null);
+        if (!loadPref && featureNum >= 0) return 0;
+        int value = Preferences.with(context).readInt(featureNum);
+        if (loadPref || featureNum < 0) {
+            Changes(context, featureNum, featureName, value, 0, false, null);
             return value;
         }
         return 0;
     }
 
     public static long loadPrefLong(String featureName, int featureNum) {
-        if (loadPref) {
-            long Lvalue = Preferences.with(context).readLong(String.valueOf(featureNum));
+        if (!loadPref && featureNum >= 0) return 0L;
+        long Lvalue = Preferences.with(context).readLong(String.valueOf(featureNum));
+        if (loadPref || featureNum < 0) {
             Changes(context, featureNum, featureName, 0, Lvalue, false, null);
             return Lvalue;
         }
-        return 0;
+        return 0L;
     }
 
     public static boolean loadPrefBool(String featureName, int featureNum, boolean bDef) {
         boolean bool = Preferences.with(context).readBoolean(featureNum, bDef);
+
+        // Special features (SavePref toggle and expand toggle)
         if (featureNum == -1) {
             loadPref = bool;
+            return bool;
         }
         if (featureNum == -3) {
             isExpanded = bool;
+            return bool;
         }
-        if (loadPref || featureNum < 0) {
+
+        // ★ loadPref ON থাকলে disk-এ save করা value, নাহলে default
+        if (loadPref) {
             bDef = bool;
         }
 
-        Changes(context, featureNum, featureName, 0,0, bDef, null);
+        Changes(context, featureNum, featureName, 0, 0, bDef, null);
         return bDef;
     }
 
     public static String loadPrefString(String featureName, int featureNum) {
+        if (!loadPref && featureNum > 0) return "";
+        String text = Preferences.with(context).readString(featureNum);
         if (loadPref || featureNum <= 0) {
-            String text = Preferences.with(context).readString(featureNum);
-            Changes(context, featureNum, featureName, 0,0, false, text);
+            Changes(context, featureNum, featureName, 0, 0, false, text);
             return text;
         }
         return "";
     }
 
+    // ================================================================
+    // Constructors
+    // ================================================================
     private Preferences(Context context) {
         sharedPreferences = context.getApplicationContext().getSharedPreferences(
                 context.getPackageName() + "_preferences",
@@ -101,10 +154,9 @@ public class Preferences {
         );
     }
 
-    /**
-     * @param context
-     * @return Returns a 'Preferences' instance
-     */
+    // ================================================================
+    // Singleton accessors
+    // ================================================================
     public static Preferences with(Context context) {
         if (prefsInstance == null) {
             prefsInstance = new Preferences(context);
@@ -112,11 +164,6 @@ public class Preferences {
         return prefsInstance;
     }
 
-    /**
-     * @param context
-     * @param forceInstantiation
-     * @return Returns a 'Preferences' instance
-     */
     public static Preferences with(Context context, boolean forceInstantiation) {
         if (forceInstantiation) {
             prefsInstance = new Preferences(context);
@@ -124,11 +171,6 @@ public class Preferences {
         return prefsInstance;
     }
 
-    /**
-     * @param context
-     * @param preferencesName
-     * @return Returns a 'Preferences' instance
-     */
     public static Preferences with(Context context, String preferencesName) {
         if (prefsInstance == null) {
             prefsInstance = new Preferences(context, preferencesName);
@@ -136,12 +178,6 @@ public class Preferences {
         return prefsInstance;
     }
 
-    /**
-     * @param context
-     * @param preferencesName
-     * @param forceInstantiation
-     * @return Returns a 'Preferences' instance
-     */
     public static Preferences with(Context context, String preferencesName,
                                    boolean forceInstantiation) {
         if (forceInstantiation) {
@@ -150,20 +186,13 @@ public class Preferences {
         return prefsInstance;
     }
 
+    // ================================================================
     // String related methods
-
-    /**
-     * @param what
-     * @return Returns the stored value of 'what'
-     */
+    // ================================================================
     public String readString(String what) {
         return sharedPreferences.getString(what, DEFAULT_STRING_VALUE);
     }
 
-    /**
-     * @param what
-     * @return Returns the stored value of 'what'
-     */
     public String readString(int what) {
         try {
             return sharedPreferences.getString(String.valueOf(what), DEFAULT_STRING_VALUE);
@@ -172,46 +201,25 @@ public class Preferences {
         }
     }
 
-    /**
-     * @param what
-     * @param defaultString
-     * @return Returns the stored value of 'what'
-     */
     public String readString(String what, String defaultString) {
         return sharedPreferences.getString(what, defaultString);
     }
 
-    /**
-     * @param where
-     * @param what
-     */
     public void writeString(String where, String what) {
         sharedPreferences.edit().putString(where, what).apply();
     }
 
-    /**
-     * @param where
-     * @param what
-     */
     public void writeString(int where, String what) {
         sharedPreferences.edit().putString(String.valueOf(where), what).apply();
     }
 
-    // int related methods
-
-    /**
-     * @param what
-     * @return Returns the stored value of 'what'
-     */
+    // ================================================================
+    // Int related methods
+    // ================================================================
     public int readInt(String what) {
         return sharedPreferences.getInt(what, DEFAULT_INT_VALUE);
     }
 
-
-    /**
-     * @param what
-     * @return Returns the stored value of 'what'
-     */
     public int readInt(int what) {
         try {
             return sharedPreferences.getInt(String.valueOf(what), DEFAULT_INT_VALUE);
@@ -220,153 +228,83 @@ public class Preferences {
         }
     }
 
-    /**
-     * @param what
-     * @param defaultInt
-     * @return Returns the stored value of 'what'
-     */
     public int readInt(String what, int defaultInt) {
         return sharedPreferences.getInt(what, defaultInt);
     }
 
-    /**
-     * @param where
-     * @param what
-     */
     public void writeInt(String where, int what) {
         sharedPreferences.edit().putInt(where, what).apply();
     }
 
-    /**
-     * @param where
-     * @param what
-     */
     public void writeInt(int where, int what) {
         sharedPreferences.edit().putInt(String.valueOf(where), what).apply();
     }
 
-    // double related methods
-
-    /**
-     * @param what
-     * @return Returns the stored value of 'what'
-     */
+    // ================================================================
+    // Double related methods
+    // ================================================================
     public double readDouble(String what) {
         if (!contains(what))
             return DEFAULT_DOUBLE_VALUE;
         return Double.longBitsToDouble(readLong(what));
     }
 
-    /**
-     * @param what
-     * @param defaultDouble
-     * @return Returns the stored value of 'what'
-     */
     public double readDouble(String what, double defaultDouble) {
         if (!contains(what))
             return defaultDouble;
         return Double.longBitsToDouble(readLong(what));
     }
 
-    /**
-     * @param where
-     * @param what
-     */
     public void writeDouble(String where, double what) {
         writeLong(where, Double.doubleToRawLongBits(what));
     }
 
-    // float related methods
-
-    /**
-     * @param what
-     * @return Returns the stored value of 'what'
-     */
+    // ================================================================
+    // Float related methods
+    // ================================================================
     public float readFloat(String what) {
         return sharedPreferences.getFloat(what, DEFAULT_FLOAT_VALUE);
     }
 
-    /**
-     * @param what
-     * @param defaultFloat
-     * @return Returns the stored value of 'what'
-     */
     public float readFloat(String what, float defaultFloat) {
         return sharedPreferences.getFloat(what, defaultFloat);
     }
 
-    /**
-     * @param where
-     * @param what
-     */
     public void writeFloat(String where, float what) {
         sharedPreferences.edit().putFloat(where, what).apply();
     }
 
-    // long related methods
-
-    /**
-     * @param what
-     * @return Returns the stored value of 'what'
-     */
+    // ================================================================
+    // Long related methods
+    // ================================================================
     public long readLong(String what) {
         return sharedPreferences.getLong(what, DEFAULT_LONG_VALUE);
     }
 
-    /**
-     * @param what
-     * @param defaultLong
-     * @return Returns the stored value of 'what'
-     */
     public long readLong(String what, long defaultLong) {
         return sharedPreferences.getLong(what, defaultLong);
     }
 
-    /**
-     * @param where
-     * @param what
-     */
     public void writeLong(String where, long what) {
         sharedPreferences.edit().putLong(where, what).apply();
     }
 
-    // boolean related methods
-
-    /**
-     * @param what
-     * @return Returns the stored value of 'what'
-     */
+    // ================================================================
+    // Boolean related methods
+    // ================================================================
     public boolean readBoolean(String what) {
         return sharedPreferences.getBoolean(what, DEFAULT_BOOLEAN_VALUE);
     }
 
-    /**
-     * @param what
-     * @return Returns the stored value of 'what'
-     */
     public boolean readBoolean(int what) {
         return sharedPreferences.getBoolean(String.valueOf(what), DEFAULT_BOOLEAN_VALUE);
     }
 
-    /**
-     * @param what
-     * @param defaultBoolean
-     * @return Returns the stored value of 'what'
-     */
     public boolean readBoolean(String what, boolean defaultBoolean) {
-        /*if (defaultBoolean == true && !sharedPreferences.contains(what))
-            writeBoolean(what, true);*/
         return sharedPreferences.getBoolean(what, defaultBoolean);
     }
 
-    /**
-     * @param what
-     * @param defaultBoolean
-     * @return Returns the stored value of 'what'
-     */
     public boolean readBoolean(int what, boolean defaultBoolean) {
-        /*if (defaultBoolean == true && !sharedPreferences.contains(String.valueOf(what)))
-            writeBoolean(what, true);*/
         try {
             return sharedPreferences.getBoolean(String.valueOf(what), defaultBoolean);
         } catch (java.lang.ClassCastException ex) {
@@ -374,46 +312,29 @@ public class Preferences {
         }
     }
 
-    /**
-     * @param where
-     * @param what
-     */
     public void writeBoolean(String where, boolean what) {
         sharedPreferences.edit().putBoolean(where, what).apply();
     }
 
-    /**
-     * @param where
-     * @param what
-     */
     public void writeBoolean(int where, boolean what) {
         sharedPreferences.edit().putBoolean(String.valueOf(where), what).apply();
     }
 
+    // ================================================================
     // String set methods
-
-    /**
-     * @param key
-     * @param value
-     */
+    // ================================================================
     @TargetApi(Build.VERSION_CODES.HONEYCOMB)
     public void putStringSet(final String key, final Set<String> value) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.HONEYCOMB) {
             sharedPreferences.edit().putStringSet(key, value).apply();
         } else {
-            // Workaround for pre-HC's lack of StringSets
             putOrderedStringSet(key, value);
         }
     }
 
-    /**
-     * @param key
-     * @param value
-     */
     public void putOrderedStringSet(String key, Set<String> value) {
         int stringSetLength = 0;
         if (sharedPreferences.contains(key + LENGTH)) {
-            // First read what the value was
             stringSetLength = readInt(key + LENGTH);
         }
         writeInt(key + LENGTH, value.size());
@@ -423,31 +344,19 @@ public class Preferences {
             i++;
         }
         for (; i < stringSetLength; i++) {
-            // Remove any remaining values
             remove(key + "[" + i + "]");
         }
     }
 
-    /**
-     * @param key
-     * @param defValue
-     * @return Returns the String Set with HoneyComb compatibility
-     */
     @TargetApi(Build.VERSION_CODES.HONEYCOMB)
     public Set<String> getStringSet(final String key, final Set<String> defValue) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.HONEYCOMB) {
             return sharedPreferences.getStringSet(key, defValue);
         } else {
-            // Workaround for pre-HC's missing getStringSet
             return getOrderedStringSet(key, defValue);
         }
     }
 
-    /**
-     * @param key
-     * @param defValue
-     * @return Returns the ordered String Set
-     */
     public Set<String> getOrderedStringSet(String key, final Set<String> defValue) {
         if (contains(key + LENGTH)) {
             LinkedHashSet<String> set = new LinkedHashSet<>();
@@ -462,14 +371,11 @@ public class Preferences {
         return defValue;
     }
 
-    // end related methods
-
-    /**
-     * @param key
-     */
+    // ================================================================
+    // Utility methods
+    // ================================================================
     public void remove(final String key) {
         if (contains(key + LENGTH)) {
-            // Workaround for pre-HC's lack of StringSets
             int stringSetLength = readInt(key + LENGTH);
             if (stringSetLength >= 0) {
                 sharedPreferences.edit().remove(key + LENGTH).apply();
@@ -481,17 +387,10 @@ public class Preferences {
         sharedPreferences.edit().remove(key).apply();
     }
 
-    /**
-     * @param key
-     * @return Returns if that key exists
-     */
     public boolean contains(final String key) {
         return sharedPreferences.contains(key);
     }
 
-    /**
-     * Clear all the preferences
-     */
     public void clear() {
         sharedPreferences.edit().clear().apply();
     }
