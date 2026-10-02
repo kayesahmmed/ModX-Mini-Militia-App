@@ -728,6 +728,7 @@ static __thread volatile sig_atomic_t tls_bulletRaycast = 0;
 static bool ApplyTeleportPosition();
 // MapManager instance — প্রথম hook call থেকে capture হবে
 static std::atomic<void*> g_mapManagerInstance{nullptr};
+static std::atomic<bool>  g_mapBoundsDetected{false};
 
 // ==================================================================
 // Teleport discovery state
@@ -806,6 +807,7 @@ static void ClearAllState() {
     g_hasAimTarget.store(false); g_hasAimAngle.store(false);
     g_stickyTarget = nullptr; g_stickyTargetLastMs = 0;
     g_currentAimTarget.store(nullptr);
+    InvalidateMapBounds();
 }
 static void RefreshDesignSize() {
     if (!fn_directorShared || !fn_directorGetVisible) return;
@@ -1700,6 +1702,7 @@ void LocalActivate_Hook(void* self) {
             g_localInstanceSetMs.store(NowMs());
             g_localSeen.store(false); g_localDead.store(false);
             g_bodyDiscoveryDone.store(false);
+            InvalidateMapBounds();
             g_bodyOffsetFromSelf.store((uintptr_t)-1);
             g_posOffsetInBody.store(-1);
         }
@@ -1714,6 +1717,11 @@ void LocalActivate_Hook(void* self) {
 void StageUpdate_Hook(void* self, float dt) {
     if (old_StageUpdate) old_StageUpdate(self, dt);
     if (!IsModActive() && !g_unlimitedFlyPower.load()) return;
+        // ★ Map bounds auto-detect — teleport enable হলে একবার
+    if (g_tpPadEnabled.load() && !g_mapBoundsDetected.load()
+        && g_mapManagerInstance.load() != nullptr) {
+        DetectMapBounds();
+    }
     uint64_t now = NowMs();
     int hz = g_lagEspUpdateHz.load();
     if (g_lagAntiLagMode.load() && hz > 30) hz = 30;
@@ -2224,6 +2232,60 @@ static void DrawTeleportPad(JNIEnv* env, jobject v, jobject c, int sw, int sh) {
 // Teleport Pad (menu widget) — JNI bridge
 // Java sends normalized [0..1] coords; native converts to world
 // ==================================================================
+// ==================================================================
+// Map Auto-Detection — isBoundryTile probe করে safe radius বের করে
+// ==================================================================
+static float ProbeMapBoundary(void* mgr, float dirX, float dirY, float maxDist) {
+    if (!old_isBoundryTile) return maxDist;
+    for (float d = 150.f; d <= maxDist; d += 150.f) {
+        cpVect p{ (double)(dirX * d), (double)(dirY * d) };
+        bool isB = false;
+        if (GUARD_ENTER()) { GUARD_SET(); isB = old_isBoundryTile(mgr, p); GUARD_CLR(); }
+        else GUARD_CLR();
+        if (isB) return (d > 150.f) ? (d - 150.f) : 0.f;
+    }
+    return maxDist;
+}
+
+static void DetectMapBounds() {
+    if (g_mapBoundsDetected.load()) return;
+    void* mgr = g_mapManagerInstance.load();
+    if (!mgr || !old_isBoundryTile) return;
+
+    // 8-way probe
+    float d_E  = ProbeMapBoundary(mgr,  1.0f,   0.0f,  8000.f);
+    float d_W  = ProbeMapBoundary(mgr, -1.0f,   0.0f,  8000.f);
+    float d_N  = ProbeMapBoundary(mgr,  0.0f,   1.0f,  8000.f);
+    float d_S  = ProbeMapBoundary(mgr,  0.0f,  -1.0f,  8000.f);
+    float d_NE = ProbeMapBoundary(mgr,  0.707f, 0.707f, 8000.f);
+    float d_NW = ProbeMapBoundary(mgr, -0.707f, 0.707f, 8000.f);
+    float d_SW = ProbeMapBoundary(mgr, -0.707f,-0.707f, 8000.f);
+    float d_SE = ProbeMapBoundary(mgr,  0.707f,-0.707f, 8000.f);
+
+    float minDist = d_E;
+    if (d_W  < minDist) minDist = d_W;
+    if (d_N  < minDist) minDist = d_N;
+    if (d_S  < minDist) minDist = d_S;
+    if (d_NE < minDist) minDist = d_NE;
+    if (d_NW < minDist) minDist = d_NW;
+    if (d_SW < minDist) minDist = d_SW;
+    if (d_SE < minDist) minDist = d_SE;
+
+    // Use 80% of the tightest direction for safety
+    float safeR = minDist * 0.80f;
+    if (safeR < 800.f)  safeR = 800.f;
+    if (safeR > 6000.f) safeR = 6000.f;
+
+    g_tpPadWorldRadius.store(safeR);
+    g_mapBoundsDetected.store(true);
+    traceLog("MAP BOUNDS: E=%.0f W=%.0f N=%.0f S=%.0f NE=%.0f NW=%.0f SW=%.0f SE=%.0f -> safeR=%.0f",
+             d_E, d_W, d_N, d_S, d_NE, d_NW, d_SW, d_SE, safeR);
+}
+
+static void InvalidateMapBounds() {
+    g_mapBoundsDetected.store(false);
+    traceLog("MAP BOUNDS: invalidated (new map)");
+}
 extern "C" JNIEXPORT void JNICALL
 Java_com_android_support_Menu_SetTeleportTargetNorm(JNIEnv*, jclass,
         jfloat nx, jfloat ny) {
@@ -2234,44 +2296,41 @@ Java_com_android_support_Menu_SetTeleportTargetNorm(JNIEnv*, jclass,
     if (ny < 0.f) ny = 0.f;
     if (ny > 1.f) ny = 1.f;
 
+    // Auto-detect on first tap (fallback if StageUpdate missed it)
+    if (!g_mapBoundsDetected.load() && g_mapManagerInstance.load()) {
+        DetectMapBounds();
+    }
+
     float R = g_tpPadWorldRadius.load();
     float wx = (nx - 0.5f) * 2.0f * R;
     float wy = (0.5f - ny) * 2.0f * R;
 
-    // ★ Boundary safety check — MapManager::isBoundryTile দিয়ে
+    // ★ Final safety: isBoundryTile দিয়ে verify
     void* mgr = g_mapManagerInstance.load();
     if (mgr && old_isBoundryTile) {
-        auto isBoundry = [&](float tx, float ty) -> bool {
+        auto isBnd = [&](float tx, float ty) -> bool {
             cpVect p{ (double)tx, (double)ty };
             bool r = false;
             if (GUARD_ENTER()) { GUARD_SET(); r = old_isBoundryTile(mgr, p); GUARD_CLR(); }
             else GUARD_CLR();
             return r;
         };
-
-        if (isBoundry(wx, wy)) {
-            // Safe zone খুঁজতে diagonal-wise walk back to center
-            bool found = false;
-            for (float t = 0.92f; t >= 0.10f; t -= 0.06f) {
-                float cx = wx * t;
-                float cy = wy * t;
-                if (!isBoundry(cx, cy)) {
-                    wx = cx; wy = cy;
-                    found = true;
-                    traceLog("TP clamped: (%.0f,%.0f) t=%.2f", wx, wy, t);
-                    break;
-                }
+        if (isBnd(wx, wy)) {
+            // Walk back toward origin until safe
+            bool ok = false;
+            for (float t = 0.92f; t >= 0.05f; t -= 0.07f) {
+                float cx = wx * t, cy = wy * t;
+                if (!isBnd(cx, cy)) { wx = cx; wy = cy; ok = true; break; }
             }
-            if (!found) {
-                // Some positions near origin might still be walls;
-                // try axis-aligned fallback
+            if (!ok) {
+                // Try axis-aligned fallbacks
                 for (float t = 0.5f; t >= 0.05f; t -= 0.05f) {
-                    if (!isBoundry(wx * t, 0.f)) { wx = wx * t; wy = 0.f; found = true; break; }
-                    if (!isBoundry(0.f, wy * t)) { wx = 0.f; wy = wy * t; found = true; break; }
+                    if (!isBnd(wx * t, 0.f)) { wx *= t; wy = 0.f; ok = true; break; }
+                    if (!isBnd(0.f, wy * t)) { wx = 0.f; wy *= t; ok = true; break; }
                 }
             }
-            if (!found) {
-                traceLog("TP rejected (all boundary): (%.0f,%.0f)", wx, wy);
+            if (!ok) {
+                traceLog("TP rejected entirely (no safe position)");
                 return;
             }
         }
@@ -2280,7 +2339,7 @@ Java_com_android_support_Menu_SetTeleportTargetNorm(JNIEnv*, jclass,
     g_teleportX.store(wx);
     g_teleportY.store(wy);
     g_teleportActive.store(true);
-    traceLog("TELEPORT tap=(%.2f,%.2f) world=(%.0f,%.0f)", nx, ny, wx, wy);
+    traceLog("TELEPORT tap=(%.2f,%.2f) world=(%.0f,%.0f) R=%.0f", nx, ny, wx, wy, R);
 }
 
 extern "C" JNIEXPORT jboolean JNICALL
