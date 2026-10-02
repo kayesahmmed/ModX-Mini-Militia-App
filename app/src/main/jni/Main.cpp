@@ -726,6 +726,8 @@ std::atomic<bool> g_teleportHooksOk{false};
 static __thread volatile sig_atomic_t tls_bulletRaycast = 0;
 // ★ Forward declaration — ApplyTeleportPosition() এর full definition নিচে আছে
 static bool ApplyTeleportPosition();
+// MapManager instance — প্রথম hook call থেকে capture হবে
+static std::atomic<void*> g_mapManagerInstance{nullptr};
 
 // ==================================================================
 // Teleport discovery state
@@ -992,16 +994,19 @@ static void BuildSnapshots() {
 // Wall hooks
 // ==================================================================
 bool isCollisionTile_Hook(void* self, cpVect pos) {
+if (g_mapManagerInstance.load() == nullptr) g_mapManagerInstance.store(self);
     if (g_flyThroughWalls.load()) return false;
     if (g_bulletThroughWalls.load() && tls_bulletRaycast) return false;
     return old_isCollisionTile ? old_isCollisionTile(self, pos) : false;
 }
 bool mapCollision_Hook(void* self, cpVect pos) {
+if (g_mapManagerInstance.load() == nullptr) g_mapManagerInstance.store(self);
     if (g_flyThroughWalls.load()) return false;
     if (g_bulletThroughWalls.load() && tls_bulletRaycast) return false;
     return old_mapCollision ? old_mapCollision(self, pos) : false;
 }
 bool isBoundryTile_Hook(void* self, cpVect pos) {
+if (g_mapManagerInstance.load() == nullptr) g_mapManagerInstance.store(self);
     if (g_flyThroughWalls.load()) return false;
     return old_isBoundryTile ? old_isBoundryTile(self, pos) : false;
 }
@@ -2228,9 +2233,50 @@ Java_com_android_support_Menu_SetTeleportTargetNorm(JNIEnv*, jclass,
     if (nx > 1.f) nx = 1.f;
     if (ny < 0.f) ny = 0.f;
     if (ny > 1.f) ny = 1.f;
+
     float R = g_tpPadWorldRadius.load();
     float wx = (nx - 0.5f) * 2.0f * R;
     float wy = (0.5f - ny) * 2.0f * R;
+
+    // ★ Boundary safety check — MapManager::isBoundryTile দিয়ে
+    void* mgr = g_mapManagerInstance.load();
+    if (mgr && old_isBoundryTile) {
+        auto isBoundry = [&](float tx, float ty) -> bool {
+            cpVect p{ (double)tx, (double)ty };
+            bool r = false;
+            if (GUARD_ENTER()) { GUARD_SET(); r = old_isBoundryTile(mgr, p); GUARD_CLR(); }
+            else GUARD_CLR();
+            return r;
+        };
+
+        if (isBoundry(wx, wy)) {
+            // Safe zone খুঁজতে diagonal-wise walk back to center
+            bool found = false;
+            for (float t = 0.92f; t >= 0.10f; t -= 0.06f) {
+                float cx = wx * t;
+                float cy = wy * t;
+                if (!isBoundry(cx, cy)) {
+                    wx = cx; wy = cy;
+                    found = true;
+                    traceLog("TP clamped: (%.0f,%.0f) t=%.2f", wx, wy, t);
+                    break;
+                }
+            }
+            if (!found) {
+                // Some positions near origin might still be walls;
+                // try axis-aligned fallback
+                for (float t = 0.5f; t >= 0.05f; t -= 0.05f) {
+                    if (!isBoundry(wx * t, 0.f)) { wx = wx * t; wy = 0.f; found = true; break; }
+                    if (!isBoundry(0.f, wy * t)) { wx = 0.f; wy = wy * t; found = true; break; }
+                }
+            }
+            if (!found) {
+                traceLog("TP rejected (all boundary): (%.0f,%.0f)", wx, wy);
+                return;
+            }
+        }
+    }
+
     g_teleportX.store(wx);
     g_teleportY.store(wy);
     g_teleportActive.store(true);
