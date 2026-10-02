@@ -2155,6 +2155,39 @@ static void DrawTeleportPad(JNIEnv* env, jobject v, jobject c, int sw, int sh) {
     }
 }
 
+
+// ==================================================================
+// Teleport Pad (menu widget) — JNI bridge
+// Java sends normalized [0..1] coords; native converts to world
+// ==================================================================
+extern "C" JNIEXPORT void JNICALL
+Java_com_android_support_Menu_SetTeleportTargetNorm(JNIEnv*, jclass,
+        jfloat nx, jfloat ny) {
+    if (!g_libReady.load()) return;
+    if (!g_tpPadEnabled.load()) return;
+    if (nx < 0.f) nx = 0.f;
+    if (nx > 1.f) nx = 1.f;
+    if (ny < 0.f) ny = 0.f;
+    if (ny > 1.f) ny = 1.f;
+    float R = g_tpPadWorldRadius.load();
+    float wx = (nx - 0.5f) * 2.0f * R;
+    float wy = (0.5f - ny) * 2.0f * R;
+    g_teleportX.store(wx);
+    g_teleportY.store(wy);
+    g_teleportActive.store(true);
+    traceLog("TELEPORT tap=(%.2f,%.2f) world=(%.0f,%.0f)", nx, ny, wx, wy);
+}
+
+extern "C" JNIEXPORT jboolean JNICALL
+Java_com_android_support_Menu_GetTeleportEnabled(JNIEnv*, jclass) {
+    return g_tpPadEnabled.load() ? JNI_TRUE : JNI_FALSE;
+}
+
+extern "C" JNIEXPORT jfloat JNICALL
+Java_com_android_support_Menu_GetTeleportRadius(JNIEnv*, jclass) {
+    return g_tpPadWorldRadius.load();
+}
+
 // ==================================================================
 // Teleport Pad — JNI touch handler
 // Java calls this from ESP view's onTouchEvent.
@@ -2227,10 +2260,9 @@ Java_com_android_support_Menu_TeleportPadTouch(JNIEnv*, jclass,
 extern "C" JNIEXPORT void JNICALL
 Java_com_android_support_Menu_Draw(JNIEnv* env, jclass, jobject espView, jobject canvas) {
     if (!espView || !canvas) return;
-    bool espOn    = g_espEnabled.load();
+        bool espOn    = g_espEnabled.load();
     bool fovWants = g_drawFovCircle.load();
-    bool padOn    = g_tpPadEnabled.load();
-    if (!espOn && !fovWants && !padOn) return;
+    if (!espOn && !fovWants) return;
     CacheESPMethods(env, espView);
     if (!g_espClass || !g_espDrawLine || !g_espDrawRect || !g_espDrawText) return;
 
@@ -2262,11 +2294,7 @@ Java_com_android_support_Menu_Draw(JNIEnv* env, jclass, jobject espView, jobject
     float pulse = 0.5f + 0.5f * sinf(timeSec * 4.0f);
     int pulseAlpha = 180 + (int)(75.f * pulse);
 
-    // -------- Teleport pad (independent of ESP) --------
-    if (padOn) {
-        DrawTeleportPad(env, espView, canvas, sw, sh);
-    }
-
+   
     if (fovWants) {
         float cx = (float)sw * 0.5f, cy = (float)sh * 0.5f;
         int fovDesign = g_fovPixels.load();
@@ -2493,18 +2521,10 @@ jobjectArray GetFeatureList(JNIEnv* env, jobject) {
         OBFUSCATE("120_Toggle_Draw FOV Circle"),
         OBFUSCATE("121_SeekBar_FOV Size (px)_60_350"),
 
-        OBFUSCATE("Category_Teleport Pad"),
-        OBFUSCATE("710_Toggle_Show Teleport Pad (4-Quadrant)"),
-        OBFUSCATE("711_SeekBar_Map Half-Size (radius)_1000_10000"),
-        OBFUSCATE("712_Button_Reset Marker"),
-
-        OBFUSCATE("Category_Teleport Legacy"),
-        OBFUSCATE("700_Toggle_Teleport Freeze at X/Y"),
-        OBFUSCATE("704_SeekBar_Teleport X (offset -5000..+5000)_0_100"),
-        OBFUSCATE("705_SeekBar_Teleport Y (offset -5000..+5000)_0_100"),
-        OBFUSCATE("701_Button_Snap to Aim Target"),
-        OBFUSCATE("702_Button_Snap to Map Center (0,0)"),
-        OBFUSCATE("703_Button_Cancel Teleport"),
+                OBFUSCATE("Category_Teleport"),
+        OBFUSCATE("710_Toggle_Enable Teleport"),
+        OBFUSCATE("711_SeekBar_Map Half-Size_1000_10000"),
+        OBFUSCATE("713_TeleportPadWidget_"),
 
         OBFUSCATE("Category_Weapon"),
         OBFUSCATE("200_Toggle_Unlimited Ammo (9999)"),
@@ -2645,63 +2665,21 @@ void Changes(JNIEnv*, jclass, jobject, jint featNum, jstring, jint value, jlong,
         case 120: g_drawFovCircle = boolean; break;
         case 121: { if (value > 350) value = 350; if (value < 60) value = 60; g_fovPixels = value; } break;
 
-        case 700:
-            g_teleportActive.store(boolean);
-            traceLog("TELEPORT freeze=%d X=%.1f Y=%.1f bodyScan=%d",
-                     (int)boolean, g_teleportX.load(), g_teleportY.load(),
-                     (int)g_bodyDiscoveryDone.load());
-            break;
-        case 701:
-            if (g_hasAimTarget.load()) {
-                float tx = g_aimTargetRawX.load(), ty = g_aimTargetRawY.load();
-                if (std::isfinite(tx) && std::isfinite(ty)) {
-                    g_teleportX.store(tx); g_teleportY.store(ty);
-                    g_teleportActive.store(true);
-                    traceLog("TELEPORT snapAim -> (%.1f,%.1f)", tx, ty);
-                } else traceLog("TELEPORT snapAim FAILED non-finite");
-            } else traceLog("TELEPORT snapAim FAILED no target");
-            break;
-        case 702:
-            g_teleportX.store(0.f); g_teleportY.store(0.f);
-            g_teleportActive.store(true);
-            traceLog("TELEPORT snapCenter (0,0)");
-            break;
-        case 703:
-            g_teleportActive.store(false);
-            g_teleportFollowAim.store(false);
-            traceLog("TELEPORT canceled");
-            break;
-        case 704:
-            g_teleportX.store(-5000.f + (float)value * 100.f);
-            traceLog("TELEPORT X = %.1f", g_teleportX.load());
-            break;
-        case 705:
-            g_teleportY.store(-5000.f + (float)value * 100.f);
-            traceLog("TELEPORT Y = %.1f", g_teleportY.load());
-            break;
-
-        // ===== Teleport Pad =====
-        case 710:
-            g_tpPadEnabled.store(boolean);
-            traceLog("TP PAD enabled=%d", (int)boolean);
-            if (!boolean) {
-                g_tpPadNormX.store(-1.f);
-                g_tpPadNormY.store(-1.f);
-            }
-            break;
+                // ===== Teleport (pad widget inside menu) =====
+        case 710: {
+            bool on = boolean;
+            g_tpPadEnabled.store(on);
+            if (!on) g_teleportActive.store(false);
+            traceLog("TELEPORT enable=%d", (int)on);
+        } break;
         case 711: {
-            // value 1..100  -> 1000..10000
             float r = 1000.f + (float)(value - 1) * (9000.f / 99.f);
             if (r < 1000.f) r = 1000.f;
             if (r > 10000.f) r = 10000.f;
             g_tpPadWorldRadius.store(r);
-            traceLog("TP PAD radius=%.0f", r);
+            traceLog("TELEPORT radius=%.0f", r);
         } break;
-        case 712:
-            g_tpPadNormX.store(-1.f);
-            g_tpPadNormY.store(-1.f);
-            traceLog("TP PAD marker reset");
-            break;
+        case 713: /* pad widget handled in Java */ break;
 
         case 200: g_wpnUnlimitedAmmo = boolean; break;
         case 201: g_wpnMultiShot = boolean; break;
