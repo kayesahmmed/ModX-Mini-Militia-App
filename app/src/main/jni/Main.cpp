@@ -732,6 +732,12 @@ static void InvalidateMapBounds();
 // MapManager instance — প্রথম hook call থেকে capture হবে
 static std::atomic<void*> g_mapManagerInstance{nullptr};
 static std::atomic<bool>  g_mapBoundsDetected{false};
+// Map bounds (world coords)
+static std::atomic<float> g_mapMinX{0.f};
+static std::atomic<float> g_mapMaxX{0.f};
+static std::atomic<float> g_mapMinY{0.f};
+static std::atomic<float> g_mapMaxY{0.f};
+static std::atomic<bool>  g_mapBoundsValid{false};
 
 // ==================================================================
 // Teleport discovery state
@@ -1734,6 +1740,12 @@ void StageUpdate_Hook(void* self, float dt) {
     g_lagLastEspUpdateMs = now;
     if (!g_designValid.load()) RefreshDesignSize();
     BuildSnapshots();
+    // Map bounds auto-detect (একবার)
+if (g_tpPadEnabled.load() && !g_mapBoundsValid.load()
+    && g_mapManagerInstance.load() != nullptr
+    && g_localInstance.load() != nullptr) {
+    DetectMapBoundsFromPlayer();
+}
     void* local = g_localInstance.load();
     if (PlausiblePtr(local)) {
         if (!g_bodyDiscoveryDone.load()) {
@@ -2285,10 +2297,67 @@ static void DetectMapBounds() {
              d_E, d_W, d_N, d_S, d_NE, d_NW, d_SW, d_SE, safeR);
 }
 
-static void InvalidateMapBounds() {
-    g_mapBoundsDetected.store(false);
-    traceLog("MAP BOUNDS: invalidated (new map)");
+// ==================================================================
+// Player position থেকে 4 দিকে probe করে map bounds বের করি
+// Player সবসময় map-এর ভেতরে থাকে, তাই এটা reliable
+// ==================================================================
+static void DetectMapBoundsFromPlayer() {
+    if (g_mapBoundsValid.load()) return;
+    void* mgr = g_mapManagerInstance.load();
+    if (!mgr || !old_isBoundryTile) return;
+
+    void* local = g_localInstance.load();
+    if (!PlausiblePtr(local)) return;
+
+    cpVect playerPos;
+    if (!SafeGetPosition(local, playerPos)) return;
+
+    float px = (float)playerPos.x;
+    float py = (float)playerPos.y;
+
+    auto probe = [&](float dirX, float dirY) -> float {
+        for (float d = 100.f; d <= 8000.f; d += 100.f) {
+            cpVect p{ (double)(px + dirX * d), (double)(py + dirY * d) };
+            bool isB = false;
+            if (GUARD_ENTER()) { GUARD_SET(); isB = old_isBoundryTile(mgr, p); GUARD_CLR(); }
+            else GUARD_CLR();
+            if (isB) return d;
+        }
+        return 8000.f;
+    };
+
+    float dE = probe( 1.0f,  0.0f);
+    float dW = probe(-1.0f,  0.0f);
+    float dN = probe( 0.0f,  1.0f);
+    float dS = probe( 0.0f, -1.0f);
+
+    float minX = px - dW * 0.85f;
+    float maxX = px + dE * 0.85f;
+    float minY = py - dS * 0.85f;
+    float maxY = py + dN * 0.85f;
+
+    if (maxX - minX < 500.f || maxY - minY < 500.f) {
+        traceLog("MAP BOUNDS: too small, skip");
+        return;
+    }
+
+    g_mapMinX.store(minX);
+    g_mapMaxX.store(maxX);
+    g_mapMinY.store(minY);
+    g_mapMaxY.store(maxY);
+    g_mapBoundsValid.store(true);
+
+    traceLog("MAP BOUNDS (player %.0f,%.0f): X[%.0f..%.0f] Y[%.0f..%.0f]",
+             px, py, minX, maxX, minY, maxY);
 }
+
+static void InvalidateMapBounds() {
+    g_mapBoundsValid.store(false);
+    g_mapBoundsDetected.store(false);
+    traceLog("MAP BOUNDS: invalidated");
+}
+
+
 extern "C" JNIEXPORT void JNICALL
 Java_com_android_support_Menu_SetTeleportTargetNorm(JNIEnv*, jclass,
         jfloat nx, jfloat ny) {
@@ -2299,16 +2368,30 @@ Java_com_android_support_Menu_SetTeleportTargetNorm(JNIEnv*, jclass,
     if (ny < 0.f) ny = 0.f;
     if (ny > 1.f) ny = 1.f;
 
-    // Auto-detect on first tap (fallback if StageUpdate missed it)
-    if (!g_mapBoundsDetected.load() && g_mapManagerInstance.load()) {
-        DetectMapBounds();
+    // Player থেকে map bounds auto-detect
+    if (!g_mapBoundsValid.load()) {
+        DetectMapBoundsFromPlayer();
     }
 
-    float R = g_tpPadWorldRadius.load();
-    float wx = (nx - 0.5f) * 2.0f * R;
-    float wy = (0.5f - ny) * 2.0f * R;
+    float wx, wy;
 
-    // ★ Final safety: isBoundryTile দিয়ে verify
+    if (g_mapBoundsValid.load()) {
+        float minX = g_mapMinX.load();
+        float maxX = g_mapMaxX.load();
+        float minY = g_mapMinY.load();
+        float maxY = g_mapMaxY.load();
+
+        // Pad NW(0,0) → (minX, maxY); SE(1,1) → (maxX, minY)
+        wx = minX + nx * (maxX - minX);
+        wy = maxY - ny * (maxY - minY);
+    } else {
+        // Fallback: origin-centered
+        float R = g_tpPadWorldRadius.load();
+        wx = (nx - 0.5f) * 2.0f * R;
+        wy = (0.5f - ny) * 2.0f * R;
+    }
+
+    // Final safety check
     void* mgr = g_mapManagerInstance.load();
     if (mgr && old_isBoundryTile) {
         auto isBnd = [&](float tx, float ty) -> bool {
@@ -2319,21 +2402,13 @@ Java_com_android_support_Menu_SetTeleportTargetNorm(JNIEnv*, jclass,
             return r;
         };
         if (isBnd(wx, wy)) {
-            // Walk back toward origin until safe
             bool ok = false;
             for (float t = 0.92f; t >= 0.05f; t -= 0.07f) {
                 float cx = wx * t, cy = wy * t;
                 if (!isBnd(cx, cy)) { wx = cx; wy = cy; ok = true; break; }
             }
             if (!ok) {
-                // Try axis-aligned fallbacks
-                for (float t = 0.5f; t >= 0.05f; t -= 0.05f) {
-                    if (!isBnd(wx * t, 0.f)) { wx *= t; wy = 0.f; ok = true; break; }
-                    if (!isBnd(0.f, wy * t)) { wx = 0.f; wy *= t; ok = true; break; }
-                }
-            }
-            if (!ok) {
-                traceLog("TP rejected entirely (no safe position)");
+                traceLog("TP rejected (boundary)");
                 return;
             }
         }
@@ -2342,7 +2417,7 @@ Java_com_android_support_Menu_SetTeleportTargetNorm(JNIEnv*, jclass,
     g_teleportX.store(wx);
     g_teleportY.store(wy);
     g_teleportActive.store(true);
-    traceLog("TELEPORT tap=(%.2f,%.2f) world=(%.0f,%.0f) R=%.0f", nx, ny, wx, wy, R);
+    traceLog("TELEPORT tap=(%.2f,%.2f) world=(%.0f,%.0f)", nx, ny, wx, wy);
 }
 
 extern "C" JNIEXPORT jboolean JNICALL
