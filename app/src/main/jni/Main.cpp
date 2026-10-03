@@ -730,6 +730,7 @@ static __thread volatile sig_atomic_t tls_bulletRaycast = 0;
 // ==================================================================
 // ★ Forward declaration — ApplyTeleportPosition() এর full definition নিচে আছে
 static bool ApplyTeleportPosition();
+static std::atomic<bool> g_teleportJustFinished{false};
 // ==================================================================
 // Smooth Teleport State
 // Frame-by-frame movement দিয়ে large jump এড়াই, physics stable থাকে
@@ -830,7 +831,9 @@ static void ClearAllState() {
     g_currentAimTarget.store(nullptr);
     InvalidateMapBounds();
     g_smoothTP_Active.store(false);
-g_smoothTP_Frames.store(0);
+    g_smoothTP_Frames.store(0);
+    g_teleportActive.store(false);      // ★ NEW
+    g_teleportJustFinished.store(false); // ★ NEW
 }
 static void RefreshDesignSize() {
     if (!fn_directorShared || !fn_directorGetVisible) return;
@@ -1196,12 +1199,6 @@ void soldierLocalUpdateStep_Hook(void* self, float dt, cpVect a, cpVect b, float
         if (GUARD_ENTER()) { GUARD_SET(); fn_setPowerF(self, 9999.0f); GUARD_CLR(); }
         else GUARD_CLR();
     }
-
-    // ★ সবশেষে teleport position — যাতে game logic আর physics
-    //   এটাকে overwrite করতে না পারে
-    if (g_teleportActive.load() && !g_teleportFollowAim.load()) {
-        ApplyTeleportPosition();
-    }
 }
 
 // ==================================================================
@@ -1454,7 +1451,8 @@ static bool ApplyTeleportPosition() {
         *(double*)(pAddr + 8)  = (double)ty;   // p.y
         *(double*)(pAddr + 16) = 0.0;          // v.x
         *(double*)(pAddr + 24) = 0.0;          // v.y
-        *(double*)(pAddr + 32) = 0.0;          // f.x (force) — physics solver ke clear
+        *(double*)(pAddr + 32) = 0.0;
+        *(double*)(pAddr + 40) = 0.0;          // f.x (force) — physics solver ke clear
         GUARD_CLR();
         return true;
     }
@@ -1470,18 +1468,27 @@ static void UpdateSmoothTeleport() {
     if (!g_smoothTP_Active.load()) return;
 
     void* local = g_localInstance.load();
-    if (!PlausiblePtr(local)) { g_smoothTP_Active.store(false); return; }
-    if (g_localDead.load())   { g_smoothTP_Active.store(false); return; }
+    if (!PlausiblePtr(local) || g_localDead.load()) {
+        g_smoothTP_Active.store(false);
+        g_teleportActive.store(false);
+        g_teleportJustFinished.store(false);
+        return;
+    }
 
     int frames = g_smoothTP_Frames.fetch_add(1);
     if (frames > SMOOTH_TP_MAX_F) {
         g_smoothTP_Active.store(false);
-        traceLog("Smooth TP: timeout");
+        g_teleportJustFinished.store(true);   // ★ final write then deactivate
         return;
     }
 
     cpVect cur;
-    if (!SafeGetPosition(local, cur)) { g_smoothTP_Active.store(false); return; }
+    if (!SafeGetActualPosition(local, cur)) {
+        g_smoothTP_Active.store(false);
+        g_teleportActive.store(false);
+        g_teleportJustFinished.store(false);
+        return;
+    }
     float cx = (float)cur.x;
     float cy = (float)cur.y;
 
@@ -1492,57 +1499,20 @@ static void UpdateSmoothTeleport() {
     float dy = ty - cy;
     float dist = sqrtf(dx*dx + dy*dy);
 
-    // Reached?
     if (dist < SMOOTH_TP_STEP) {
-        // Final step — verify destination is safe
+        // ★ Final position reached
         g_teleportX.store(tx);
         g_teleportY.store(ty);
         g_teleportActive.store(true);
         g_smoothTP_Active.store(false);
-        traceLog("Smooth TP: done at (%.0f,%.0f)", tx, ty);
+        g_teleportJustFinished.store(true);   // deactivate after next Apply
+        traceLog("SmoothTP: done at (%.0f,%.0f)", tx, ty);
         return;
     }
 
-    // One step toward target
     float stepX = cx + (dx / dist) * SMOOTH_TP_STEP;
     float stepY = cy + (dy / dist) * SMOOTH_TP_STEP;
 
-    // Safety: check map boundary + collision at the step
-    void* mgr = g_mapManagerInstance.load();
-    if (mgr && old_isBoundryTile && old_isCollisionTile) {
-        cpVect p{ (double)stepX, (double)stepY };
-
-        bool isB = false, isC = false;
-        if (GUARD_ENTER()) { GUARD_SET(); isB = old_isBoundryTile(mgr, p); GUARD_CLR(); }
-        else GUARD_CLR();
-
-        if (isB) {
-            // Wall hit — stop
-            g_teleportX.store(cx);
-            g_teleportY.store(cy);
-            g_teleportActive.store(true);
-            g_smoothTP_Active.store(false);
-            traceLog("Smooth TP: wall at (%.0f,%.0f), stop at (%.0f,%.0f)",
-                     stepX, stepY, cx, cy);
-            return;
-        }
-
-        if (GUARD_ENTER()) { GUARD_SET(); isC = old_isCollisionTile(mgr, p); GUARD_CLR(); }
-        else GUARD_CLR();
-
-        if (isC) {
-            // Solid obstacle — stop
-            g_teleportX.store(cx);
-            g_teleportY.store(cy);
-            g_teleportActive.store(true);
-            g_smoothTP_Active.store(false);
-            traceLog("Smooth TP: collision at (%.0f,%.0f), stop at (%.0f,%.0f)",
-                     stepX, stepY, cx, cy);
-            return;
-        }
-    }
-
-    // Commit this step
     g_teleportX.store(stepX);
     g_teleportY.store(stepY);
     g_teleportActive.store(true);
@@ -1873,20 +1843,21 @@ void StageUpdate_Hook(void* self, float dt) {
 // ==================================================================
 void physicsUpdate_Hook(void* self, float dt) {
     if (old_physicsUpdate) old_physicsUpdate(self, dt);
-
-    // ★ Physics-এর পরে smooth teleport step + final apply
     if (g_teleportFollowAim.load()) return;
 
     if (g_smoothTP_Active.load()) {
-        UpdateSmoothTeleport();   // একটু একটু করে move
+        UpdateSmoothTeleport();
     }
     if (g_teleportActive.load()) {
-        ApplyTeleportPosition();  // memory write
+        ApplyTeleportPosition();
+    }
+    // ★ Final write হওয়ার পর deactivate → character move করতে পারবে
+    if (g_teleportJustFinished.exchange(false)) {
+        g_teleportActive.store(false);
+        traceLog("TP: deactivated — player free");
     }
 }
-// ==================================================================
-// Soldier manager hooks
-// ==================================================================
+
 void MgrUpdateRemote_Hook(void* self, float dt) {
     if (PlausiblePtr(self) && IsModActive() && fn_getLocalController) {
         void* local = nullptr;
@@ -2400,6 +2371,81 @@ static void InvalidateMapBounds() {
     traceLog("MAP BOUNDS: invalidated (stub)");
 }
 
+// ==================================================================
+// SafeGetActualPosition — hook bypass করে actual body position পড়ে
+// ==================================================================
+static bool SafeGetActualPosition(void* s, cpVect& out) {
+    if (!PlausiblePtr(s) || !old_getBodyPosition_hook) return false;
+    out.x = out.y = 0;
+    if (GUARD_ENTER()) { GUARD_SET(); old_getBodyPosition_hook(&out, s); GUARD_CLR(); }
+    else { GUARD_CLR(); return false; }
+    if (!std::isfinite(out.x) || !std::isfinite(out.y)) return false;
+    if (std::fabs(out.x) < 5.0 && std::fabs(out.y) < 5.0) return false;
+    if (std::fabs(out.x) > 20000.0 || std::fabs(out.y) > 20000.0) return false;
+    return true;
+}
+
+// ==================================================================
+// IsPositionSafe — map boundary + wall check
+// ==================================================================
+static bool IsPositionSafe(void* mgr, float x, float y) {
+    if (!mgr) return true;
+    cpVect p{ (double)x, (double)y };
+
+    if (old_isBoundryTile) {
+        bool isB = false;
+        if (GUARD_ENTER()) { GUARD_SET(); isB = old_isBoundryTile(mgr, p); GUARD_CLR(); }
+        else GUARD_CLR();
+        if (isB) return false;    // Outside map
+    }
+    if (old_isCollisionTile) {
+        bool isC = false;
+        if (GUARD_ENTER()) { GUARD_SET(); isC = old_isCollisionTile(mgr, p); GUARD_CLR(); }
+        else GUARD_CLR();
+        if (isC) return false;    // Inside solid wall
+    }
+    return true;
+}
+
+// ==================================================================
+// FindSafeTarget — Desired unsafe হলে player এর দিকে walk back
+// ==================================================================
+static void FindSafeTarget(void* mgr, float px, float py,
+                            float desiredX, float desiredY,
+                            float& safeX, float& safeY) {
+    if (!mgr) { safeX = desiredX; safeY = desiredY; return; }
+
+    // Target safe? use it
+    if (IsPositionSafe(mgr, desiredX, desiredY)) {
+        safeX = desiredX;
+        safeY = desiredY;
+        return;
+    }
+
+    // Walk from DESIRED back toward PLAYER, find first safe point
+    float dx = px - desiredX;
+    float dy = py - desiredY;
+    float dist = sqrtf(dx*dx + dy*dy);
+    if (dist < 50.f) { safeX = px; safeY = py; return; }
+
+    int steps = (int)(dist / 100.f);
+    if (steps < 1) steps = 1;
+    if (steps > 200) steps = 200;
+
+    for (int i = 1; i <= steps; i++) {
+        float t = (float)i / (float)steps;
+        float cx = desiredX + dx * t;
+        float cy = desiredY + dy * t;
+        if (IsPositionSafe(mgr, cx, cy)) {
+            safeX = cx;
+            safeY = cy;
+            return;
+        }
+    }
+    // Fallback: player position
+    safeX = px;
+    safeY = py;
+}
 
 extern "C" JNIEXPORT void JNICALL
 Java_com_android_support_Menu_SetTeleportTargetNorm(JNIEnv*, jclass,
@@ -2411,32 +2457,53 @@ Java_com_android_support_Menu_SetTeleportTargetNorm(JNIEnv*, jclass,
     if (ny < 0.f) ny = 0.f;
     if (ny > 1.f) ny = 1.f;
 
-    void* local = g_localInstance.load();
-    if (!PlausiblePtr(local)) {
-        traceLog("TP: no player");
-        return;
-    }
-    cpVect pp;
-    if (!SafeGetPosition(local, pp)) {
-        traceLog("TP: no pos");
-        return;
-    }
+    // Cancel any in-progress teleport
+    g_smoothTP_Active.store(false);
+    g_teleportActive.store(false);
+    g_teleportJustFinished.store(false);
 
+    void* local = g_localInstance.load();
+    if (!PlausiblePtr(local)) { traceLog("TP: no player"); return; }
+
+    cpVect pp;
+    if (!SafeGetActualPosition(local, pp)) {
+        traceLog("TP: no actual pos");
+        return;
+    }
     float px = (float)pp.x;
     float py = (float)pp.y;
 
-    // Pad center = player position
-    // Pad size = ±SMOOTH_TP_RANGE (3000) world units
-    float offX = (nx - 0.5f) * 2.0f * SMOOTH_TP_RANGE;
-    float offY = (0.5f - ny) * 2.0f * SMOOTH_TP_RANGE;
+    // ★ Pad center = player, range = ±1500 (chhoto kore dilam)
+    const float RANGE = 1500.f;
+    float offX = (nx - 0.5f) * 2.0f * RANGE;
+    float offY = (0.5f - ny) * 2.0f * RANGE;
 
-    g_smoothTP_TargetX.store(px + offX);
-    g_smoothTP_TargetY.store(py + offY);
+    float desiredX = px + offX;
+    float desiredY = py + offY;
+
+    // ★ Validate + walk back if unsafe
+    float safeX = desiredX, safeY = desiredY;
+    void* mgr = g_mapManagerInstance.load();
+    if (mgr) {
+        FindSafeTarget(mgr, px, py, desiredX, desiredY, safeX, safeY);
+    }
+
+    // Distance check — same position হলে skip
+    float dx = safeX - px, dy = safeY - py;
+    float dist = sqrtf(dx*dx + dy*dy);
+    if (dist < 30.f) {
+        traceLog("TP: too close, skip");
+        return;
+    }
+
+    g_smoothTP_TargetX.store(safeX);
+    g_smoothTP_TargetY.store(safeY);
     g_smoothTP_Frames.store(0);
     g_smoothTP_Active.store(true);
+    g_teleportJustFinished.store(false);
 
-    traceLog("TP start: player=(%.0f,%.0f) target=(%.0f,%.0f)",
-             px, py, px + offX, py + offY);
+    traceLog("TP: player=(%.0f,%.0f) desired=(%.0f,%.0f) safe=(%.0f,%.0f)",
+             px, py, desiredX, desiredY, safeX, safeY);
 }
 
 extern "C" JNIEXPORT jboolean JNICALL
