@@ -202,6 +202,7 @@ private WindowManager tpPadWindowManager = null;
 private WindowManager.LayoutParams tpPadParams = null;
 
 public static Menu instance = null;
+public static native boolean IsSmoothTeleportActive();
 
     // Typography (loaded from assets/fonts if present, otherwise clean system sans)
     private Typeface fontRegular;
@@ -4110,7 +4111,7 @@ private class TeleportPadView extends View {
 
             // World coord above marker
             // Pad-এর size = ±2500 world units
-float R = 2500f;
+float R = 3000f;
             float wx = (markerNX - 0.5f) * 2f * R;
             float wy = (0.5f - markerNY) * 2f * R;
             String s = String.format("%.0f,%.0f", wx, wy);
