@@ -660,6 +660,28 @@ mExpanded.addView(shimmer);
 }
 
         Init(context, title, subTitle);
+
+// ★ Native Init "Waiting for game lib..." সেট করতে পারে → সাথে সাথে override
+title.setText("ModX Lab");
+subTitle.setText("Created by ModX Lab");
+
+// ★ Periodically re-check — Init async হলে তখনও override হবে
+final TextView fSub = subTitle;
+final TextView fTitle = title;
+final Handler subGuard = new Handler();
+subGuard.postDelayed(new Runnable() {
+    @Override
+    public void run() {
+        try {
+            CharSequence s = fSub.getText();
+            if (s != null && s.toString().contains("Waiting")) {
+                fSub.setText("Created by ModX Lab");
+            }
+        } catch (Exception ignored) { }
+        subGuard.postDelayed(this, 1000);
+    }
+}, 1000);
+
 new Titanic().start(title);
 new Titanic().start(proTitle);
     }
@@ -2093,62 +2115,40 @@ if (settingsLay != null) {
     rootFrame.addView(mRootContainer);
     final Handler handler = new Handler();
     handler.postDelayed(new Runnable() {
-        boolean viewLoaded = false;
         @Override
         public void run() {
-            if (Preferences.loadPref && !IsGameLibLoaded() && !stopChecking) {
-                if (!viewLoaded) {
-                    contentLayout.removeAllViews();
-                    TextView waitTxt = new TextView(getContext);
-                    waitTxt.setText("Waiting for game lib...");
-                    waitTxt.setTextColor(COLOR_ACCENT);
-                    waitTxt.setTypeface(fontMedium);
-                    waitTxt.setTextSize(12f);
-                    waitTxt.setGravity(Gravity.CENTER);
-                    waitTxt.setPadding(0, dp(22), 0, dp(14));
-                    AlphaAnimation blink = new AlphaAnimation(1f, 0.3f);
-                    blink.setDuration(850);
-                    blink.setRepeatMode(Animation.REVERSE);
-                    blink.setRepeatCount(Animation.INFINITE);
-                    waitTxt.startAnimation(blink);
-                    contentLayout.addView(waitTxt);
-
-                    Button forceBtn = new Button(getContext);
-                    forceBtn.setBackground(gradBg(BTN_GRAD_1, BTN_GRAD_2, 12));
-                    forceBtn.setTextColor(Color.WHITE);
-                    forceBtn.setTypeface(fontBold);
-                    forceBtn.setTextSize(12f);
-                    forceBtn.setAllCaps(false);
-                    forceBtn.setMinHeight(0);
-                    forceBtn.setMinimumHeight(0);
-                    forceBtn.setPadding(dp(10), dp(11), dp(10), dp(11));
-                    forceBtn.setText("Force load menu");
-                    forceBtn.setLayoutParams(rowLp(8, 4, 8, 4));
-                    flatten(forceBtn);
-                    addPressAnim(forceBtn);
-                    forceBtn.setOnClickListener(new View.OnClickListener() {
-                            public void onClick(View v) {
-                                stopChecking = true;
-                                showLoginScreen();
-                            }
-                        });
-                    contentLayout.addView(forceBtn);
-                    scaleTextViewsIn(contentLayout);
-                    viewLoaded = true;
-                }
-                handler.postDelayed(this, 600);
+            // ★ Game lib-এর জন্য অপেক্ষা না — সরাসরি login বা main menu দেখাই
+            if (!isLoggedIn) {
+                showLoginScreen();
             } else {
-                // Game lib ready → login বা main menu
-                if (!isLoggedIn) {
-                    showLoginScreen();
-                } else {
-                    buildFeaturesAndCategories(GetFeatureList());
-                }
+                buildFeaturesAndCategories(GetFeatureList());
             }
         }
-    }, 500);
+    }, 300);
 }
 
+// ================================================================
+// Recursively hide any TextView containing "Waiting for game lib"
+// (LoginHelper বা অন্য কোথাও থেকে আসতে পারে)
+// ================================================================
+private void hideWaitingTexts(View root) {
+    if (root == null) return;
+    if (root instanceof TextView) {
+        TextView tv = (TextView) root;
+        CharSequence txt = tv.getText();
+        if (txt != null) {
+            String s = txt.toString();
+            if (s.contains("Waiting") || s.contains("Force load")) {
+                tv.setVisibility(View.GONE);
+            }
+        }
+    } else if (root instanceof ViewGroup) {
+        ViewGroup vg = (ViewGroup) root;
+        for (int i = 0; i < vg.getChildCount(); i++) {
+            hideWaitingTexts(vg.getChildAt(i));
+        }
+    }
+}
 private void showLoginScreen() {
     if (isLoggedIn) return;
 
@@ -2250,7 +2250,19 @@ private void showLoginScreen() {
             new FrameLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT));
     contentLayout.addView(dragWrapper,
             new LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT));
-
+// ★ Login screen থেকে "Waiting for game lib" সরাই
+contentLayout.postDelayed(new Runnable() {
+    @Override
+    public void run() {
+        hideWaitingTexts(contentLayout);
+    }
+}, 100);
+contentLayout.postDelayed(new Runnable() {
+    @Override
+    public void run() {
+        hideWaitingTexts(contentLayout);
+    }
+}, 500);
     if (isViewCollapsed()) {
         menuFrame.post(new Runnable() {
             @Override
