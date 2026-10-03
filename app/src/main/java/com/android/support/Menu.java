@@ -2137,9 +2137,14 @@ private void hideWaitingTexts(View root) {
         TextView tv = (TextView) root;
         CharSequence txt = tv.getText();
         if (txt != null) {
-            String s = txt.toString();
-            if (s.contains("Waiting") || s.contains("Force load")) {
+            String s = txt.toString().toLowerCase();
+            if (s.contains("waiting") || s.contains("force load")
+                || s.contains("game lib")) {
                 tv.setVisibility(View.GONE);
+                ViewParent p = tv.getParent();
+                if (p instanceof View) {
+                    ((View) p).setVisibility(View.GONE);
+                }
             }
         }
     } else if (root instanceof ViewGroup) {
@@ -2251,18 +2256,15 @@ private void showLoginScreen() {
     contentLayout.addView(dragWrapper,
             new LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT));
 // ★ Login screen থেকে "Waiting for game lib" সরাই
-contentLayout.postDelayed(new Runnable() {
-    @Override
-    public void run() {
-        hideWaitingTexts(contentLayout);
-    }
-}, 100);
-contentLayout.postDelayed(new Runnable() {
-    @Override
-    public void run() {
-        hideWaitingTexts(contentLayout);
-    }
-}, 500);
+// ★ Multiple passes — LoginHelper যা-ই add করুক, hide হবে
+for (final long delay : new long[]{ 50, 200, 500, 1000, 2000, 4000 }) {
+    contentLayout.postDelayed(new Runnable() {
+        @Override
+        public void run() {
+            hideWaitingTexts(contentLayout);
+        }
+    }, delay);
+}
     if (isViewCollapsed()) {
         menuFrame.post(new Runnable() {
             @Override
@@ -4107,9 +4109,8 @@ private class TeleportPadView extends View {
             canvas.drawCircle(mx, my, dpf(4.5f), whitePaint);
 
             // World coord above marker
-            float R = 5000f;
-            try { R = Menu.GetTeleportRadius(); } catch (Throwable ignored) { }
-            if (R < 1000f || R > 50000f) R = 5000f;
+            // Pad-এর size = ±2500 world units
+float R = 2500f;
             float wx = (markerNX - 0.5f) * 2f * R;
             float wy = (0.5f - markerNY) * 2f * R;
             String s = String.format("%.0f,%.0f", wx, wy);
