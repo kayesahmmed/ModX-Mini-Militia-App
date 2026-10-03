@@ -731,6 +731,7 @@ static __thread volatile sig_atomic_t tls_bulletRaycast = 0;
 // ★ Forward declaration — ApplyTeleportPosition() এর full definition নিচে আছে
 static bool ApplyTeleportPosition();
 static std::atomic<bool> g_teleportJustFinished{false};
+static bool SafeGetActualPosition(void* s, cpVect& out);
 // ==================================================================
 // Smooth Teleport State
 // Frame-by-frame movement দিয়ে large jump এড়াই, physics stable থাকে
