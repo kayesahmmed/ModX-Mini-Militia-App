@@ -738,11 +738,7 @@ static void DetectMapBoundsFromPlayer();  // ADD THIS
 static std::atomic<void*> g_mapManagerInstance{nullptr};
 static std::atomic<bool>  g_mapBoundsDetected{false};
 // Map bounds (world coords)
-static std::atomic<float> g_mapMinX{0.f};
-static std::atomic<float> g_mapMaxX{0.f};
-static std::atomic<float> g_mapMinY{0.f};
-static std::atomic<float> g_mapMaxY{0.f};
-static std::atomic<bool>  g_mapBoundsValid{false};
+
 
 // ==================================================================
 // Teleport discovery state
@@ -1745,12 +1741,6 @@ void StageUpdate_Hook(void* self, float dt) {
     g_lagLastEspUpdateMs = now;
     if (!g_designValid.load()) RefreshDesignSize();
     BuildSnapshots();
-    // Map bounds auto-detect (একবার)
-if (g_tpPadEnabled.load() && !g_mapBoundsValid.load()
-    && g_mapManagerInstance.load() != nullptr
-    && g_localInstance.load() != nullptr) {
-    DetectMapBoundsFromPlayer();
-}
     void* local = g_localInstance.load();
     if (PlausiblePtr(local)) {
         if (!g_bodyDiscoveryDone.load()) {
@@ -2306,62 +2296,78 @@ static void DetectMapBounds() {
 // Player position থেকে 4 দিকে probe করে map bounds বের করি
 // Player সবসময় map-এর ভেতরে থাকে, তাই এটা reliable
 // ==================================================================
-static void DetectMapBoundsFromPlayer() {
-    if (g_mapBoundsValid.load()) return;
-    void* mgr = g_mapManagerInstance.load();
-    if (!mgr || !old_isBoundryTile) return;
 
-    void* local = g_localInstance.load();
-    if (!PlausiblePtr(local)) return;
-
-    cpVect playerPos;
-    if (!SafeGetPosition(local, playerPos)) return;
-
-    float px = (float)playerPos.x;
-    float py = (float)playerPos.y;
-
-    auto probe = [&](float dirX, float dirY) -> float {
-        for (float d = 100.f; d <= 8000.f; d += 100.f) {
-            cpVect p{ (double)(px + dirX * d), (double)(py + dirY * d) };
-            bool isB = false;
-            if (GUARD_ENTER()) { GUARD_SET(); isB = old_isBoundryTile(mgr, p); GUARD_CLR(); }
-            else GUARD_CLR();
-            if (isB) return d;
-        }
-        return 8000.f;
-    };
-
-    float dE = probe( 1.0f,  0.0f);
-    float dW = probe(-1.0f,  0.0f);
-    float dN = probe( 0.0f,  1.0f);
-    float dS = probe( 0.0f, -1.0f);
-
-    float minX = px - dW * 0.85f;
-    float maxX = px + dE * 0.85f;
-    float minY = py - dS * 0.85f;
-    float maxY = py + dN * 0.85f;
-
-    if (maxX - minX < 500.f || maxY - minY < 500.f) {
-        traceLog("MAP BOUNDS: too small, skip");
-        return;
-    }
-
-    g_mapMinX.store(minX);
-    g_mapMaxX.store(maxX);
-    g_mapMinY.store(minY);
-    g_mapMaxY.store(maxY);
-    g_mapBoundsValid.store(true);
-
-    traceLog("MAP BOUNDS (player %.0f,%.0f): X[%.0f..%.0f] Y[%.0f..%.0f]",
-             px, py, minX, maxX, minY, maxY);
-}
 
 static void InvalidateMapBounds() {
-    g_mapBoundsValid.store(false);
     g_mapBoundsDetected.store(false);
-    traceLog("MAP BOUNDS: invalidated");
+    traceLog("MAP BOUNDS: invalidated (stub)");
 }
 
+// ==================================================================
+// Ground detection — নিচে solid collision আছে কিনা
+// Space map-এ platform ছাড়া void-এ গেলে character পড়ে মরে
+// ==================================================================
+static bool HasSolidGroundAt(void* mgr, float x, float y, float maxDepth) {
+    if (!mgr || !old_isCollisionTile) return true; // can't check → assume safe
+    for (float d = 20.f; d <= maxDepth; d += 40.f) {
+        cpVect p{ (double)x, (double)(y - d) };
+        bool isC = false;
+        if (GUARD_ENTER()) { GUARD_SET(); isC = old_isCollisionTile(mgr, p); GUARD_CLR(); }
+        else GUARD_CLR();
+        if (isC) return true;
+    }
+    return false;
+}
+
+// ==================================================================
+// Player থেকে target পর্যন্ত লাইন walk করে safe point বের করা
+// Player সবসময় solid ground-এ থাকে, তাই এটা reliable
+// ==================================================================
+static bool FindSafeTeleportTarget(void* mgr,
+                                    float px, float py,
+                                    float tx, float ty,
+                                    float& outX, float& outY) {
+    if (!mgr || !old_isBoundryTile || !old_isCollisionTile) {
+        outX = tx; outY = ty;
+        return true;
+    }
+
+    float dx = tx - px;
+    float dy = ty - py;
+    float dist = sqrtf(dx*dx + dy*dy);
+    if (dist < 30.f) { outX = tx; outY = ty; return true; }
+
+    // পদক্ষেপ 100 unit, max 100 steps
+    int steps = (int)(dist / 100.f);
+    if (steps < 1) steps = 1;
+    if (steps > 100) steps = 100;
+
+    float lastGoodX = px;
+    float lastGoodY = py;
+
+    for (int i = 1; i <= steps; i++) {
+        float t = (float)i / (float)steps;
+        float cx = px + dx * t;
+        float cy = py + dy * t;
+
+        // Boundary check
+        cpVect p{ (double)cx, (double)cy };
+        bool isB = false;
+        if (GUARD_ENTER()) { GUARD_SET(); isB = old_isBoundryTile(mgr, p); GUARD_CLR(); }
+        else GUARD_CLR();
+        if (isB) break;
+
+        // Ground check — নিচে solid ground থাকতে হবে
+        if (!HasSolidGroundAt(mgr, cx, cy, 600.f)) break;
+
+        lastGoodX = cx;
+        lastGoodY = cy;
+    }
+
+    outX = lastGoodX;
+    outY = lastGoodY;
+    return (lastGoodX != px || lastGoodY != py);
+}
 
 extern "C" JNIEXPORT void JNICALL
 Java_com_android_support_Menu_SetTeleportTargetNorm(JNIEnv*, jclass,
@@ -2373,56 +2379,43 @@ Java_com_android_support_Menu_SetTeleportTargetNorm(JNIEnv*, jclass,
     if (ny < 0.f) ny = 0.f;
     if (ny > 1.f) ny = 1.f;
 
-    // Player থেকে map bounds auto-detect
-    if (!g_mapBoundsValid.load()) {
-        DetectMapBoundsFromPlayer();
+    // Player position must be known
+    void* local = g_localInstance.load();
+    if (!PlausiblePtr(local)) {
+        traceLog("TP: no local player");
+        return;
     }
-
-    float wx, wy;
-
-    if (g_mapBoundsValid.load()) {
-        float minX = g_mapMinX.load();
-        float maxX = g_mapMaxX.load();
-        float minY = g_mapMinY.load();
-        float maxY = g_mapMaxY.load();
-
-        // Pad NW(0,0) → (minX, maxY); SE(1,1) → (maxX, minY)
-        wx = minX + nx * (maxX - minX);
-        wy = maxY - ny * (maxY - minY);
-    } else {
-        // Fallback: origin-centered
-        float R = g_tpPadWorldRadius.load();
-        wx = (nx - 0.5f) * 2.0f * R;
-        wy = (0.5f - ny) * 2.0f * R;
+    cpVect pp;
+    if (!SafeGetPosition(local, pp)) {
+        traceLog("TP: player pos unknown");
+        return;
     }
+    float px = (float)pp.x;
+    float py = (float)pp.y;
 
-    // Final safety check
+    // Pad-এ tap করা position থেকে world offset বের করি
+    // Pad center = player position
+    // Pad-এর size = ±2500 world units (map-এর size যাই হোক, fixed)
+    const float TP_RANGE = 2500.f;
+    float offX = (nx - 0.5f) * 2.0f * TP_RANGE;
+    float offY = (0.5f - ny) * 2.0f * TP_RANGE;
+
+    float desiredX = px + offX;
+    float desiredY = py + offY;
+
+    // Safe position walk back toward player
+    float safeX = desiredX;
+    float safeY = desiredY;
     void* mgr = g_mapManagerInstance.load();
-    if (mgr && old_isBoundryTile) {
-        auto isBnd = [&](float tx, float ty) -> bool {
-            cpVect p{ (double)tx, (double)ty };
-            bool r = false;
-            if (GUARD_ENTER()) { GUARD_SET(); r = old_isBoundryTile(mgr, p); GUARD_CLR(); }
-            else GUARD_CLR();
-            return r;
-        };
-        if (isBnd(wx, wy)) {
-            bool ok = false;
-            for (float t = 0.92f; t >= 0.05f; t -= 0.07f) {
-                float cx = wx * t, cy = wy * t;
-                if (!isBnd(cx, cy)) { wx = cx; wy = cy; ok = true; break; }
-            }
-            if (!ok) {
-                traceLog("TP rejected (boundary)");
-                return;
-            }
-        }
+    if (mgr && old_isBoundryTile && old_isCollisionTile) {
+        FindSafeTeleportTarget(mgr, px, py, desiredX, desiredY, safeX, safeY);
     }
 
-    g_teleportX.store(wx);
-    g_teleportY.store(wy);
+    g_teleportX.store(safeX);
+    g_teleportY.store(safeY);
     g_teleportActive.store(true);
-    traceLog("TELEPORT tap=(%.2f,%.2f) world=(%.0f,%.0f)", nx, ny, wx, wy);
+    traceLog("TP pad=(%.2f,%.2f) player=(%.0f,%.0f) desired=(%.0f,%.0f) safe=(%.0f,%.0f)",
+             nx, ny, px, py, desiredX, desiredY, safeX, safeY);
 }
 
 extern "C" JNIEXPORT jboolean JNICALL
@@ -2770,7 +2763,6 @@ jobjectArray GetFeatureList(JNIEnv* env, jobject) {
 
                 OBFUSCATE("Category_Teleport"),
         OBFUSCATE("710_Toggle_Enable Teleport"),
-        OBFUSCATE("711_SeekBar_Map Half-Size_1000_10000"),
         OBFUSCATE("713_TeleportPadWidget_"),
 
         OBFUSCATE("Category_Weapon"),
@@ -2919,13 +2911,7 @@ void Changes(JNIEnv*, jclass, jobject, jint featNum, jstring, jint value, jlong,
             if (!on) g_teleportActive.store(false);
             traceLog("TELEPORT enable=%d", (int)on);
         } break;
-        case 711: {
-            float r = 1000.f + (float)(value - 1) * (9000.f / 99.f);
-            if (r < 1000.f) r = 1000.f;
-            if (r > 10000.f) r = 10000.f;
-            g_tpPadWorldRadius.store(r);
-            traceLog("TELEPORT radius=%.0f", r);
-        } break;
+        
         case 713: /* pad widget handled in Java */ break;
 
         case 200: g_wpnUnlimitedAmmo = boolean; break;
