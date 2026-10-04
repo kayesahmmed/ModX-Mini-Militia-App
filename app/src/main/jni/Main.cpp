@@ -673,14 +673,6 @@ std::atomic<bool>  g_teleportFollowAim{false};
 // Teleport Pad (4-quadrant on-screen pad)
 // ==================================================================
 std::atomic<bool>  g_tpPadEnabled{false};   // feature toggle
-std::atomic<bool>  g_tpPadVisible{false};   // draw + accept touches
-std::atomic<float> g_tpPadNormX{-1.f};      // [0..1] in pad, -1 = no marker
-std::atomic<float> g_tpPadNormY{-1.f};
-std::atomic<float> g_tpPadWorldRadius{5000.f};  // map half-extent
-std::atomic<int>   g_tpPadScreenW{0};       // cached from Menu_Draw
-std::atomic<int>   g_tpPadScreenH{0};
-std::atomic<bool>  g_tpPadActiveTouch{false};
-
 std::atomic<bool> g_lagAntiLagMode    {false};
 std::atomic<int>  g_lagEspUpdateHz    {60};
 std::atomic<bool> g_lagSkipExtraDraw  {false};
@@ -742,7 +734,7 @@ static std::atomic<bool>  g_smoothTP_Active{false};
 static std::atomic<int>   g_smoothTP_Frames{0};
 static constexpr float    SMOOTH_TP_STEP   = 180.f;   // world units per frame
 static constexpr int      SMOOTH_TP_MAX_F  = 60;      // max 60 frames (~1 sec)
-static constexpr float    SMOOTH_TP_RANGE  = 3000.f;  // ±3000 from player
+
 // Forward declarations for teleport map bounds functions
 static void DetectMapBounds();
 static void InvalidateMapBounds();
@@ -1788,11 +1780,7 @@ void LocalActivate_Hook(void* self) {
 void StageUpdate_Hook(void* self, float dt) {
     if (old_StageUpdate) old_StageUpdate(self, dt);
     if (!IsModActive() && !g_unlimitedFlyPower.load()) return;
-        // ★ Map bounds auto-detect — teleport enable হলে একবার
-    if (g_tpPadEnabled.load() && !g_mapBoundsDetected.load()
-        && g_mapManagerInstance.load() != nullptr) {
-        DetectMapBounds();
-    }
+    
     uint64_t now = NowMs();
     int hz = g_lagEspUpdateHz.load();
     if (g_lagAntiLagMode.load() && hz > 30) hz = 30;
@@ -2203,169 +2191,6 @@ static void DrawPremiumBox(JNIEnv* env, jobject v, jobject c,
     DrawLineColored(env, v, c, 255, cr, cg, cb, cw, x + w, y + h, x + w, y + h - cLen);
 }
 
-// ==================================================================
-// Teleport Pad — geometry + draw
-// ==================================================================
-static void ComputePadRect(int sw, int sh, float& px, float& py, float& pw, float& ph) {
-    float size = (float)std::min(sw, sh) * 0.36f;
-    if (size < 220.f) size = 220.f;
-    if (size > 620.f) size = 620.f;
-    px = 24.f;
-    py = (float)sh - size - 24.f;
-    pw = size;
-    ph = size;
-}
-
-// Map pad norm [0..1]x[0..1]  ->  world coord (relative to origin)
-// pad top-left (0,0)  -> world (-R, +R)
-// pad bot-right(1,1)  -> world (+R, -R)
-static inline void PadNormToWorld(float nx, float ny, float R, float& wx, float& wy) {
-    wx = (nx - 0.5f) * 2.0f * R;
-    wy = (0.5f - ny) * 2.0f * R;
-}
-
-static void DrawTeleportPad(JNIEnv* env, jobject v, jobject c, int sw, int sh) {
-    if (!g_tpPadEnabled.load()) return;
-    if (!g_espClass || !g_espDrawLine || !g_espDrawRect || !g_espDrawText) return;
-
-    float px, py, pw, ph;
-    ComputePadRect(sw, sh, px, py, pw, ph);
-    float cx = px + pw * 0.5f;
-    float cy = py + ph * 0.5f;
-
-    int cr = SKY_R, cg = SKY_G, cb = SKY_B;
-
-    // Outer frame (2px thick, 4 lines)
-    float bThick = 3.0f;
-    DrawLineColored(env, v, c, 220, cr, cg, cb, bThick, px,      py,      px + pw, py);
-    DrawLineColored(env, v, c, 220, cr, cg, cb, bThick, px,      py + ph, px + pw, py + ph);
-    DrawLineColored(env, v, c, 220, cr, cg, cb, bThick, px,      py,      px,      py + ph);
-    DrawLineColored(env, v, c, 220, cr, cg, cb, bThick, px + pw, py,      px + pw, py + ph);
-
-    // Inner crosshair (divides into 4 quadrants)
-    float crThick = 2.0f;
-    DrawLineColored(env, v, c, 180, cr, cg, cb, crThick, px, cy, px + pw, cy);
-    DrawLineColored(env, v, c, 180, cr, cg, cb, crThick, cx, py, cx,      py + ph);
-
-    // Corner ticks
-    float tick = 14.f;
-    DrawLineColored(env, v, c, 255, cr, cg, cb, 4.f, px, py, px + tick, py);
-    DrawLineColored(env, v, c, 255, cr, cg, cb, 4.f, px, py, px, py + tick);
-    DrawLineColored(env, v, c, 255, cr, cg, cb, 4.f, px + pw, py, px + pw - tick, py);
-    DrawLineColored(env, v, c, 255, cr, cg, cb, 4.f, px + pw, py, px + pw, py + tick);
-    DrawLineColored(env, v, c, 255, cr, cg, cb, 4.f, px, py + ph, px + tick, py + ph);
-    DrawLineColored(env, v, c, 255, cr, cg, cb, 4.f, px, py + ph, px, py + ph - tick);
-    DrawLineColored(env, v, c, 255, cr, cg, cb, 4.f, px + pw, py + ph, px + pw - tick, py + ph);
-    DrawLineColored(env, v, c, 255, cr, cg, cb, 4.f, px + pw, py + ph, px + pw, py + ph - tick);
-
-    // Quadrant labels (tiny "NW/NE/SW/SE" markers)
-    const float fsz = 22.f;
-    struct QLabel { const char* t; float tx, ty; };
-    QLabel ql[4] = {
-        { "NW", px + 10.f,                py + 26.f },
-        { "NE", px + pw - 10.f - 30.f,    py + 26.f },
-        { "SW", px + 10.f,                py + ph - 8.f },
-        { "SE", px + pw - 10.f - 30.f,    py + ph - 8.f }
-    };
-    for (auto& q : ql) {
-        jstring jq = env->NewStringUTF(q.t);
-        if (jq) {
-            env->CallVoidMethod(v, g_espDrawText, c, jq, q.tx, q.ty,
-                                170, cr, cg, cb, fsz);
-            env->DeleteLocalRef(jq);
-        }
-    }
-
-    // Marker + world coords
-    float nx = g_tpPadNormX.load();
-    float ny = g_tpPadNormY.load();
-    if (nx >= 0.f && ny >= 0.f && nx <= 1.f && ny <= 1.f) {
-        float mX = px + nx * pw;
-        float mY = py + ny * ph;
-
-        // Outer glow ring
-        DrawRing(env, v, c, mX, mY, 22.f, 90,  cr, cg, cb, 3.f);
-        DrawRing(env, v, c, mX, mY, 14.f, 180, cr, cg, cb, 3.f);
-        DrawRing(env, v, c, mX, mY, 8.f,  255, 255, 255, 255, 2.5f);
-        // Center fill via tiny cross
-        DrawLineColored(env, v, c, 255, 255, 255, 255, 2.f, mX - 5.f, mY, mX + 5.f, mY);
-        DrawLineColored(env, v, c, 255, 255, 255, 255, 2.f, mX, mY - 5.f, mX, mY + 5.f);
-
-        // Show world coords below marker
-        float R = g_tpPadWorldRadius.load();
-        float wx, wy;
-        PadNormToWorld(nx, ny, R, wx, wy);
-        char buf[48];
-        snprintf(buf, sizeof(buf), "%.0f,%.0f", wx, wy);
-        jstring jw = env->NewStringUTF(buf);
-        if (jw) {
-            env->CallVoidMethod(v, g_espDrawText, c, jw, px + 8.f, py + ph + 22.f,
-                                255, 255, 255, 255, 24.f);
-            env->DeleteLocalRef(jw);
-        }
-    }
-}
-
-
-// ==================================================================
-// Teleport Pad (menu widget) — JNI bridge
-// Java sends normalized [0..1] coords; native converts to world
-// ==================================================================
-// ==================================================================
-// Map Auto-Detection — isBoundryTile probe করে safe radius বের করে
-// ==================================================================
-static float ProbeMapBoundary(void* mgr, float dirX, float dirY, float maxDist) {
-    if (!old_isBoundryTile) return maxDist;
-    for (float d = 150.f; d <= maxDist; d += 150.f) {
-        cpVect p{ (double)(dirX * d), (double)(dirY * d) };
-        bool isB = false;
-        if (GUARD_ENTER()) { GUARD_SET(); isB = old_isBoundryTile(mgr, p); GUARD_CLR(); }
-        else GUARD_CLR();
-        if (isB) return (d > 150.f) ? (d - 150.f) : 0.f;
-    }
-    return maxDist;
-}
-
-static void DetectMapBounds() {
-    if (g_mapBoundsDetected.load()) return;
-    void* mgr = g_mapManagerInstance.load();
-    if (!mgr || !old_isBoundryTile) return;
-
-    // 8-way probe
-    float d_E  = ProbeMapBoundary(mgr,  1.0f,   0.0f,  8000.f);
-    float d_W  = ProbeMapBoundary(mgr, -1.0f,   0.0f,  8000.f);
-    float d_N  = ProbeMapBoundary(mgr,  0.0f,   1.0f,  8000.f);
-    float d_S  = ProbeMapBoundary(mgr,  0.0f,  -1.0f,  8000.f);
-    float d_NE = ProbeMapBoundary(mgr,  0.707f, 0.707f, 8000.f);
-    float d_NW = ProbeMapBoundary(mgr, -0.707f, 0.707f, 8000.f);
-    float d_SW = ProbeMapBoundary(mgr, -0.707f,-0.707f, 8000.f);
-    float d_SE = ProbeMapBoundary(mgr,  0.707f,-0.707f, 8000.f);
-
-    float minDist = d_E;
-    if (d_W  < minDist) minDist = d_W;
-    if (d_N  < minDist) minDist = d_N;
-    if (d_S  < minDist) minDist = d_S;
-    if (d_NE < minDist) minDist = d_NE;
-    if (d_NW < minDist) minDist = d_NW;
-    if (d_SW < minDist) minDist = d_SW;
-    if (d_SE < minDist) minDist = d_SE;
-
-    // Use 80% of the tightest direction for safety
-    float safeR = minDist * 0.80f;
-    if (safeR < 800.f)  safeR = 800.f;
-    if (safeR > 6000.f) safeR = 6000.f;
-
-    g_tpPadWorldRadius.store(safeR);
-    g_mapBoundsDetected.store(true);
-    traceLog("MAP BOUNDS: E=%.0f W=%.0f N=%.0f S=%.0f NE=%.0f NW=%.0f SW=%.0f SE=%.0f -> safeR=%.0f",
-             d_E, d_W, d_N, d_S, d_NE, d_NW, d_SW, d_SE, safeR);
-}
-
-// ==================================================================
-// Player position থেকে 4 দিকে probe করে map bounds বের করি
-// Player সবসময় map-এর ভেতরে থাকে, তাই এটা reliable
-// ==================================================================
-
 
 static void InvalidateMapBounds() {
     g_mapBoundsDetected.store(false);
@@ -2458,7 +2283,6 @@ Java_com_android_support_Menu_SetTeleportTargetNorm(JNIEnv*, jclass,
     if (ny < 0.f) ny = 0.f;
     if (ny > 1.f) ny = 1.f;
 
-    // Cancel any in-progress teleport
     g_smoothTP_Active.store(false);
     g_teleportActive.store(false);
     g_teleportJustFinished.store(false);
@@ -2474,26 +2298,25 @@ Java_com_android_support_Menu_SetTeleportTargetNorm(JNIEnv*, jclass,
     float px = (float)pp.x;
     float py = (float)pp.y;
 
-    // ★ Pad center = player, range = ±1500 (chhoto kore dilam)
-    const float RANGE = 1500.f;
-    float offX = (nx - 0.5f) * 2.0f * RANGE;
-    float offY = (0.5f - ny) * 2.0f * RANGE;
+    // ★ Rectangular safe range — map-এর এক চতুর্থাংশ
+    const float RANGE_X = 600.f;
+    const float RANGE_Y = 400.f;
+    float offX = (nx - 0.5f) * 2.0f * RANGE_X;
+    float offY = (0.5f - ny) * 2.0f * RANGE_Y;
 
     float desiredX = px + offX;
     float desiredY = py + offY;
 
-    // ★ Validate + walk back if unsafe
+    // Validate + walk back if unsafe
     float safeX = desiredX, safeY = desiredY;
     void* mgr = g_mapManagerInstance.load();
     if (mgr) {
         FindSafeTarget(mgr, px, py, desiredX, desiredY, safeX, safeY);
     }
 
-    // Distance check — same position হলে skip
     float dx = safeX - px, dy = safeY - py;
-    float dist = sqrtf(dx*dx + dy*dy);
-    if (dist < 30.f) {
-        traceLog("TP: too close, skip");
+    if (dx*dx + dy*dy < 900.f) {
+        traceLog("TP: too close");
         return;
     }
 
@@ -2503,8 +2326,7 @@ Java_com_android_support_Menu_SetTeleportTargetNorm(JNIEnv*, jclass,
     g_smoothTP_Active.store(true);
     g_teleportJustFinished.store(false);
 
-    traceLog("TP: player=(%.0f,%.0f) desired=(%.0f,%.0f) safe=(%.0f,%.0f)",
-             px, py, desiredX, desiredY, safeX, safeY);
+    traceLog("TP: player=(%.0f,%.0f) safe=(%.0f,%.0f)", px, py, safeX, safeY);
 }
 
 extern "C" JNIEXPORT jboolean JNICALL
@@ -2517,80 +2339,8 @@ Java_com_android_support_Menu_GetTeleportEnabled(JNIEnv*, jclass) {
     return g_tpPadEnabled.load() ? JNI_TRUE : JNI_FALSE;
 }
 
-extern "C" JNIEXPORT jfloat JNICALL
-Java_com_android_support_Menu_GetTeleportRadius(JNIEnv*, jclass) {
-    return g_tpPadWorldRadius.load();
-}
 
-// ==================================================================
-// Teleport Pad — JNI touch handler
-// Java calls this from ESP view's onTouchEvent.
-// Returns true if the touch was consumed by the pad.
-// action: 0=DOWN, 1=MOVE, 2=UP, 3=CANCEL
-// ==================================================================
-extern "C" JNIEXPORT jboolean JNICALL
-Java_com_android_support_Menu_TeleportPadTouch(JNIEnv*, jclass,
-        jint x, jint y, jint action) {
-    if (!g_tpPadEnabled.load()) return JNI_FALSE;
 
-    int sw = g_tpPadScreenW.load();
-    int sh = g_tpPadScreenH.load();
-    if (sw <= 0 || sh <= 0) return JNI_FALSE;
-
-    float px, py, pw, ph;
-    ComputePadRect(sw, sh, px, py, pw, ph);
-
-    float fx = (float)x, fy = (float)y;
-    bool inside = (fx >= px && fx <= px + pw && fy >= py && fy <= py + ph);
-
-    if (action == 0) { // DOWN
-        if (!inside) { g_tpPadActiveTouch.store(false); return JNI_FALSE; }
-        g_tpPadActiveTouch.store(true);
-    } else if (action == 3) { // CANCEL
-        g_tpPadActiveTouch.store(false);
-        return JNI_FALSE;
-    } else if (action == 2) { // UP
-        bool was = g_tpPadActiveTouch.load();
-        g_tpPadActiveTouch.store(false);
-        // fallthrough to compute final pos
-        if (!inside && !was) return JNI_FALSE;
-    } else { // MOVE
-        if (!g_tpPadActiveTouch.load() && !inside) return JNI_FALSE;
-    }
-
-    if (action == 1 && !g_tpPadActiveTouch.load() && !inside) return JNI_FALSE;
-
-    // Clamp to pad
-    float cx = fx;
-    float cy = fy;
-    if (cx < px) cx = px;
-    if (cx > px + pw) cx = px + pw;
-    if (cy < py) cy = py;
-    if (cy > py + ph) cy = py + ph;
-
-    float nx = (cx - px) / pw;
-    float ny = (cy - py) / ph;
-
-    g_tpPadNormX.store(nx);
-    g_tpPadNormY.store(ny);
-
-    float R = g_tpPadWorldRadius.load();
-    float wx, wy;
-    PadNormToWorld(nx, ny, R, wx, wy);
-
-    g_teleportX.store(wx);
-    g_teleportY.store(wy);
-    g_teleportActive.store(true);
-
-    traceLog("TP PAD tap norm=(%.2f,%.2f) world=(%.0f,%.0f) a=%d",
-             nx, ny, wx, wy, (int)action);
-
-    return JNI_TRUE;
-}
-
-// ==================================================================
-// Menu Draw
-// ==================================================================
 extern "C" JNIEXPORT void JNICALL
 Java_com_android_support_Menu_Draw(JNIEnv* env, jclass, jobject espView, jobject canvas) {
     if (!espView || !canvas) return;
@@ -2610,9 +2360,7 @@ Java_com_android_support_Menu_Draw(JNIEnv* env, jclass, jobject espView, jobject
     env->DeleteLocalRef(canvasCls);
     if (sw <= 0 || sh <= 0) return;
 
-    // Cache for touch handler
-    g_tpPadScreenW.store(sw);
-    g_tpPadScreenH.store(sh);
+  
 
     if (!g_designValid.load()) RefreshDesignSize();
     float designW = g_designW.load(), designH = g_designH.load();
