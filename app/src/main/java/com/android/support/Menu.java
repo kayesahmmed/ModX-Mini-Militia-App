@@ -4111,7 +4111,7 @@ private class TeleportPadView extends View {
 
             // World coord above marker
             // Pad-এর size = ±2500 world units
-float R = 1500f;
+float R = 800f;
             float wx = (markerNX - 0.5f) * 2f * R;
             float wy = (0.5f - markerNY) * 2f * R;
             String s = String.format("%.0f,%.0f", wx, wy);
