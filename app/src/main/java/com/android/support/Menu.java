@@ -4146,7 +4146,7 @@ private static final int PAD_H_DP = 100;    // ★ 23% ছোট
     try { Menu.SetTeleportTargetNorm(nx, ny); }
     catch (Throwable ignored) { }
 }
-
+}
 private void TeleportPad(LinearLayout linLayout) {
     // Helper text
     TextView hint = new TextView(getContext);
@@ -4308,5 +4308,6 @@ framePaint.setColor(0xCC3DDB87);
 
     try { Menu.SetTeleportTargetNorm(nx, ny); }
     catch (Throwable ignored) { }
+}
 }
 }
