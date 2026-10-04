@@ -661,6 +661,7 @@ mExpanded.addView(shimmer);
 
     tpWm.addView(tpPadView, tpPadParams);
     tpPadWindowManager = tpWm;
+    tpPadView.setVisibility(View.GONE);
 } catch (Exception e) {
     Log.e(TAG, "TPPad add failed: " + e);
 }
@@ -2398,6 +2399,14 @@ private void setWindowFocusable(boolean focusable) {
         Log.e(TAG, "setWindowFocusable: " + e);
     }
 }
+    
+    
+public void setTeleportPadVisible(boolean visible) {
+    if (tpPadView == null) return;
+    tpPadView.setVisibility(visible ? View.VISIBLE : View.GONE);
+    // (optional) hide করলে marker reset
+    if (!visible) tpPadView.invalidate();
+}
     public void onDestroy() {
     stopGlowAnimator();
     if (rootFrame != null && mWindowManager != null) {
@@ -2745,6 +2754,9 @@ boolean initial = loadFeatureBool(featName, featNum,
         Preferences.loadPrefBool(featName, featNum, swiOn));
 toggle.setChecked(initial, false);
         rowBg.setStroke(dp(1), initial ? withAlpha(ToggleON, 0x99) : COLOR_CARD_BORDER);
+        if (featNum == 710) {
+    setTeleportPadVisible(initial);
+}
 
         toggle.setListener(new ToggleView.Listener() {
         @Override
@@ -2761,6 +2773,9 @@ toggle.setChecked(initial, false);
         break;
     case -3:
         Preferences.isExpanded = bool;
+        break;
+    case 710:                                  // ★ NEW
+        setTeleportPadVisible(bool);
         break;
 }
         }
@@ -3920,8 +3935,8 @@ private static float getHueFromColor(int color) {
 // Floating Teleport Pad — rectangular, draggable, safe center
 // ==================================================================
 private static class TeleportPadTouchView extends View {
-    private static final int PAD_W_DP = 220;
-    private static final int PAD_H_DP = 130;
+    private static final int PAD_W_DP = 165;    // ★ 25% ছোট
+private static final int PAD_H_DP = 100;    // ★ 23% ছোট
     private static final int DRAG_BAR_DP = 14;
 
     private final Paint bgPaint       = new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -3952,7 +3967,7 @@ private static class TeleportPadTouchView extends View {
         slop = ViewConfiguration.get(ctx).getScaledTouchSlop();
 
         bgPaint.setStyle(Paint.Style.FILL);
-        bgPaint.setColor(0xE6121A1E);           // dark semi-transparent
+        bgPaint.setColor(0x88121A1E);           // dark semi-transparent
 
         framePaint.setStyle(Paint.Style.STROKE);
         framePaint.setStrokeWidth(dp(2));
@@ -4108,25 +4123,28 @@ private static class TeleportPadTouchView extends View {
     }
 
     private void handlePadTouch(float x, float y) {
-        float l = contentLeft(),  t = contentTop();
-        float r = contentRight(), b = contentBottom();
-        if (r <= l || b <= t) return;
+    float l = contentLeft(),  t = contentTop();
+    float r = contentRight(), b = contentBottom();
+    if (r <= l || b <= t) return;
 
-        if (x < l) x = l;
-        if (x > r) x = r;
-        if (y < t) y = t;
-        if (y > b) y = b;
+    if (x < l) x = l; if (x > r) x = r;
+    if (y < t) y = t; if (y > b) y = b;
 
-        float nx = (x - l) / (r - l);
-        float ny = (y - t) / (b - t);
+    float nx = (x - l) / (r - l);
+    float ny = (y - t) / (b - t);
 
-        markerNX = nx;
-        markerNY = ny;
-        invalidate();
+    // ★ NEW: visual marker-ও safe range-এ clamp করি
+    final float MARGIN = 0.18f;
+    if (nx < MARGIN)          nx = MARGIN;
+    if (nx > 1.0f - MARGIN)   nx = 1.0f - MARGIN;
+    if (ny < MARGIN)          ny = MARGIN;
+    if (ny > 1.0f - MARGIN)   ny = 1.0f - MARGIN;
 
-        try { Menu.SetTeleportTargetNorm(nx, ny); }
-        catch (Throwable ignored) { }
-    }
+    markerNX = nx; markerNY = ny;
+    invalidate();
+
+    try { Menu.SetTeleportTargetNorm(nx, ny); }
+    catch (Throwable ignored) { }
 }
 
 private void TeleportPad(LinearLayout linLayout) {
@@ -4166,19 +4184,19 @@ private class TeleportPadView extends View {
         bgPaint.setColor(0xE6121A1E);
 
         framePaint.setStyle(Paint.Style.STROKE);
-        framePaint.setStrokeWidth(dp(2));
-        framePaint.setColor(COLOR_ACCENT);
+        framePaint.setStrokeWidth(dp(1.5f));         // ★ 2dp → 1.5dp
+framePaint.setColor(0xCC3DDB87);
 
         crossPaint.setStyle(Paint.Style.STROKE);
         crossPaint.setStrokeWidth(dpf(1f));
-        crossPaint.setColor(withAlpha(COLOR_ACCENT, 0x80));
+        crossPaint.setColor(0x603DDB87);
 
         markerPaint.setStyle(Paint.Style.FILL);
         markerPaint.setColor(COLOR_ACCENT);
 
         glowPaint.setStyle(Paint.Style.STROKE);
         glowPaint.setStrokeWidth(dp(2));
-        glowPaint.setColor(withAlpha(COLOR_ACCENT, 0x66));
+        glowPaint.setColor(0x553DDB87);
 
         whitePaint.setStyle(Paint.Style.FILL);
         whitePaint.setColor(0xFFFFFFFF);
@@ -4269,21 +4287,26 @@ private class TeleportPadView extends View {
     }
 
     private void handleTouch(float x, float y, float pad,
-                             float innerW, float innerH) {
-        if (x < pad) x = pad;
-        if (x > pad + innerW) x = pad + innerW;
-        if (y < pad) y = pad;
-        if (y > pad + innerH) y = pad + innerH;
+                         float innerW, float innerH) {
+    if (x < pad) x = pad;
+    if (x > pad + innerW) x = pad + innerW;
+    if (y < pad) y = pad;
+    if (y > pad + innerH) y = pad + innerH;
 
-        float nx = (x - pad) / innerW;
-        float ny = (y - pad) / innerH;
+    float nx = (x - pad) / innerW;
+    float ny = (y - pad) / innerH;
 
-        markerNX = nx;
-        markerNY = ny;
-        invalidate();
+    // ★ NEW: same safe clamp
+    final float MARGIN = 0.18f;
+    if (nx < MARGIN)          nx = MARGIN;
+    if (nx > 1.0f - MARGIN)   nx = 1.0f - MARGIN;
+    if (ny < MARGIN)          ny = MARGIN;
+    if (ny > 1.0f - MARGIN)   ny = 1.0f - MARGIN;
 
-        try { Menu.SetTeleportTargetNorm(nx, ny); }
-        catch (Throwable ignored) { }
-    }
+    markerNX = nx; markerNY = ny;
+    invalidate();
+
+    try { Menu.SetTeleportTargetNorm(nx, ny); }
+    catch (Throwable ignored) { }
 }
 }
