@@ -2282,6 +2282,17 @@ Java_com_android_support_Menu_SetTeleportTargetNorm(JNIEnv*, jclass,
     if (nx > 1.f) nx = 1.f;
     if (ny < 0.f) ny = 0.f;
     if (ny > 1.f) ny = 1.f;
+    
+    const float MARGIN = 0.18f;                       // 18% padding
+    const float nxMin  = MARGIN;
+    const float nxMax  = 1.0f - MARGIN;               // 0.82
+    const float nyMin  = MARGIN;
+    const float nyMax  = 1.0f - MARGIN;
+
+    if (nx < nxMin) nx = nxMin;
+    if (nx > nxMax) nx = nxMax;
+    if (ny < nyMin) ny = nyMin;
+    if (ny > nyMax) ny = nyMax;
 
     g_smoothTP_Active.store(false);
     g_teleportActive.store(false);
