@@ -1018,15 +1018,19 @@ static void BuildSnapshots() {
 // Wall hooks
 // ==================================================================
 bool isCollisionTile_Hook(void* self, cpVect pos) {
-if (g_mapManagerInstance.load() == nullptr) g_mapManagerInstance.store(self);
+    if (g_mapManagerInstance.load() == nullptr) g_mapManagerInstance.store(self);
     if (g_flyThroughWalls.load()) return false;
     if (g_bulletThroughWalls.load() && tls_bulletRaycast) return false;
+    // ★ NEW
+    if (g_ignoreBoundaryDeath.load() || g_tpPadEnabled.load()) return false;
     return old_isCollisionTile ? old_isCollisionTile(self, pos) : false;
 }
 bool mapCollision_Hook(void* self, cpVect pos) {
-if (g_mapManagerInstance.load() == nullptr) g_mapManagerInstance.store(self);
+    if (g_mapManagerInstance.load() == nullptr) g_mapManagerInstance.store(self);
     if (g_flyThroughWalls.load()) return false;
     if (g_bulletThroughWalls.load() && tls_bulletRaycast) return false;
+    // ★ NEW: boundary ignore active হলে map collision-ও ignore
+    if (g_ignoreBoundaryDeath.load() || g_tpPadEnabled.load()) return false;
     return old_mapCollision ? old_mapCollision(self, pos) : false;
 }
 bool isBoundryTile_Hook(void* self, cpVect pos) {
@@ -1689,6 +1693,22 @@ void setPlayerHealth_Hook(void* self, float health) {
     viewHPStore(self, hp);
 }
 void setHP_Hook(void* self, int hp) {
+    // ★ NEW: local player-এর HP 0 বা negative হতে দেব না
+    //   যখন ignoreBoundaryDeath অথবা Teleport ON
+    if ((g_ignoreBoundaryDeath.load() || g_tpPadEnabled.load())
+        && PlausiblePtr(self)
+        && self == g_localInstance.load()
+        && hp <= 0)
+    {
+        static std::atomic<uint64_t> s_lastLog{0};
+        uint64_t nowMs = NowMs();
+        uint64_t prev = s_lastLog.load();
+        if (nowMs - prev > 500 && s_lastLog.compare_exchange_strong(prev, nowMs)) {
+            traceLog("setHP: BLOCKED HP=%d for local (boundary ignore)", hp);
+        }
+        hp = 1;   // ★ HP=1 এ restore করি
+    }
+
     if (old_setHP) old_setHP(self, hp);
     if (!IsModActive() || !PlausiblePtr(self) || hp < -100 || hp > 100000) return;
     std::lock_guard<std::mutex> lock(g_soldierMutex);
@@ -1699,6 +1719,16 @@ void setHP_Hook(void* self, int hp) {
     if (hp > e.observedMaxHP) e.observedMaxHP = hp;
 }
 void setAlive_Hook(void* self, bool alive) {
+    // ★ NEW: local player-কে dead হতে দেব না
+    if (!alive 
+        && (g_ignoreBoundaryDeath.load() || g_tpPadEnabled.load())
+        && PlausiblePtr(self)
+        && self == g_localInstance.load())
+    {
+        traceLog("setAlive: BLOCKED dead for local");
+        alive = true;   // ★ reverse
+    }
+
     if (old_setAlive) old_setAlive(self, alive);
     if (!IsModActive() || !PlausiblePtr(self)) return;
     std::lock_guard<std::mutex> lock(g_soldierMutex);
@@ -1721,6 +1751,14 @@ void addDamage_Hook(void* self, float damage, void* strPtr, int ammoType, bool f
     e.lastKnownHP = est; e.lastDamageMs = NowMs();
 }
 void LocalAddDamage_Hook(void* self, float damage, void* strPtr, int ammoType, bool flag) {
+    // ★ NEW: boundary ignore active হলে local-এর উপর damage skip
+    if ((g_ignoreBoundaryDeath.load() || g_tpPadEnabled.load())
+        && PlausiblePtr(self)
+        && self == g_localInstance.load())
+    {
+        // damage pass করব না
+        return;
+    }
     if (old_localAddDamage) old_localAddDamage(self, damage, strPtr, ammoType, flag);
     if (!IsModActive() || !PlausiblePtr(self)) return;
     int dmgInt = (int)damage; if (dmgInt <= 0) return;
@@ -2049,6 +2087,17 @@ static void InstallHooksIfNeeded() {
         SAFE_HOOK(Off::WormDrone_updateStep,     WormUpdate_Hook,        old_wormUpdateStep,    g_droneHooksOk);
         crashLog("HOOK", "Drone hooks OK");
     }
+    // ESP diagnostic
+{
+    void* d = fn_directorShared ? fn_directorShared() : nullptr;
+    if (d) {
+        MSSize vs = fn_directorGetVisible(d);
+        crashLog("ESP", "Director valid: visibleSize=%.1fx%.1f, designValid=%d",
+                 vs.w, vs.h, (int)g_designValid.load());
+    } else {
+        crashLog("ESP", "Director NOT AVAILABLE — fallback 1280x720");
+    }
+}
 }
 
 // ==================================================================
@@ -2379,9 +2428,11 @@ Java_com_android_support_Menu_Draw(JNIEnv* env, jclass, jobject espView, jobject
   
 
     if (!g_designValid.load()) RefreshDesignSize();
-    float designW = g_designW.load(), designH = g_designH.load();
-    if (!std::isfinite(designW) || designW < 10.f) designW = 1280.f;
-    if (!std::isfinite(designH) || designH < 10.f) designH = 720.f;
+float designW = g_designW.load(), designH = g_designH.load();
+
+// ★ Fallback: যদি design না থাকে, তাহলে canvas aspect ratio মানি
+if (!std::isfinite(designW) || designW < 10.f) designW = (float)sw;
+if (!std::isfinite(designH) || designH < 10.f) designH = (float)sh;
     float scaleX = (float)sw / designW, scaleY = (float)sh / designH;
     float uniformScale = (scaleX < scaleY) ? scaleX : scaleY;
     float offX = ((float)sw - designW * uniformScale) * 0.5f;
