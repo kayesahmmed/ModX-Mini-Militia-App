@@ -671,10 +671,11 @@ std::atomic<bool>  g_teleportActive{false};
 std::atomic<float> g_teleportX{0.f};
 std::atomic<float> g_teleportY{0.f};
 std::atomic<bool>  g_teleportFollowAim{false};
+static std::atomic<float> g_lastSafeX{0.f};
+static std::atomic<float> g_lastSafeY{0.f};
+static std::atomic<bool>  g_lastSafeValid{false};
 
-// ==================================================================
-// Teleport Pad (4-quadrant on-screen pad)
-// ==================================================================
+
 std::atomic<bool>  g_tpPadEnabled{false};   // feature toggle
 std::atomic<bool> g_lagAntiLagMode    {false};
 std::atomic<int>  g_lagEspUpdateHz    {60};
@@ -698,6 +699,7 @@ std::atomic<float> g_aimAngle{0.f};
 std::atomic<void*> g_currentAimTarget{nullptr};
 std::atomic<int>   g_localTeam{-1};
 std::atomic<void*> g_localInstance{nullptr};
+std::atomic<void*> g_lastLocalInstance{nullptr};
 std::atomic<bool>  g_localSeen{false};
 std::atomic<bool>  g_localDead{false};
 std::atomic<uint64_t> g_localInstanceSetMs{0};
@@ -719,18 +721,11 @@ std::atomic<bool> g_wallHooksOk{false};
 std::atomic<bool> g_teleportHooksOk{false};
 
 static __thread volatile sig_atomic_t tls_bulletRaycast = 0;
-// ★ Forward declaration — ApplyTeleportPosition() এর full definition নিচে আছে
-// ==================================================================
-// Teleport discovery state
-// ==================================================================
-// ★ Forward declaration — ApplyTeleportPosition() এর full definition নিচে আছে
+
 static bool ApplyTeleportPosition();
 static std::atomic<bool> g_teleportJustFinished{false};
 static bool SafeGetActualPosition(void* s, cpVect& out);
-// ==================================================================
-// Smooth Teleport State
-// Frame-by-frame movement দিয়ে large jump এড়াই, physics stable থাকে
-// ==================================================================
+
 static std::atomic<float> g_smoothTP_TargetX{0.f};
 static std::atomic<float> g_smoothTP_TargetY{0.f};
 static std::atomic<bool>  g_smoothTP_Active{false};
@@ -748,18 +743,14 @@ static std::atomic<bool>  g_mapBoundsDetected{false};
 // Map bounds (world coords)
 
 
-// ==================================================================
-// Teleport discovery state
-// ==================================================================
+
 static std::atomic<uintptr_t> g_bodyOffsetFromSelf{(uintptr_t)-1};
 static std::atomic<int>       g_posOffsetInBody{-1};
 static std::atomic<bool>      g_bodyDiscoveryDone{false};
 static std::atomic<bool>      g_discoveryInProgress{false};
 static std::atomic<int>       g_gbpCallLogs{0};
 
-// ==================================================================
-// Small helpers
-// ==================================================================
+
 static inline bool PlausiblePtr(const void* p) {
     uintptr_t v = (uintptr_t)p;
     return v >= 0x10000UL && v < 0xFFFFF000UL;
@@ -1012,10 +1003,6 @@ static void BuildSnapshots() {
     }
     { std::lock_guard<std::mutex> lock(g_soldierMutex); g_soldierSnapshots.swap(newSnaps); }
 }
-
-// ==================================================================
-// Wall hooks
-// ==================================================================
 bool isCollisionTile_Hook(void* self, cpVect pos) {
     if (g_mapManagerInstance.load() == nullptr) g_mapManagerInstance.store(self);
     if (g_flyThroughWalls.load()) return false;
@@ -1398,17 +1385,7 @@ static void TryDiscoverBodyPointer(void* self) {
     }
 }
 
-// ==================================================================
-// getBodyPosition hooks — v116 CRASH FIX
-// ==================================================================
 
-// ==================================================================
-// Teleport Apply — প্রতি frame physics step-এর পরে call হবে
-// ==================================================================
-// ==================================================================
-// Teleport Apply — প্রতি frame physics-এর পরে call হয়
-// Smooth mode: প্রতি frame একটু একটু করে move করি, physics stable থাকে
-// ==================================================================
 static bool ApplyTeleportPosition() {
     if (!g_teleportActive.load())       return false;
     if (!g_bodyDiscoveryDone.load())    return false;
@@ -1689,10 +1666,13 @@ void setPlayerHealth_Hook(void* self, float health) {
     viewHPStore(self, hp);
 }
 void setHP_Hook(void* self, int hp) {
-    // ★ boundary ignore active হলে local-এর HP 0 বা negative হতে দেব না
+    // ★ FIX: g_localInstance null হলেও g_lastLocalInstance দিয়ে check
+    void* local = g_localInstance.load();
+    if (!PlausiblePtr(local)) local = g_lastLocalInstance.load();   // ★ fallback
+
     if ((g_ignoreBoundaryDeath.load() || g_tpPadEnabled.load())
         && PlausiblePtr(self)
-        && self == g_localInstance.load()
+        && self == local
         && hp <= 0)
     {
         static std::atomic<uint64_t> s_lastLog{0};
@@ -1701,7 +1681,7 @@ void setHP_Hook(void* self, int hp) {
         if (nowMs - prev > 500 && s_lastLog.compare_exchange_strong(prev, nowMs)) {
             traceLog("setHP: BLOCKED HP=%d for local", hp);
         }
-        hp = 1;   // ★ HP=1 এ restore
+        hp = 1;
     }
 
     if (old_setHP) old_setHP(self, hp);
@@ -1714,11 +1694,13 @@ void setHP_Hook(void* self, int hp) {
     if (hp > e.observedMaxHP) e.observedMaxHP = hp;
 }
 void setAlive_Hook(void* self, bool alive) {
-    // ★ boundary ignore active হলে local-কে dead হতে দেব না
+    void* local = g_localInstance.load();
+    if (!PlausiblePtr(local)) local = g_lastLocalInstance.load();   // ★ fallback
+
     if (!alive
         && (g_ignoreBoundaryDeath.load() || g_tpPadEnabled.load())
         && PlausiblePtr(self)
-        && self == g_localInstance.load())
+        && self == local)
     {
         traceLog("setAlive: BLOCKED dead for local");
         alive = true;
@@ -1801,6 +1783,7 @@ void WormUpdate_Hook(void* self, float dt)     { if (old_wormUpdateStep) old_wor
 
 void LocalActivate_Hook(void* self) {
     if (PlausiblePtr(self)) {
+        g_lastLocalInstance.store(self);              // ★ NEW: সবসময় backup করি
         void* prev = g_localInstance.load();
         if (prev != self || g_localDead.load()) {
             ClearAllState();
@@ -1808,7 +1791,7 @@ void LocalActivate_Hook(void* self) {
             g_localInstanceSetMs.store(NowMs());
             g_localSeen.store(false); g_localDead.store(false);
             g_bodyDiscoveryDone.store(false);
-            InvalidateMapBounds();
+            // InvalidateMapBounds();                    ★ মুছে দিন — spam বন্ধ হবে
             g_bodyOffsetFromSelf.store((uintptr_t)-1);
             g_posOffsetInBody.store(-1);
         }
@@ -1816,10 +1799,6 @@ void LocalActivate_Hook(void* self) {
     }
     if (old_LocalActivate) old_LocalActivate(self);
 }
-
-// ==================================================================
-// Stage tick
-// ==================================================================
 void StageUpdate_Hook(void* self, float dt) {
     if (old_StageUpdate) old_StageUpdate(self, dt);
     if (!IsModActive() && !g_unlimitedFlyPower.load()) return;
@@ -1868,11 +1847,7 @@ void StageUpdate_Hook(void* self, float dt) {
     }
 }
 
-// ==================================================================
-// PhysicsManager::updateStep hook — physics step শেষে position force
-// এটাই teleport-এর মূল চাবিকাঠি। physics integration হওয়ার পরেই
-// আমরা position reset করি, তাই পরের frame physics আর সরাতে পারবে না।
-// ==================================================================
+
 void physicsUpdate_Hook(void* self, float dt) {
     if (old_physicsUpdate) old_physicsUpdate(self, dt);
     if (g_teleportFollowAim.load()) return;
@@ -1883,13 +1858,59 @@ void physicsUpdate_Hook(void* self, float dt) {
     if (g_teleportActive.load()) {
         ApplyTeleportPosition();
     }
-    // ★ Final write হওয়ার পর deactivate → character move করতে পারবে
     if (g_teleportJustFinished.exchange(false)) {
         g_teleportActive.store(false);
         traceLog("TP: deactivated — player free");
     }
-}
 
+    // ★★★ NEW: Boundary Guard — সবসময় safe position এ আটকে রাখে ★★★
+    if ((g_ignoreBoundaryDeath.load() || g_tpPadEnabled.load())
+        && g_bodyDiscoveryDone.load()
+        && !g_teleportActive.load()
+        && !g_smoothTP_Active.load())
+    {
+        void* local = g_localInstance.load();
+        if (!PlausiblePtr(local)) local = g_lastLocalInstance.load();
+
+        if (PlausiblePtr(local) && !g_localDead.load()) {
+            cpVect cur;
+            if (SafeGetActualPosition(local, cur)) {
+                void* mgr = g_mapManagerInstance.load();
+                bool isOut = false;
+
+                if (PlausiblePtr(mgr) && old_isBoundryTile) {
+                    if (GUARD_ENTER()) {
+                        GUARD_SET();
+                        isOut = old_isBoundryTile(mgr, cur);
+                        GUARD_CLR();
+                    } else GUARD_CLR();
+                }
+
+                if (!isOut) {
+                    // ভেতরে আছি → safe anchor update করি
+                    g_lastSafeX.store((float)cur.x);
+                    g_lastSafeY.store((float)cur.y);
+                    g_lastSafeValid.store(true);
+                } else if (g_lastSafeValid.load()) {
+                    // বাইরে চলে গেছি → force rescue
+                    float sx = g_lastSafeX.load();
+                    float sy = g_lastSafeY.load();
+                    g_teleportX.store(sx);
+                    g_teleportY.store(sy);
+                    g_teleportActive.store(true);
+
+                    static std::atomic<uint64_t> s_lastLog{0};
+                    uint64_t nowMs = NowMs();
+                    uint64_t prev = s_lastLog.load();
+                    if (nowMs - prev > 300 && s_lastLog.compare_exchange_strong(prev, nowMs)) {
+                        traceLog("BOUNDARY GUARD: rescued (%.0f,%.0f) → (%.0f,%.0f)",
+                                 (float)cur.x, (float)cur.y, sx, sy);
+                    }
+                }
+            }
+        }
+    }
+}
 void MgrUpdateRemote_Hook(void* self, float dt) {
     if (PlausiblePtr(self) && IsModActive() && fn_getLocalController) {
         void* local = nullptr;
