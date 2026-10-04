@@ -439,6 +439,7 @@ typedef int   (*getRespawnTime_t)(void*);
 typedef int   (*isRespawning_t)(void*);
 typedef void  (*addStaticShape_t)(void*, int, int);
 typedef void  (*addStaticPoly_t)(void*, void*);
+typedef bool  (*isBoundryTile_t)(void*, cpVect);
 
 MgrUpdateRemote_t      old_MgrUpdateRemote      = nullptr;
 MgrUpdateStep_t        old_MgrUpdateStep        = nullptr;
@@ -505,6 +506,7 @@ getBodyPosition_t           old_getBodyPosition_hook      = nullptr;
 getBodyPosition_t           old_collGetBody               = nullptr;
 addStaticShape_t            old_addStaticBodyShape        = nullptr;
 addStaticPoly_t             old_addStaticBodyPoly         = nullptr;
+isBoundryTile_t             old_isBoundryTile_Hook        = nullptr;
 
 getLocalController_t   fn_getLocalController = nullptr;
 getBodyPosition_t      fn_getBodyPosition    = nullptr;
@@ -663,6 +665,7 @@ std::atomic<bool> g_anyGunAsLaser     {false};
 std::atomic<bool> g_flyThroughWalls   {false};
 std::atomic<bool> g_bulletThroughWalls{false};
 std::atomic<bool> g_respawnTimeMod    {false};
+std::atomic<bool> g_ignoreBoundaryDeath{false};
 
 std::atomic<bool>  g_teleportActive{false};
 std::atomic<float> g_teleportX{0.f};
@@ -1027,8 +1030,10 @@ if (g_mapManagerInstance.load() == nullptr) g_mapManagerInstance.store(self);
     return old_mapCollision ? old_mapCollision(self, pos) : false;
 }
 bool isBoundryTile_Hook(void* self, cpVect pos) {
-if (g_mapManagerInstance.load() == nullptr) g_mapManagerInstance.store(self);
+    if (g_mapManagerInstance.load() == nullptr) g_mapManagerInstance.store(self);
     if (g_flyThroughWalls.load()) return false;
+    if (g_ignoreBoundaryDeath.load()) return false;
+
     return old_isBoundryTile ? old_isBoundryTile(self, pos) : false;
 }
 void addStaticBodyShape_Hook(void* self, int a, int b) {
@@ -2520,6 +2525,7 @@ enum {
     M_ENM_DIE_GUNS_ONLY1, M_ENM_DIE_GUNS_ONLY2, M_ENM_DIE_GUNS_ONLY3,
     M_ENM_HIDE_PROXY, M_ENM_ENDLESS_PROXY, M_ENM_ATTACH_PROXY,
     M_ENM_INFINITE_PROXY_THROW, M_ENM_ENDLESS_SAW, M_ENM_SAW_DAMAGE_REMOVE,
+    M_PLR_IGNORE_BOUNDARY,
     M_MOD_COUNT
 };
 static void RegisterAllMods() {
@@ -2556,6 +2562,9 @@ static void RegisterAllMods() {
     RegisterMod(OBFUSCATE("Enemy_InfiniteProxyThrow"),Off::ProxyMine_reset,          OBFUSCATE("00 00 A0 E1"));
     RegisterMod(OBFUSCATE("Enemy_EndlessSaw"),        Off::SAW_updateItemStep,       OBFUSCATE("00 00 A0 E1"));
     RegisterMod(OBFUSCATE("Enemy_SawDamageRemove"),   Off::SAW_checkMapCollision,    OBFUSCATE("00 00 A0 E3 1E FF 2F E1"));
+        RegisterMod(OBFUSCATE("Enemy_SawDamageRemove"),   Off::SAW_checkMapCollision,    OBFUSCATE("00 00 A0 E3 1E FF 2F E1"));
+    
+    RegisterMod(OBFUSCATE("Player_IgnoreBoundaryDeath"), Off::MapManager_isBoundryTile, OBFUSCATE("00 00 A0 E3 1E FF 2F E1"));
 }
 static int ModIdxForFeature(int feat) {
     if (feat >= 400 && feat <= 436) {
@@ -2646,6 +2655,7 @@ jobjectArray GetFeatureList(JNIEnv* env, jobject) {
 
         OBFUSCATE("Category_Player"),
         OBFUSCATE("510_Toggle_Respawn Time Mod (Instant)"),
+        OBFUSCATE("512_Toggle_Ignore Boundary Death"),
 
         OBFUSCATE("Category_Weapon Extras"),
         OBFUSCATE("221_Toggle_Enable Custom Zoom"),
@@ -2791,6 +2801,9 @@ void Changes(JNIEnv*, jclass, jobject, jint featNum, jstring, jint value, jlong,
         case 410: g_bulletThroughWalls = boolean; break;
 
         case 510: g_respawnTimeMod = boolean; break;
+        case 512: g_ignoreBoundaryDeath = boolean; 
+          traceLog("BOUNDARY ignore=%d", (int)boolean); 
+          break;
 
         case 221: g_wpnZoomSelect = boolean; break;
         case 224: { if (value < 1) value = 1; if (value > 11) value = 11; g_wpnZoomLevel = value; } break;
