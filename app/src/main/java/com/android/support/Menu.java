@@ -4310,5 +4310,3 @@ framePaint.setColor(0xCC3DDB87);
     catch (Throwable ignored) { }
 }
 }
-}
-}
