@@ -241,8 +241,7 @@ private int effectivePosY = POS_Y;
     public static native void Draw(ESPView espView, Canvas canvas);
     public static native void SetTeleportTargetNorm(float nx, float ny);
 public static native boolean GetTeleportEnabled();
-public static native float GetTeleportRadius();
-    public static native boolean TeleportPadTouch(int x, int y, int action);
+
 
     public Menu(Context context) {
     instance = this;
@@ -651,8 +650,14 @@ mExpanded.addView(shimmer);
         | WindowManager.LayoutParams.FLAG_TRANSLUCENT_STATUS,
         PixelFormat.TRANSPARENT);
     tpPadParams.gravity = Gravity.TOP | Gravity.START;
-    tpPadParams.x = 24;
-    tpPadParams.y = 0;   // onLayout এ recalculate হবে
+
+    // Default position: bottom-right
+    int sw = screenW();
+    int sh = screenH();
+    int padW = (int)(220 * getContext.getResources().getDisplayMetrics().density);
+    int padH = (int)(130 * getContext.getResources().getDisplayMetrics().density);
+    tpPadParams.x = sw - padW - dp(20);
+    tpPadParams.y = sh - padH - dp(140);
 
     tpWm.addView(tpPadView, tpPadParams);
     tpPadWindowManager = tpWm;
@@ -3911,146 +3916,288 @@ private static float getHueFromColor(int color) {
 // এর TeleportPadTouch() এ forward করে। Pad-এর বাইরের কোনো touch
 // consume করে না (FLAG_NOT_TOUCH_MODAL)।
 // ==================================================================
+// ==================================================================
+// Floating Teleport Pad — rectangular, draggable, safe center
+// ==================================================================
 private static class TeleportPadTouchView extends View {
+    private static final int PAD_W_DP = 220;
+    private static final int PAD_H_DP = 130;
+    private static final int DRAG_BAR_DP = 14;
+
+    private final Paint bgPaint       = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint framePaint    = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint crossPaint    = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint markerPaint   = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint glowPaint     = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint whitePaint    = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint labelPaint    = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint handlePaint   = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint coordPaint    = new Paint(Paint.ANTI_ALIAS_FLAG);
+
+    private final float density;
+    private final int slop;
+
+    private float markerNX = -1f;
+    private float markerNY = -1f;
+
+    private boolean dragging;
+    private float dragStartX, dragStartY;
+    private int winStartX, winStartY;
+
+    private boolean padTouched;
 
     TeleportPadTouchView(Context ctx) {
         super(ctx);
-        setBackgroundColor(0x00000000);
+        density = ctx.getResources().getDisplayMetrics().density;
+        slop = ViewConfiguration.get(ctx).getScaledTouchSlop();
+
+        bgPaint.setStyle(Paint.Style.FILL);
+        bgPaint.setColor(0xE6121A1E);           // dark semi-transparent
+
+        framePaint.setStyle(Paint.Style.STROKE);
+        framePaint.setStrokeWidth(dp(2));
+        framePaint.setColor(0xFF3DDB87);
+
+        crossPaint.setStyle(Paint.Style.STROKE);
+        crossPaint.setStrokeWidth(dpf(1f));
+        crossPaint.setColor(0x803DDB87);
+
+        markerPaint.setStyle(Paint.Style.FILL);
+        markerPaint.setColor(0xFF3DDB87);
+
+        glowPaint.setStyle(Paint.Style.STROKE);
+        glowPaint.setStrokeWidth(dpf(2f));
+        glowPaint.setColor(0x663DDB87);
+
+        whitePaint.setStyle(Paint.Style.FILL);
+        whitePaint.setColor(0xFFFFFFFF);
+
+        labelPaint.setColor(0x998D8F99);
+        labelPaint.setTextSize(dp(9));
+        labelPaint.setAntiAlias(true);
+        labelPaint.setFakeBoldText(true);
+
+        coordPaint.setColor(0xFFFFFFFF);
+        coordPaint.setTextSize(dp(10));
+        coordPaint.setTextAlign(Paint.Align.CENTER);
+        coordPaint.setAntiAlias(true);
+        coordPaint.setFakeBoldText(true);
+
+        handlePaint.setStyle(Paint.Style.FILL);
+        handlePaint.setColor(0x703DDB87);
+
+        setClickable(true);
+        setFocusable(false);
     }
+
+    private float dp(float v)  { return v * density; }
+    private float dpf(float v) { return v * density; }
 
     @Override
     protected void onMeasure(int wSpec, int hSpec) {
-        int sw = getResources().getDisplayMetrics().widthPixels;
-        int sh = getResources().getDisplayMetrics().heightPixels;
-
-        // Must match native ComputePadRect():
-        //   size = min(sw,sh) * 0.36, clamp 220..620
-        //   x=24, y=sh-size-24
-        float size = Math.min(sw, sh) * 0.36f;
-        if (size < 220f) size = 220f;
-        if (size > 620f) size = 620f;
-
-        setMeasuredDimension((int) size, (int) size);
+        setMeasuredDimension((int)dp(PAD_W_DP), (int)dp(PAD_H_DP));
     }
+
+    // Content area (excludes drag bar at top)
+    private float contentTop()    { return dp(DRAG_BAR_DP + 6); }
+    private float contentBottom() { return getHeight() - dp(6); }
+    private float contentLeft()   { return dp(6); }
+    private float contentRight()  { return getWidth() - dp(6); }
 
     @Override
-    protected void onLayout(boolean changed, int l, int t, int r, int b) {
-        super.onLayout(changed, l, t, r, b);
+    protected void onDraw(Canvas canvas) {
+        super.onDraw(canvas);
+        int w = getWidth();
+        int h = getHeight();
+        if (w <= 0 || h <= 0) return;
 
-        // Reposition overlay to bottom-left to match native drawing
-        if (Menu.instance != null
-                && Menu.instance.tpPadWindowManager != null
-                && Menu.instance.tpPadParams != null) {
-            int sw = getResources().getDisplayMetrics().widthPixels;
-            int sh = getResources().getDisplayMetrics().heightPixels;
-            float size = Math.min(sw, sh) * 0.36f;
-            if (size < 220f) size = 220f;
-            if (size > 620f) size = 620f;
+        // Rounded background
+        RectF bg = new RectF(0, 0, w, h);
+        canvas.drawRoundRect(bg, dp(10), dp(10), bgPaint);
 
-            int newY = (int) (sh - size - 24);
-            if (Menu.instance.tpPadParams.y != newY) {
-                Menu.instance.tpPadParams.y = newY;
-                try {
-                    Menu.instance.tpPadWindowManager
-                        .updateViewLayout(this, Menu.instance.tpPadParams);
-                } catch (Exception ignored) { }
-            }
-        }
-    }
+        // Drag bar at top (visual only)
+        RectF handle = new RectF(dp(50), dp(3), w - dp(50), dp(8));
+        canvas.drawRoundRect(handle, dp(3), dp(3), handlePaint);
 
-    private int actionFrom(MotionEvent e) {
-        switch (e.getActionMasked()) {
-            case MotionEvent.ACTION_DOWN:   return 0;
-            case MotionEvent.ACTION_MOVE:   return 1;
-            case MotionEvent.ACTION_UP:     return 2;
-            case MotionEvent.ACTION_CANCEL: return 3;
-            default: return -1;
+        // Content area
+        float l = contentLeft(),  t = contentTop();
+        float r = contentRight(), b = contentBottom();
+        RectF content = new RectF(l, t, r, b);
+
+        // Frame
+        canvas.drawRoundRect(content, dp(6), dp(6), framePaint);
+
+        // Crosshair
+        float cx = (l + r) / 2f;
+        float cy = (t + b) / 2f;
+        canvas.drawLine(l, cy, r, cy, crossPaint);
+        canvas.drawLine(cx, t, cx, b, crossPaint);
+
+        // Tiny corner labels
+        canvas.drawText("NW", l + dp(4), t + dp(11), labelPaint);
+        canvas.drawText("NE", r - dp(4) - labelPaint.measureText("NE"),
+                        t + dp(11), labelPaint);
+        canvas.drawText("SW", l + dp(4), b - dp(3), labelPaint);
+        canvas.drawText("SE", r - dp(4) - labelPaint.measureText("SE"),
+                        b - dp(3), labelPaint);
+
+        // Marker
+        if (markerNX >= 0f && markerNY >= 0f) {
+            float mx = l + markerNX * (r - l);
+            float my = t + markerNY * (b - t);
+
+            canvas.drawCircle(mx, my, dp(15), glowPaint);
+            canvas.drawCircle(mx, my, dp(9), markerPaint);
+            canvas.drawCircle(mx, my, dp(3.5f), whitePaint);
         }
     }
 
     @Override
     public boolean onTouchEvent(MotionEvent e) {
-        int a = actionFrom(e);
-        if (a < 0) return false;
-        try {
-            return Menu.TeleportPadTouch((int) e.getX(), (int) e.getY(), a);
-        } catch (Throwable t) {
-            return false;
+        float x = e.getX();
+        float y = e.getY();
+
+        boolean onDragBar = (y < dp(DRAG_BAR_DP));
+
+        switch (e.getActionMasked()) {
+            case MotionEvent.ACTION_DOWN:
+                if (onDragBar) {
+                    dragging = true;
+                    padTouched = false;
+                    dragStartX = e.getRawX();
+                    dragStartY = e.getRawY();
+                    if (Menu.instance != null && Menu.instance.tpPadParams != null) {
+                        winStartX = Menu.instance.tpPadParams.x;
+                        winStartY = Menu.instance.tpPadParams.y;
+                    }
+                } else {
+                    dragging = false;
+                    padTouched = true;
+                    handlePadTouch(x, y);
+                }
+                if (getParent() != null) getParent().requestDisallowInterceptTouchEvent(true);
+                return true;
+
+            case MotionEvent.ACTION_MOVE:
+                if (dragging) {
+                    int dx = (int)(e.getRawX() - dragStartX);
+                    int dy = (int)(e.getRawY() - dragStartY);
+                    if (Menu.instance != null
+                            && Menu.instance.tpPadWindowManager != null
+                            && Menu.instance.tpPadParams != null) {
+                        Menu.instance.tpPadParams.x = winStartX + dx;
+                        Menu.instance.tpPadParams.y = winStartY + dy;
+                        try {
+                            Menu.instance.tpPadWindowManager
+                                .updateViewLayout(this, Menu.instance.tpPadParams);
+                        } catch (Exception ignored) { }
+                    }
+                } else if (padTouched) {
+                    handlePadTouch(x, y);
+                }
+                return true;
+
+            case MotionEvent.ACTION_UP:
+            case MotionEvent.ACTION_CANCEL:
+                dragging = false;
+                padTouched = false;
+                if (getParent() != null) getParent().requestDisallowInterceptTouchEvent(false);
+                return true;
         }
+        return super.onTouchEvent(e);
+    }
+
+    private void handlePadTouch(float x, float y) {
+        float l = contentLeft(),  t = contentTop();
+        float r = contentRight(), b = contentBottom();
+        if (r <= l || b <= t) return;
+
+        if (x < l) x = l;
+        if (x > r) x = r;
+        if (y < t) y = t;
+        if (y > b) y = b;
+
+        float nx = (x - l) / (r - l);
+        float ny = (y - t) / (b - t);
+
+        markerNX = nx;
+        markerNY = ny;
+        invalidate();
+
+        try { Menu.SetTeleportTargetNorm(nx, ny); }
+        catch (Throwable ignored) { }
     }
 }
-// ==================================================================
-// Teleport Pad Widget — 4-quadrant mini-map, tap to teleport
-// ==================================================================
+
 private void TeleportPad(LinearLayout linLayout) {
+    // Helper text
+    TextView hint = new TextView(getContext);
+    hint.setText("Tap inside → teleport to safe spot\nDrag top bar to move floating pad");
+    hint.setTextColor(COLOR_TEXT_MUTED);
+    hint.setTextSize(10f);
+    hint.setTypeface(fontRegular);
+    hint.setPadding(dp(8), dp(2), dp(8), dp(6));
+    linLayout.addView(hint);
+
+    // Menu version
     TeleportPadView pad = new TeleportPadView(getContext);
     LinearLayout.LayoutParams lp =
             new LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT);
-    lp.setMargins(dp(6), dp(6), dp(6), dp(6));
+    lp.setMargins(dp(6), dp(4), dp(6), dp(6));
     pad.setLayoutParams(lp);
     linLayout.addView(pad);
 }
 
 private class TeleportPadView extends View {
+    private final Paint bgPaint      = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint framePaint   = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint crossPaint   = new Paint(Paint.ANTI_ALIAS_FLAG);
-    private final Paint thickPaint   = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint markerPaint  = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint glowPaint    = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint whitePaint   = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint labelPaint   = new Paint(Paint.ANTI_ALIAS_FLAG);
-    private final Paint coordPaint   = new Paint(Paint.ANTI_ALIAS_FLAG);
-    private final RectF rect         = new RectF();
 
-    private float markerNX = -1f;   // 0..1, -1 = no marker
+    private float markerNX = -1f;
     private float markerNY = -1f;
 
     TeleportPadView(Context ctx) {
         super(ctx);
+        bgPaint.setStyle(Paint.Style.FILL);
+        bgPaint.setColor(0xE6121A1E);
 
         framePaint.setStyle(Paint.Style.STROKE);
         framePaint.setStrokeWidth(dp(2));
         framePaint.setColor(COLOR_ACCENT);
 
         crossPaint.setStyle(Paint.Style.STROKE);
-        crossPaint.setStrokeWidth(dpf(1.5f));
-        crossPaint.setColor(withAlpha(COLOR_ACCENT, 0xB0));
-
-        thickPaint.setStyle(Paint.Style.STROKE);
-        thickPaint.setStrokeWidth(dp(3));
-        thickPaint.setColor(COLOR_ACCENT);
+        crossPaint.setStrokeWidth(dpf(1f));
+        crossPaint.setColor(withAlpha(COLOR_ACCENT, 0x80));
 
         markerPaint.setStyle(Paint.Style.FILL);
         markerPaint.setColor(COLOR_ACCENT);
 
         glowPaint.setStyle(Paint.Style.STROKE);
-        glowPaint.setStrokeWidth(dp(3));
+        glowPaint.setStrokeWidth(dp(2));
         glowPaint.setColor(withAlpha(COLOR_ACCENT, 0x66));
 
         whitePaint.setStyle(Paint.Style.FILL);
         whitePaint.setColor(0xFFFFFFFF);
 
         labelPaint.setColor(COLOR_TEXT_MUTED);
-        labelPaint.setTextSize(dp(11));
-        labelPaint.setTypeface(fontMedium);
+        labelPaint.setTextSize(dp(9));
+        labelPaint.setAntiAlias(true);
+        labelPaint.setFakeBoldText(true);
 
-        coordPaint.setColor(0xFFFFFFFF);
-        coordPaint.setTextSize(dp(11));
-        coordPaint.setTextAlign(Paint.Align.CENTER);
-        coordPaint.setTypeface(fontBold);
-
-        setBackgroundColor(0x0A000000);
         setClickable(true);
     }
 
     @Override
     protected void onMeasure(int wSpec, int hSpec) {
         int w = MeasureSpec.getSize(wSpec);
-        if (w <= 0) w = dp(240);
-        int maxH = dp(280);
-        int size = Math.min(w, maxH);
-        if (size < dp(180)) size = dp(180);
-        setMeasuredDimension(w, size);
+        if (w <= 0) w = dp(220);
+        int h = (int)(w * 0.55f);      // rectangular
+        if (h > dp(130)) h = dp(130);
+        setMeasuredDimension(w, h);
     }
 
     @Override
@@ -4060,62 +4207,30 @@ private class TeleportPadView extends View {
         int h = getHeight();
         if (w <= 0 || h <= 0) return;
 
-        float pad = dp(3);
-        rect.set(pad, pad, w - pad, h - pad);
+        float pad = dp(4);
+        RectF rect = new RectF(pad, pad, w - pad, h - pad);
 
-        // Outer frame
-        canvas.drawRect(rect, framePaint);
+        canvas.drawRoundRect(new RectF(0, 0, w, h), dp(8), dp(8), bgPaint);
+        canvas.drawRoundRect(rect, dp(6), dp(6), framePaint);
 
-        // Crosshair (divides into 4 quadrants)
         float cx = w / 2f;
         float cy = h / 2f;
         canvas.drawLine(rect.left, cy, rect.right, cy, crossPaint);
         canvas.drawLine(cx, rect.top, cx, rect.bottom, crossPaint);
 
-        // Corner ticks
-        float tick = dp(12);
-        canvas.drawLine(rect.left,  rect.top,    rect.left + tick, rect.top,    thickPaint);
-        canvas.drawLine(rect.left,  rect.top,    rect.left, rect.top + tick,    thickPaint);
-        canvas.drawLine(rect.right, rect.top,    rect.right - tick, rect.top,   thickPaint);
-        canvas.drawLine(rect.right, rect.top,    rect.right, rect.top + tick,   thickPaint);
-        canvas.drawLine(rect.left,  rect.bottom, rect.left + tick, rect.bottom, thickPaint);
-        canvas.drawLine(rect.left,  rect.bottom, rect.left, rect.bottom - tick, thickPaint);
-        canvas.drawLine(rect.right, rect.bottom, rect.right - tick, rect.bottom,thickPaint);
-        canvas.drawLine(rect.right, rect.bottom, rect.right, rect.bottom - tick,thickPaint);
+        canvas.drawText("NW", rect.left + dp(4), rect.top + dp(11), labelPaint);
+        canvas.drawText("NE", rect.right - dp(4) - labelPaint.measureText("NE"),
+                        rect.top + dp(11), labelPaint);
+        canvas.drawText("SW", rect.left + dp(4), rect.bottom - dp(3), labelPaint);
+        canvas.drawText("SE", rect.right - dp(4) - labelPaint.measureText("SE"),
+                        rect.bottom - dp(3), labelPaint);
 
-        // Quadrant labels
-        float lp = dp(8);
-        canvas.drawText("NW", rect.left + lp, rect.top + dp(20), labelPaint);
-        canvas.drawText("NE", rect.right - lp - labelPaint.measureText("NE"),
-                        rect.top + dp(20), labelPaint);
-        canvas.drawText("SW", rect.left + lp, rect.bottom - dp(8), labelPaint);
-        canvas.drawText("SE", rect.right - lp - labelPaint.measureText("SE"),
-                        rect.bottom - dp(8), labelPaint);
-
-        // Center "0,0" hint
-        Paint centerHint = new Paint(Paint.ANTI_ALIAS_FLAG);
-        centerHint.setColor(withAlpha(COLOR_ACCENT, 0x80));
-        centerHint.setTextSize(dp(10));
-        centerHint.setTextAlign(Paint.Align.CENTER);
-        canvas.drawText("0,0", cx, cy - dp(5), centerHint);
-
-        // Marker circle
         if (markerNX >= 0f && markerNY >= 0f) {
             float mx = rect.left + markerNX * rect.width();
             float my = rect.top  + markerNY * rect.height();
-
-            // Glow
-            canvas.drawCircle(mx, my, dp(18), glowPaint);
-            canvas.drawCircle(mx, my, dp(11), markerPaint);
-            canvas.drawCircle(mx, my, dpf(4.5f), whitePaint);
-
-            // World coord above marker
-            // Pad-এর size = ±2500 world units
-float R = 800f;
-            float wx = (markerNX - 0.5f) * 2f * R;
-            float wy = (0.5f - markerNY) * 2f * R;
-            String s = String.format("%.0f,%.0f", wx, wy);
-            canvas.drawText(s, mx, my - dp(22), coordPaint);
+            canvas.drawCircle(mx, my, dp(14), glowPaint);
+            canvas.drawCircle(mx, my, dp(8), markerPaint);
+            canvas.drawCircle(mx, my, dp(3), whitePaint);
         }
     }
 
@@ -4130,23 +4245,20 @@ float R = 800f;
         catch (Throwable ignored) { }
         if (!enabled) return false;
 
-        float pad = dp(3);
+        float pad = dp(4);
         float innerW = w - 2f * pad;
         float innerH = h - 2f * pad;
         if (innerW <= 0f || innerH <= 0f) return false;
 
         switch (e.getActionMasked()) {
             case MotionEvent.ACTION_DOWN:
-                // prevent ScrollView from stealing the gesture
                 if (getParent() != null)
                     getParent().requestDisallowInterceptTouchEvent(true);
                 handleTouch(e.getX(), e.getY(), pad, innerW, innerH);
                 return true;
-
             case MotionEvent.ACTION_MOVE:
                 handleTouch(e.getX(), e.getY(), pad, innerW, innerH);
                 return true;
-
             case MotionEvent.ACTION_UP:
             case MotionEvent.ACTION_CANCEL:
                 if (getParent() != null)
@@ -4156,9 +4268,8 @@ float R = 800f;
         return super.onTouchEvent(e);
     }
 
-    private void handleTouch(float x, float y,
-                             float pad, float innerW, float innerH) {
-        // clamp inside pad
+    private void handleTouch(float x, float y, float pad,
+                             float innerW, float innerH) {
         if (x < pad) x = pad;
         if (x > pad + innerW) x = pad + innerW;
         if (y < pad) y = pad;
@@ -4171,9 +4282,8 @@ float R = 800f;
         markerNY = ny;
         invalidate();
 
-        try {
-            Menu.SetTeleportTargetNorm(nx, ny);
-        } catch (Throwable ignored) { }
+        try { Menu.SetTeleportTargetNorm(nx, ny); }
+        catch (Throwable ignored) { }
     }
 }
 }
