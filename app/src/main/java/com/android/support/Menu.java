@@ -4184,7 +4184,7 @@ private class TeleportPadView extends View {
         bgPaint.setColor(0xE6121A1E);
 
         framePaint.setStyle(Paint.Style.STROKE);
-        framePaint.setStrokeWidth(dp(1.5f));         // ★ 2dp → 1.5dp
+        framePaint.setStrokeWidth(dpf(1.5f));         // ★ 2dp → 1.5dp
 framePaint.setColor(0xCC3DDB87);
 
         crossPaint.setStyle(Paint.Style.STROKE);
