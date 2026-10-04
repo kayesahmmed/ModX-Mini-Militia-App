@@ -1735,16 +1735,19 @@ void setAlive_Hook(void* self, bool alive) {
         e.hasPrevPos = false; e.velX = 0.f; e.velY = 0.f;
     } else { e.isDead = true; e.lastKnownHP = 0; }
 }
-void LocalAddDamage_Hook(void* self, float damage, void* strPtr, int ammoType, bool flag) {
-    // ★ NEW: boundary ignore active হলে local-এর উপর damage skip
-    if ((g_ignoreBoundaryDeath.load() || g_tpPadEnabled.load())
-        && PlausiblePtr(self)
-        && self == g_localInstance.load())
-    {
-        return;   // damage pass করব না
-    }
-    if (old_localAddDamage) old_localAddDamage(self, damage, strPtr, ammoType, flag);
-    ...
+// ★ PUNORUDDHAR: SoldierController::addDamage hook (для enemy/peer soldiers)
+void addDamage_Hook(void* self, float damage, void* strPtr, int ammoType, bool flag) {
+    if (old_addDamage) old_addDamage(self, damage, strPtr, ammoType, flag);
+    if (!IsModActive() || !PlausiblePtr(self)) return;
+    int dmgInt = (int)damage;
+    if (dmgInt <= 0) return;
+    std::lock_guard<std::mutex> lock(g_soldierMutex);
+    SoldierEntry& e = EnsureEntryLocked(self);
+    int cached = e.lastKnownHP < 0 ? 100 : e.lastKnownHP;
+    int est = cached - dmgInt;
+    if (est < 0) est = 0;
+    e.lastKnownHP = est;
+    e.lastDamageMs = NowMs();
 }
 void LocalAddDamage_Hook(void* self, float damage, void* strPtr, int ammoType, bool flag) {
     // ★ NEW: boundary ignore active হলে local-এর উপর damage skip
@@ -1752,17 +1755,19 @@ void LocalAddDamage_Hook(void* self, float damage, void* strPtr, int ammoType, b
         && PlausiblePtr(self)
         && self == g_localInstance.load())
     {
-        // damage pass করব না
         return;
     }
     if (old_localAddDamage) old_localAddDamage(self, damage, strPtr, ammoType, flag);
     if (!IsModActive() || !PlausiblePtr(self)) return;
-    int dmgInt = (int)damage; if (dmgInt <= 0) return;
+    int dmgInt = (int)damage;
+    if (dmgInt <= 0) return;
     std::lock_guard<std::mutex> lock(g_soldierMutex);
     SoldierEntry& e = EnsureEntryLocked(self);
     int cached = e.lastKnownHP < 0 ? 100 : e.lastKnownHP;
-    int est = cached - dmgInt; if (est < 0) est = 0;
-    e.lastKnownHP = est; e.lastDamageMs = NowMs();
+    int est = cached - dmgInt;
+    if (est < 0) est = 0;
+    e.lastKnownHP = est;
+    e.lastDamageMs = NowMs();
 }
 void HumanoidAddDamage_Hook(void* self, int damage, void* strPtr, int ammoType) {
     if (old_humanoidAddDamage) old_humanoidAddDamage(self, damage, strPtr, ammoType);
