@@ -1020,14 +1020,14 @@ bool isCollisionTile_Hook(void* self, cpVect pos) {
     if (g_mapManagerInstance.load() == nullptr) g_mapManagerInstance.store(self);
     if (g_flyThroughWalls.load()) return false;
     if (g_bulletThroughWalls.load() && tls_bulletRaycast) return false;
-    if (g_ignoreBoundaryDeath.load() || g_tpPadEnabled.load()) return false;  // ★ NEW
+    if (g_ignoreBoundaryDeath.load() || g_tpPadEnabled.load()) return false;   // ★ ADD
     return old_isCollisionTile ? old_isCollisionTile(self, pos) : false;
 }
 bool mapCollision_Hook(void* self, cpVect pos) {
     if (g_mapManagerInstance.load() == nullptr) g_mapManagerInstance.store(self);
     if (g_flyThroughWalls.load()) return false;
     if (g_bulletThroughWalls.load() && tls_bulletRaycast) return false;
-    if (g_ignoreBoundaryDeath.load() || g_tpPadEnabled.load()) return false;  // ★ NEW
+    if (g_ignoreBoundaryDeath.load() || g_tpPadEnabled.load()) return false;   // ★ ADD
     return old_mapCollision ? old_mapCollision(self, pos) : false;
 }
 bool isBoundryTile_Hook(void* self, cpVect pos) {
@@ -1689,7 +1689,7 @@ void setPlayerHealth_Hook(void* self, float health) {
     viewHPStore(self, hp);
 }
 void setHP_Hook(void* self, int hp) {
-    // ★ NEW: boundary ignore active হলে local-এর HP 0 হতে দেব না
+    // ★ boundary ignore active হলে local-এর HP 0 বা negative হতে দেব না
     if ((g_ignoreBoundaryDeath.load() || g_tpPadEnabled.load())
         && PlausiblePtr(self)
         && self == g_localInstance.load()
@@ -1699,9 +1699,9 @@ void setHP_Hook(void* self, int hp) {
         uint64_t nowMs = NowMs();
         uint64_t prev = s_lastLog.load();
         if (nowMs - prev > 500 && s_lastLog.compare_exchange_strong(prev, nowMs)) {
-            traceLog("setHP: BLOCKED HP=%d for local (boundary ignore)", hp);
+            traceLog("setHP: BLOCKED HP=%d for local", hp);
         }
-        hp = 1;   // ★ HP=1 এ restore করি
+        hp = 1;   // ★ HP=1 এ restore
     }
 
     if (old_setHP) old_setHP(self, hp);
@@ -1714,14 +1714,14 @@ void setHP_Hook(void* self, int hp) {
     if (hp > e.observedMaxHP) e.observedMaxHP = hp;
 }
 void setAlive_Hook(void* self, bool alive) {
-    // ★ NEW: local player-কে dead হতে দেব না
+    // ★ boundary ignore active হলে local-কে dead হতে দেব না
     if (!alive
         && (g_ignoreBoundaryDeath.load() || g_tpPadEnabled.load())
         && PlausiblePtr(self)
         && self == g_localInstance.load())
     {
         traceLog("setAlive: BLOCKED dead for local");
-        alive = true;   // ★ reverse
+        alive = true;
     }
 
     if (old_setAlive) old_setAlive(self, alive);
@@ -1735,7 +1735,6 @@ void setAlive_Hook(void* self, bool alive) {
         e.hasPrevPos = false; e.velX = 0.f; e.velY = 0.f;
     } else { e.isDead = true; e.lastKnownHP = 0; }
 }
-// ★ PUNORUDDHAR: SoldierController::addDamage hook (для enemy/peer soldiers)
 void addDamage_Hook(void* self, float damage, void* strPtr, int ammoType, bool flag) {
     if (old_addDamage) old_addDamage(self, damage, strPtr, ammoType, flag);
     if (!IsModActive() || !PlausiblePtr(self)) return;
@@ -2357,16 +2356,27 @@ Java_com_android_support_Menu_SetTeleportTargetNorm(JNIEnv*, jclass,
     if (!PlausiblePtr(local)) { traceLog("TP: no player"); return; }
 
     cpVect pp;
-    if (!SafeGetActualPosition(local, pp)) {
-        traceLog("TP: no actual pos");
-        return;
-    }
-    float px = (float)pp.x;
-    float py = (float)pp.y;
+if (!SafeGetActualPosition(local, pp)) {
+    traceLog("TP: no actual pos");
+    return;
+}
+float px = (float)pp.x;
+float py = (float)pp.y;
+
+// ★ Hard clamp: world bounds
+const float WORLD_MIN_X = -800.f;
+const float WORLD_MAX_X =  2000.f;
+const float WORLD_MIN_Y = -800.f;
+const float WORLD_MAX_Y =  2500.f;
+
+if (px < WORLD_MIN_X) px = WORLD_MIN_X;
+if (px > WORLD_MAX_X) px = WORLD_MAX_X;
+if (py < WORLD_MIN_Y) py = WORLD_MIN_Y;
+if (py > WORLD_MAX_Y) py = WORLD_MAX_Y;
 
     // ★ Rectangular safe range — map-এর এক চতুর্থাংশ
-    const float RANGE_X = 600.f;
-    const float RANGE_Y = 400.f;
+    const float RANGE_X = 350.f;   // ★ 600 → 350
+const float RANGE_Y = 250.f;   // ★ 400 → 250
     float offX = (nx - 0.5f) * 2.0f * RANGE_X;
     float offY = (0.5f - ny) * 2.0f * RANGE_Y;
 
