@@ -1032,7 +1032,7 @@ if (g_mapManagerInstance.load() == nullptr) g_mapManagerInstance.store(self);
 bool isBoundryTile_Hook(void* self, cpVect pos) {
     if (g_mapManagerInstance.load() == nullptr) g_mapManagerInstance.store(self);
     if (g_flyThroughWalls.load()) return false;
-    if (g_ignoreBoundaryDeath.load()) return false;
+    if (g_ignoreBoundaryDeath.load() || g_tpPadEnabled.load()) return false;
 
     return old_isBoundryTile ? old_isBoundryTile(self, pos) : false;
 }
