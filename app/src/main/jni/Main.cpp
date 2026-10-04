@@ -825,11 +825,10 @@ static void ClearAllState() {
     g_hasAimTarget.store(false); g_hasAimAngle.store(false);
     g_stickyTarget = nullptr; g_stickyTargetLastMs = 0;
     g_currentAimTarget.store(nullptr);
-    InvalidateMapBounds();
     g_smoothTP_Active.store(false);
     g_smoothTP_Frames.store(0);
-    g_teleportActive.store(false);      // ★ NEW
-    g_teleportJustFinished.store(false); // ★ NEW
+    g_teleportActive.store(false);
+    g_teleportJustFinished.store(false);
 }
 static void RefreshDesignSize() {
     if (!fn_directorShared || !fn_directorGetVisible) return;
@@ -1021,23 +1020,20 @@ bool isCollisionTile_Hook(void* self, cpVect pos) {
     if (g_mapManagerInstance.load() == nullptr) g_mapManagerInstance.store(self);
     if (g_flyThroughWalls.load()) return false;
     if (g_bulletThroughWalls.load() && tls_bulletRaycast) return false;
-    // ★ NEW
-    if (g_ignoreBoundaryDeath.load() || g_tpPadEnabled.load()) return false;
+    if (g_ignoreBoundaryDeath.load() || g_tpPadEnabled.load()) return false;  // ★ NEW
     return old_isCollisionTile ? old_isCollisionTile(self, pos) : false;
 }
 bool mapCollision_Hook(void* self, cpVect pos) {
     if (g_mapManagerInstance.load() == nullptr) g_mapManagerInstance.store(self);
     if (g_flyThroughWalls.load()) return false;
     if (g_bulletThroughWalls.load() && tls_bulletRaycast) return false;
-    // ★ NEW: boundary ignore active হলে map collision-ও ignore
-    if (g_ignoreBoundaryDeath.load() || g_tpPadEnabled.load()) return false;
+    if (g_ignoreBoundaryDeath.load() || g_tpPadEnabled.load()) return false;  // ★ NEW
     return old_mapCollision ? old_mapCollision(self, pos) : false;
 }
 bool isBoundryTile_Hook(void* self, cpVect pos) {
     if (g_mapManagerInstance.load() == nullptr) g_mapManagerInstance.store(self);
     if (g_flyThroughWalls.load()) return false;
-    if (g_ignoreBoundaryDeath.load() || g_tpPadEnabled.load()) return false;
-
+    if (g_ignoreBoundaryDeath.load() || g_tpPadEnabled.load()) return false;  // ✓
     return old_isBoundryTile ? old_isBoundryTile(self, pos) : false;
 }
 void addStaticBodyShape_Hook(void* self, int a, int b) {
@@ -1693,8 +1689,7 @@ void setPlayerHealth_Hook(void* self, float health) {
     viewHPStore(self, hp);
 }
 void setHP_Hook(void* self, int hp) {
-    // ★ NEW: local player-এর HP 0 বা negative হতে দেব না
-    //   যখন ignoreBoundaryDeath অথবা Teleport ON
+    // ★ NEW: boundary ignore active হলে local-এর HP 0 হতে দেব না
     if ((g_ignoreBoundaryDeath.load() || g_tpPadEnabled.load())
         && PlausiblePtr(self)
         && self == g_localInstance.load()
@@ -1720,7 +1715,7 @@ void setHP_Hook(void* self, int hp) {
 }
 void setAlive_Hook(void* self, bool alive) {
     // ★ NEW: local player-কে dead হতে দেব না
-    if (!alive 
+    if (!alive
         && (g_ignoreBoundaryDeath.load() || g_tpPadEnabled.load())
         && PlausiblePtr(self)
         && self == g_localInstance.load())
@@ -1740,15 +1735,16 @@ void setAlive_Hook(void* self, bool alive) {
         e.hasPrevPos = false; e.velX = 0.f; e.velY = 0.f;
     } else { e.isDead = true; e.lastKnownHP = 0; }
 }
-void addDamage_Hook(void* self, float damage, void* strPtr, int ammoType, bool flag) {
-    if (old_addDamage) old_addDamage(self, damage, strPtr, ammoType, flag);
-    if (!IsModActive() || !PlausiblePtr(self)) return;
-    int dmgInt = (int)damage; if (dmgInt <= 0) return;
-    std::lock_guard<std::mutex> lock(g_soldierMutex);
-    SoldierEntry& e = EnsureEntryLocked(self);
-    int cached = e.lastKnownHP < 0 ? 100 : e.lastKnownHP;
-    int est = cached - dmgInt; if (est < 0) est = 0;
-    e.lastKnownHP = est; e.lastDamageMs = NowMs();
+void LocalAddDamage_Hook(void* self, float damage, void* strPtr, int ammoType, bool flag) {
+    // ★ NEW: boundary ignore active হলে local-এর উপর damage skip
+    if ((g_ignoreBoundaryDeath.load() || g_tpPadEnabled.load())
+        && PlausiblePtr(self)
+        && self == g_localInstance.load())
+    {
+        return;   // damage pass করব না
+    }
+    if (old_localAddDamage) old_localAddDamage(self, damage, strPtr, ammoType, flag);
+    ...
 }
 void LocalAddDamage_Hook(void* self, float damage, void* strPtr, int ammoType, bool flag) {
     // ★ NEW: boundary ignore active হলে local-এর উপর damage skip
