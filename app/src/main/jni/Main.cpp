@@ -1864,7 +1864,7 @@ void physicsUpdate_Hook(void* self, float dt) {
     }
 
     // ★★★ NEW: Boundary Guard — সবসময় safe position এ আটকে রাখে ★★★
-    if ((g_ignoreBoundaryDeath.load() || g_tpPadEnabled.load())
+    if (g_tpPadEnabled.load()
         && g_bodyDiscoveryDone.load()
         && !g_teleportActive.load()
         && !g_smoothTP_Active.load())
