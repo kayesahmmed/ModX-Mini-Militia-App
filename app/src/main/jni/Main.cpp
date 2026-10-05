@@ -665,7 +665,7 @@ std::atomic<bool> g_anyGunAsLaser     {false};
 std::atomic<bool> g_flyThroughWalls   {false};
 std::atomic<bool> g_bulletThroughWalls{false};
 std::atomic<bool> g_respawnTimeMod    {false};
-std::atomic<bool> g_ignoreBoundaryDeath{false};
+
 
 std::atomic<bool>  g_teleportActive{false};
 std::atomic<float> g_teleportX{0.f};
@@ -1007,20 +1007,20 @@ bool isCollisionTile_Hook(void* self, cpVect pos) {
     if (g_mapManagerInstance.load() == nullptr) g_mapManagerInstance.store(self);
     if (g_flyThroughWalls.load()) return false;
     if (g_bulletThroughWalls.load() && tls_bulletRaycast) return false;
-    if (g_ignoreBoundaryDeath.load() || g_tpPadEnabled.load()) return false;   // ★ ADD
+    if (g_tpPadEnabled.load()) return false;   // ★ শুধু Teleport
     return old_isCollisionTile ? old_isCollisionTile(self, pos) : false;
 }
 bool mapCollision_Hook(void* self, cpVect pos) {
     if (g_mapManagerInstance.load() == nullptr) g_mapManagerInstance.store(self);
     if (g_flyThroughWalls.load()) return false;
     if (g_bulletThroughWalls.load() && tls_bulletRaycast) return false;
-    if (g_ignoreBoundaryDeath.load() || g_tpPadEnabled.load()) return false;   // ★ ADD
+    if (g_tpPadEnabled.load()) return false;   // ★ শুধু Teleport   // ★ ADD
     return old_mapCollision ? old_mapCollision(self, pos) : false;
 }
 bool isBoundryTile_Hook(void* self, cpVect pos) {
     if (g_mapManagerInstance.load() == nullptr) g_mapManagerInstance.store(self);
     if (g_flyThroughWalls.load()) return false;
-    if (g_ignoreBoundaryDeath.load() || g_tpPadEnabled.load()) return false;  // ✓
+    if (g_tpPadEnabled.load()) return false;   // ★ শুধু Teleport
     return old_isBoundryTile ? old_isBoundryTile(self, pos) : false;
 }
 void addStaticBodyShape_Hook(void* self, int a, int b) {
@@ -1666,11 +1666,13 @@ void setPlayerHealth_Hook(void* self, float health) {
     viewHPStore(self, hp);
 }
 void setHP_Hook(void* self, int hp) {
-    // ★ FIX: g_localInstance null হলেও g_lastLocalInstance দিয়ে check
+    // ★ NEW: local player detect (fallback সহ)
     void* local = g_localInstance.load();
-    if (!PlausiblePtr(local)) local = g_lastLocalInstance.load();   // ★ fallback
+    if (!PlausiblePtr(local)) local = g_lastLocalInstance.load();
 
-    if ((g_ignoreBoundaryDeath.load() || g_tpPadEnabled.load())
+    // ★ Teleport ON এবং local হলে HP floor at 1
+    //   → Enemy damage HP কমাবে, কিন্তু মৃত্যু হবে না
+    if (g_tpPadEnabled.load()
         && PlausiblePtr(self)
         && self == local
         && hp <= 0)
@@ -1679,9 +1681,9 @@ void setHP_Hook(void* self, int hp) {
         uint64_t nowMs = NowMs();
         uint64_t prev = s_lastLog.load();
         if (nowMs - prev > 500 && s_lastLog.compare_exchange_strong(prev, nowMs)) {
-            traceLog("setHP: BLOCKED HP=%d for local", hp);
+            traceLog("setHP: FLOOR HP=%d→1 for local (teleport ON)", hp);
         }
-        hp = 1;
+        hp = 1;   // ★ HP=1 এ restore
     }
 
     if (old_setHP) old_setHP(self, hp);
@@ -1694,16 +1696,23 @@ void setHP_Hook(void* self, int hp) {
     if (hp > e.observedMaxHP) e.observedMaxHP = hp;
 }
 void setAlive_Hook(void* self, bool alive) {
+    // ★ local player detect (fallback সহ)
     void* local = g_localInstance.load();
-    if (!PlausiblePtr(local)) local = g_lastLocalInstance.load();   // ★ fallback
+    if (!PlausiblePtr(local)) local = g_lastLocalInstance.load();
 
+    // ★ Teleport ON এবং local হলে dead flag reverse
     if (!alive
-        && (g_ignoreBoundaryDeath.load() || g_tpPadEnabled.load())
+        && g_tpPadEnabled.load()
         && PlausiblePtr(self)
         && self == local)
     {
-        traceLog("setAlive: BLOCKED dead for local");
-        alive = true;
+        static std::atomic<uint64_t> s_lastLog{0};
+        uint64_t nowMs = NowMs();
+        uint64_t prev = s_lastLog.load();
+        if (nowMs - prev > 500 && s_lastLog.compare_exchange_strong(prev, nowMs)) {
+            traceLog("setAlive: BLOCKED dead for local (teleport ON)");
+        }
+        alive = true;   // ★ reverse
     }
 
     if (old_setAlive) old_setAlive(self, alive);
@@ -1731,24 +1740,15 @@ void addDamage_Hook(void* self, float damage, void* strPtr, int ammoType, bool f
     e.lastDamageMs = NowMs();
 }
 void LocalAddDamage_Hook(void* self, float damage, void* strPtr, int ammoType, bool flag) {
-    // ★ NEW: boundary ignore active হলে local-এর উপর damage skip
-    if ((g_ignoreBoundaryDeath.load() || g_tpPadEnabled.load())
-        && PlausiblePtr(self)
-        && self == g_localInstance.load())
-    {
-        return;
-    }
+    // ★ boundary block সরানো হয়েছে — enemy damage স্বাভাবিক কাজ করবে
     if (old_localAddDamage) old_localAddDamage(self, damage, strPtr, ammoType, flag);
     if (!IsModActive() || !PlausiblePtr(self)) return;
-    int dmgInt = (int)damage;
-    if (dmgInt <= 0) return;
+    int dmgInt = (int)damage; if (dmgInt <= 0) return;
     std::lock_guard<std::mutex> lock(g_soldierMutex);
     SoldierEntry& e = EnsureEntryLocked(self);
     int cached = e.lastKnownHP < 0 ? 100 : e.lastKnownHP;
-    int est = cached - dmgInt;
-    if (est < 0) est = 0;
-    e.lastKnownHP = est;
-    e.lastDamageMs = NowMs();
+    int est = cached - dmgInt; if (est < 0) est = 0;
+    e.lastKnownHP = est; e.lastDamageMs = NowMs();
 }
 void HumanoidAddDamage_Hook(void* self, int damage, void* strPtr, int ammoType) {
     if (old_humanoidAddDamage) old_humanoidAddDamage(self, damage, strPtr, ammoType);
@@ -2608,7 +2608,6 @@ enum {
     M_ENM_DIE_GUNS_ONLY1, M_ENM_DIE_GUNS_ONLY2, M_ENM_DIE_GUNS_ONLY3,
     M_ENM_HIDE_PROXY, M_ENM_ENDLESS_PROXY, M_ENM_ATTACH_PROXY,
     M_ENM_INFINITE_PROXY_THROW, M_ENM_ENDLESS_SAW, M_ENM_SAW_DAMAGE_REMOVE,
-    M_PLR_IGNORE_BOUNDARY,
     M_MOD_COUNT
 };
 static void RegisterAllMods() {
@@ -2647,7 +2646,7 @@ static void RegisterAllMods() {
     RegisterMod(OBFUSCATE("Enemy_SawDamageRemove"),   Off::SAW_checkMapCollision,    OBFUSCATE("00 00 A0 E3 1E FF 2F E1"));
         RegisterMod(OBFUSCATE("Enemy_SawDamageRemove"),   Off::SAW_checkMapCollision,    OBFUSCATE("00 00 A0 E3 1E FF 2F E1"));
     
-    RegisterMod(OBFUSCATE("Player_IgnoreBoundaryDeath"), Off::MapManager_isBoundryTile, OBFUSCATE("00 00 A0 E3 1E FF 2F E1"));
+    
 }
 static int ModIdxForFeature(int feat) {
     if (feat >= 400 && feat <= 436) {
@@ -2738,7 +2737,7 @@ jobjectArray GetFeatureList(JNIEnv* env, jobject) {
 
         OBFUSCATE("Category_Player"),
         OBFUSCATE("510_Toggle_Respawn Time Mod (Instant)"),
-        OBFUSCATE("512_Toggle_Ignore Boundary Death"),
+        
 
         OBFUSCATE("Category_Weapon Extras"),
         OBFUSCATE("221_Toggle_Enable Custom Zoom"),
@@ -2884,10 +2883,7 @@ void Changes(JNIEnv*, jclass, jobject, jint featNum, jstring, jint value, jlong,
         case 410: g_bulletThroughWalls = boolean; break;
 
         case 510: g_respawnTimeMod = boolean; break;
-        case 512: g_ignoreBoundaryDeath = boolean; 
-          traceLog("BOUNDARY ignore=%d", (int)boolean); 
-          break;
-
+        
         case 221: g_wpnZoomSelect = boolean; break;
         case 224: { if (value < 1) value = 1; if (value > 11) value = 11; g_wpnZoomLevel = value; } break;
         case 222: g_charSpeedOn = boolean; break;
