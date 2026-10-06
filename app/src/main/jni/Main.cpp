@@ -258,8 +258,6 @@ namespace Off {
     static const uintptr_t HawkDrone_updateStep       = ENC_OFF(0x00edd640);
     static const uintptr_t WormDrone_updateStep       = ENC_OFF(0x00f4aaa8);
     // WeaponsModel
-    static const uintptr_t WeaponsModel_isUnlockable            = ENC_OFF(0x01113a88);
-    static const uintptr_t WeaponsModel_isUpgradable            = ENC_OFF(0x01113a60);
     static const uintptr_t WeaponsModel_getDualWieldUnlockLevel = ENC_OFF(0x01113984);
     // Misc
     static const uintptr_t Stage_update                 = ENC_OFF(0x00f21938);
@@ -391,8 +389,6 @@ typedef void  (*setZoomLevel_t)(void*, int);
 typedef void  (*applyMaxZoomScale_t)(void*);
 typedef int   (*getDamage_w_t)(void*);
 typedef float (*getZoomScale_t)(void*);
-typedef bool  (*isUnlockable_t)(void*, void*, unsigned int);
-typedef bool  (*isUpgradable_t)(void*, void*, unsigned int);
 typedef int   (*getDualWieldUnlockLevel_t)(void*, void*);
 typedef void  (*soldierLocalUpdateStep_t)(void*, float, cpVect, cpVect, float);
 typedef void  (*addBullet_t)(void*, cpVect, float, cpVect, void*, int, cpVect, void*);
@@ -412,7 +408,6 @@ typedef bool  (*isCollisionTile_t)(void*, cpVect);
 typedef bool  (*mapCollision_t)(void*, cpVect);
 typedef bool  (*isBoundryTile_t)(void*, cpVect);
 typedef void  (*setThrust_t)(void*, bool);
-typedef int   (*getRespawnTime_t)(void*);
 typedef int   (*isRespawning_t)(void*);
 typedef void  (*addStaticShape_t)(void*, int, int);
 typedef void  (*addStaticPoly_t)(void*, void*);
@@ -1914,11 +1909,9 @@ static void InstallHooksIfNeeded() {
         crashLog("HOOK", "Weapon hooks OK");
     }
 
-    if (!g_wpnUnlockHooksOk.load()) {
-        SAFE_HOOK(Off::WeaponsModel_isUnlockable,            isUnlockable_Hook,            old_isUnlockable,            g_wpnUnlockHooksOk);
-        SAFE_HOOK(Off::WeaponsModel_isUpgradable,            isUpgradable_Hook,            old_isUpgradable,            g_wpnUnlockHooksOk);
+        if (!g_wpnUnlockHooksOk.load()) {
         SAFE_HOOK(Off::WeaponsModel_getDualWieldUnlockLevel, getDualWieldUnlockLevel_Hook, old_getDualWieldUnlockLevel, g_wpnUnlockHooksOk);
-        crashLog("HOOK", "Unlock hooks OK");
+        crashLog("HOOK", "DualWield unlock hook OK");
     }
 
     if (!g_flyHooksOk.load()) {
