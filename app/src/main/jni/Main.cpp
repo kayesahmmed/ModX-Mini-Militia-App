@@ -2535,6 +2535,11 @@ jobjectArray GetFeatureList(JNIEnv* env, jobject) {
     RegisterAllMods();
     jobjectArray ret;
     const char* features[] = {
+    
+    // --- Mode Presets (Main tab) ---
+    OBFUSCATE("800_ButtonOnOff_Simple Mode"),
+    OBFUSCATE("801_ButtonOnOff_Max Mode"),
+    OBFUSCATE("802_ButtonOnOff_Ultra Max Mode"),
 
     // --- Player Features ---
     OBFUSCATE("Category_Player"),
@@ -2714,6 +2719,138 @@ void Changes(JNIEnv*, jclass, jobject, jint featNum, jstring, jint value, jlong,
             g_lagSkipExtraDraw.store(false);
             g_lagThrottleAim.store(false);
             break;
+                // ============================================================
+        // Mode Presets (Main tab buttons)
+        // ============================================================
+        case 800: {   // Simple Mode
+            if (boolean) {
+                // ── Advanced features OFF ──
+                g_silentAim.store(false);
+                g_autoFire.store(false);
+                g_aimMagnet.store(false);
+                g_wpnHighDamage.store(false);
+                g_wpnMultiShot.store(false);
+                g_wpnMaxRange.store(false);
+                g_wpnBulletSpeedUp.store(false);
+                g_dualWieldAll.store(false);
+                g_unlimitedFlyPower.store(false);
+                g_flyThroughWalls.store(false);
+                g_wpnUnlockAll.store(false);
+                g_wpnMaxUpgrade.store(false);
+                g_wpnDualWieldUnlock.store(false);
+                g_tpPadEnabled.store(false);
+
+                // ── Basic quality features ON ──
+                g_espEnabled.store(true);
+                g_espBox.store(true);
+                g_espLine.store(true);
+                g_espHealth.store(true);
+                g_espDistance.store(false);
+                g_espEnemyOnly.store(false);
+                g_wpnUnlimitedAmmo.store(true);
+                g_wpnFastReload.store(true);
+                g_wpnNoRecoil.store(true);
+            } else {
+                // OFF → basic features বন্ধ
+                g_espEnabled.store(false);
+                g_wpnUnlimitedAmmo.store(false);
+                g_wpnFastReload.store(false);
+                g_wpnNoRecoil.store(false);
+            }
+            traceLog("MODE: Simple=%d", (int)boolean);
+        } break;
+
+        case 801: {   // Max Mode
+            if (boolean) {
+                // ── Ultra-only OFF ──
+                g_unlimitedFlyPower.store(false);
+                g_flyThroughWalls.store(false);
+                g_tpPadEnabled.store(false);
+
+                // ── Basic ──
+                g_espEnabled.store(true);
+                g_espBox.store(true);
+                g_espLine.store(true);
+                g_espHealth.store(true);
+                g_espDistance.store(true);
+                g_wpnUnlimitedAmmo.store(true);
+                g_wpnFastReload.store(true);
+                g_wpnNoRecoil.store(true);
+
+                // ── Advanced ──
+                g_silentAim.store(true);
+                g_autoFire.store(true);
+                g_aimMagnet.store(true);
+                g_wpnMultiShot.store(true);
+                g_wpnMaxRange.store(true);
+                g_wpnBulletSpeedUp.store(true);
+                g_wpnHighDamage.store(true);
+                g_wpnDualWieldUnlock.store(true);
+                g_wpnUnlockAll.store(true);
+                g_wpnMaxUpgrade.store(true);
+            } else {
+                // OFF → advanced features বন্ধ
+                g_silentAim.store(false);
+                g_autoFire.store(false);
+                g_aimMagnet.store(false);
+                g_wpnMultiShot.store(false);
+                g_wpnMaxRange.store(false);
+                g_wpnBulletSpeedUp.store(false);
+                g_wpnHighDamage.store(false);
+                g_wpnDualWieldUnlock.store(false);
+            }
+            traceLog("MODE: Max=%d", (int)boolean);
+        } break;
+
+        case 802: {   // Ultra Max Mode
+            if (boolean) {
+                // ── EVERYTHING ON ──
+                g_espEnabled.store(true);
+                g_espBox.store(true);
+                g_espLine.store(true);
+                g_espHealth.store(true);
+                g_espDistance.store(true);
+                g_espEnemyOnly.store(false);
+                g_wpnUnlimitedAmmo.store(true);
+                g_wpnFastReload.store(true);
+                g_wpnNoRecoil.store(true);
+                g_silentAim.store(true);
+                g_autoFire.store(true);
+                g_aimMagnet.store(true);
+                g_wpnMultiShot.store(true);
+                g_wpnMaxRange.store(true);
+                g_wpnBulletSpeedUp.store(true);
+                g_wpnHighDamage.store(true);
+                g_wpnDualWieldUnlock.store(true);
+                g_dualWieldAll.store(true);
+                g_unlimitedFlyPower.store(true);
+                g_flyThroughWalls.store(true);
+                g_wpnUnlockAll.store(true);
+                g_wpnMaxUpgrade.store(true);
+                g_tpPadEnabled.store(true);
+            } else {
+                // ── EVERYTHING OFF ──
+                g_espEnabled.store(false);
+                g_wpnUnlimitedAmmo.store(false);
+                g_wpnFastReload.store(false);
+                g_wpnNoRecoil.store(false);
+                g_silentAim.store(false);
+                g_autoFire.store(false);
+                g_aimMagnet.store(false);
+                g_wpnMultiShot.store(false);
+                g_wpnMaxRange.store(false);
+                g_wpnBulletSpeedUp.store(false);
+                g_wpnHighDamage.store(false);
+                g_wpnDualWieldUnlock.store(false);
+                g_dualWieldAll.store(false);
+                g_unlimitedFlyPower.store(false);
+                g_flyThroughWalls.store(false);
+                g_wpnUnlockAll.store(false);
+                g_wpnMaxUpgrade.store(false);
+                g_tpPadEnabled.store(false);
+            }
+            traceLog("MODE: UltraMax=%d", (int)boolean);
+        } break;
     }
 }
 
