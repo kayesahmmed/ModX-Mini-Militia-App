@@ -1,12 +1,4 @@
-// ================================================================
-// Mini Militia — Main.cpp v116.0 (Secure + Teleport Pad)
-//  - Offset encryption (XOR runtime-decrypted)
-//  - String obfuscation via OBFUSCATE()
-//  - Teleport: recursion-guarded body-pointer discovery (wider scan)
-//  - Dual hook: Soldier + CollisionObject getBodyPosition
-//  - CRASH FIX: force-`out` ONLY after discovery success
-//  - NEW: 4-quadrant on-screen Teleport Pad (tap to teleport)
-// ================================================================
+// Mini Militia
 
 #include <list>
 #include <vector>
@@ -59,9 +51,7 @@ struct MSSize { float w, h; };
 static constexpr float RAD2DEG = 57.29577951f;
 static constexpr float DEG2RAD = 0.01745329252f;
 
-// ==================================================================
-// OFFSET ENCRYPTION
-// ==================================================================
+
 namespace SecOff {
     static constexpr uint64_t KEY = 0xB4E7A1C3D9F20586ULL;
     static constexpr uintptr_t enc(uintptr_t v) {
@@ -76,9 +66,7 @@ namespace SecOff {
 #define ENC_OFF(v) SecOff::enc(v)
 #define DEC_OFF(v) SecOff::dec(v)
 
-// ==================================================================
-// Logging
-// ==================================================================
+
 static int g_logFd = -1;
 static std::atomic<int> g_crashCount{0};
 static constexpr int MAX_CRASHES_PER_SESSION = 200;
@@ -127,9 +115,6 @@ static void traceLog(const char* fmt, ...) {
     }
 }
 
-// ==================================================================
-// Crash guard
-// ==================================================================
 static __thread sigjmp_buf tls_guard;
 static __thread volatile sig_atomic_t tls_guardActive = 0;
 static void native_crash_handler(int sig, siginfo_t* info, void*) {
@@ -160,9 +145,7 @@ static void install_crash_handler() {
 #define GUARD_SET()   (tls_guardActive = 1)
 #define GUARD_CLR()   (tls_guardActive = 0)
 
-// ==================================================================
-// ESP colors
-// ==================================================================
+
 std::atomic<unsigned int> g_espColorArgb{ 0xFF00FF88u };
 static int SKY_R = 0x00, SKY_G = 0xFF, SKY_B = 0x88;
 static int SKY_LIGHT_R = 0x99, SKY_LIGHT_G = 0xFF, SKY_LIGHT_B = 0xCF;
@@ -185,9 +168,7 @@ __attribute__((constructor)) void early_init() {
 extern "C" JNIEXPORT void JNICALL
 Java_com_android_support_Main_setNativeCrashDir(JNIEnv*, jclass, jstring) {}
 
-// ==================================================================
-// ENCRYPTED OFFSETS
-// ==================================================================
+
 namespace Off {
     // Weapon
     static const uintptr_t Weapon_getRandomFiringAngle     = ENC_OFF(0x00f40ad0);
@@ -326,9 +307,7 @@ namespace Off {
 uintptr_t         g_libBase = 0;
 std::atomic<bool> g_libReady{false};
 
-// ==================================================================
-// Mod registry
-// ==================================================================
+
 struct ModDef {
     const char*  name     = nullptr;
     uintptr_t    offset   = 0;
@@ -359,9 +338,7 @@ static void ApplyModByIndex(int idx, bool on) {
     else if (!on && m.enabled) { m.patch.Restore(); m.enabled = false; }
 }
 
-// ==================================================================
-// Typedefs
-// ==================================================================
+
 typedef void  (*MgrUpdateRemote_t)(void*, float);
 typedef void  (*MgrUpdateStep_t)(void*, float);
 typedef void  (*MgrSpawnPlayer_t)(void*);
@@ -536,9 +513,7 @@ switchToDual_t         fn_switchPrimaryToDual   = nullptr;
 switchToDual_t         fn_switchSecondaryToDual = nullptr;
 setThrust_t            fn_setThrust          = nullptr;
 
-// ==================================================================
-// HP table
-// ==================================================================
+
 static constexpr int HP_TABLE_SIZE = 1024;
 struct ViewHPEntry { std::atomic<void*> view{nullptr}; std::atomic<int> hp{-1}; };
 static ViewHPEntry g_viewHPTable[HP_TABLE_SIZE];
@@ -573,9 +548,7 @@ static inline int viewHPLoad(void* view) {
     return -1;
 }
 
-// ==================================================================
-// ESP data
-// ==================================================================
+
 struct ESPSoldier {
     void*       instance;
     bool        isLocal;
@@ -614,9 +587,7 @@ static std::unordered_map<void*, SoldierEntry> g_soldierMap;
 std::vector<ESPSoldier> g_soldierSnapshots;
 std::mutex              g_soldierMutex;
 
-// ==================================================================
-// Feature flags
-// ==================================================================
+
 std::atomic<bool> g_espEnabled {false};
 std::atomic<bool> g_espBox     {true};
 std::atomic<bool> g_espLine    {true};
@@ -648,7 +619,6 @@ std::atomic<bool> g_wpnZoomSelect     {false};
 std::atomic<int>  g_wpnZoomLevel      {5};
 std::atomic<bool> g_charSpeedOn       {false};
 std::atomic<int>  g_charSpeedMul      {2};
-std::atomic<bool> g_wpnUnlockAll      {false};
 std::atomic<bool> g_wpnDualWieldUnlock{false};
 
 std::atomic<bool> g_dualWieldAll      {false};
@@ -716,19 +686,15 @@ static std::atomic<float> g_smoothTP_TargetX{0.f};
 static std::atomic<float> g_smoothTP_TargetY{0.f};
 static std::atomic<bool>  g_smoothTP_Active{false};
 static std::atomic<int>   g_smoothTP_Frames{0};
-static constexpr float    SMOOTH_TP_STEP   = 180.f;   // world units per frame
-static constexpr int      SMOOTH_TP_MAX_F  = 60;      // max 60 frames (~1 sec)
+static constexpr float    SMOOTH_TP_STEP   = 180.f;
+static constexpr int      SMOOTH_TP_MAX_F  = 60;
 
 // Forward declarations for teleport map bounds functions
 static void DetectMapBounds();
 static void InvalidateMapBounds();
 
-// MapManager instance — প্রথম hook call থেকে capture হবে
 static std::atomic<void*> g_mapManagerInstance{nullptr};
 static std::atomic<bool>  g_mapBoundsDetected{false};
-// Map bounds (world coords)
-
-
 
 static std::atomic<uintptr_t> g_bodyOffsetFromSelf{(uintptr_t)-1};
 static std::atomic<int>       g_posOffsetInBody{-1};
@@ -760,9 +726,7 @@ static inline bool IsAddressMapped(uintptr_t addr) {
     return mincore((void*)pageStart, 0x1000, &vec) == 0;
 }
 
-// ==================================================================
-// Safe wrappers
-// ==================================================================
+
 static bool SafeGetPosition(void* s, cpVect& out) {
     if (!PlausiblePtr(s) || !fn_getBodyPosition) return false;
     out.x = out.y = 0;
@@ -1134,10 +1098,6 @@ float getZoomScale_Hook(void* self) {
     if (lvl < 1) lvl = 1; if (lvl > 11) lvl = 11;
     return 1.0f / (float)lvl;
 }
-bool isUnlockable_Hook(void* self, void* id, unsigned int lvl) {
-    if (g_wpnUnlockAll.load()) return true;
-    return old_isUnlockable ? old_isUnlockable(self, id, lvl) : false;
-}
 
 int getDualWieldUnlockLevel_Hook(void* self, void* id) {
     if (g_wpnDualWieldUnlock.load() || g_dualWieldAll.load()) return 0;
@@ -1181,9 +1141,7 @@ void soldierLocalUpdateStep_Hook(void* self, float dt, cpVect a, cpVect b, float
     }
 }
 
-// ==================================================================
-// Aim
-// ==================================================================
+
 static void ComputeAimTarget(void* localController) {
     if (!g_aimResolved.load()) return;
     if (!PlausiblePtr(localController)) return;
@@ -1285,9 +1243,6 @@ static void ExecuteAutoFire(void* localController) {
     }
 }
 
-// ==================================================================
-// Teleport discovery — v116 WIDER SCAN + dual pass
-// ==================================================================
 static void TryDiscoverBodyPointer(void* self) {
     if (g_bodyDiscoveryDone.load()) return;
     if (g_discoveryInProgress.exchange(true)) return;
@@ -1430,10 +1385,7 @@ static bool ApplyTeleportPosition() {
     return false;
 }
 
-// ==================================================================
-// Smooth Teleport Tick — physics-এর আগে call হয়
-// Collision check করে একটু একটু করে player-কে target-এর দিকে নিয়ে যায়
-// ==================================================================
+
 static void UpdateSmoothTeleport() {
     if (!g_smoothTP_Active.load()) return;
 
@@ -1504,9 +1456,7 @@ void getBodyPosition_Hooked(cpVect* out, void* self) {
         TryDiscoverBodyPointer(self);
     }
 
-    // ★ Position write এখন ApplyTeleportPosition() এ centralize করা হয়েছে
-    //   এখানে শুধু return value override করি যাতে game-এর physics
-    //   আমাদের write কে আবার সঠিকভাবে read করে।
+
     if (g_teleportActive.load()
         && g_bodyDiscoveryDone.load()
         && local && self == local
@@ -1526,9 +1476,7 @@ void getBodyPosition_Coll_Hooked(cpVect* out, void* self) {
     out->y = (double)g_teleportY.load();
 }
 
-// ==================================================================
-// Projectile hooks
-// ==================================================================
+
 static bool IsLocalPlayerWeapon(void* weapon) {
     if (!PlausiblePtr(weapon)) return false;
     void* local = g_localInstance.load();
@@ -1588,9 +1536,7 @@ float Joypad_getDirAngle_Hook(void* self) {
     return old_Joypad_getDirAngle ? old_Joypad_getDirAngle(self) : 0.0f;
 }
 
-// ==================================================================
-// HP hooks
-// ==================================================================
+
 void setPlayerHealth_Hook(void* self, float health) {
     if (old_setPlayerHealth) old_setPlayerHealth(self, health);
     if (!IsModActive() || !PlausiblePtr(self)) return;
@@ -1888,9 +1834,7 @@ void AIUpdateStep_Hook(void* self, float dt)     { if (PlausiblePtr(self) && IsM
 void EnemyMgrUpdateStep_Hook(void* self, float dt) { if (old_EnemyMgrUpdateStep) old_EnemyMgrUpdateStep(self, dt); }
 void UpdatePeerDamage_Hook(void* self, void* data, void* strRef) { if (old_updatePeerDamage) old_updatePeerDamage(self, data, strRef); }
 
-// ==================================================================
-// Hook installer
-// ==================================================================
+
 #define SAFE_HOOK(enc_off, hook, orig, flag) do { \
     uintptr_t _a = g_libBase + DEC_OFF(enc_off); \
     HOOK_ABS((void*)_a, hook, orig); \
@@ -2046,9 +1990,7 @@ static void InstallHooksIfNeeded() {
 }
 }
 
-// ==================================================================
-// Simple patches
-// ==================================================================
+
 static MemoryPatch g_patchMaxLevel, g_patchNoLocalDamage;
 static std::atomic<bool> g_maxLevelInit{false}, g_noLocalDamageInit{false};
 
@@ -2073,9 +2015,7 @@ static void ApplyReloadPatch(bool e) {
     if (e) g_patchNoLocalDamage.Modify(); else g_patchNoLocalDamage.Restore();
 }
 
-// ==================================================================
-// ESP Java methods
-// ==================================================================
+
 static jclass    g_espClass    = nullptr;
 static jmethodID g_espDrawLine = nullptr;
 static jmethodID g_espDrawRect = nullptr;
@@ -2197,9 +2137,6 @@ static void InvalidateMapBounds() {
     traceLog("MAP BOUNDS: invalidated (stub)");
 }
 
-// ==================================================================
-// SafeGetActualPosition — hook bypass করে actual body position পড়ে
-// ==================================================================
 static bool SafeGetActualPosition(void* s, cpVect& out) {
     if (!PlausiblePtr(s) || !old_getBodyPosition_hook) return false;
     out.x = out.y = 0;
@@ -2211,9 +2148,7 @@ static bool SafeGetActualPosition(void* s, cpVect& out) {
     return true;
 }
 
-// ==================================================================
-// IsPositionSafe — map boundary + wall check
-// ==================================================================
+
 static bool IsPositionSafe(void* mgr, float x, float y) {
     if (!mgr) return true;
     cpVect p{ (double)x, (double)y };
@@ -2233,9 +2168,7 @@ static bool IsPositionSafe(void* mgr, float x, float y) {
     return true;
 }
 
-// ==================================================================
-// FindSafeTarget — Desired unsafe হলে player এর দিকে walk back
-// ==================================================================
+
 static void FindSafeTarget(void* mgr, float px, float py,
                             float desiredX, float desiredY,
                             float& safeX, float& safeY) {
@@ -2597,7 +2530,6 @@ jobjectArray GetFeatureList(JNIEnv* env, jobject) {
 
     // --- Unlock Features ---
     OBFUSCATE("Category_Unlock"),
-    OBFUSCATE("230_Toggle_Unlock Weapons"),
     OBFUSCATE("232_Toggle_Unlock Dual"),
 
     // --- Robot Features ---
@@ -2694,7 +2626,6 @@ void Changes(JNIEnv*, jclass, jobject, jint featNum, jstring, jint value, jlong,
         case 224: { if (value < 1) value = 1; if (value > 11) value = 11; g_wpnZoomLevel = value; } break;
         case 222: g_charSpeedOn = boolean; break;
         case 223: { if (value < 1) value = 1; if (value > 20) value = 20; g_charSpeedMul = value; } break;
-        case 230: g_wpnUnlockAll = boolean; break;
         case 232: g_wpnDualWieldUnlock = boolean; break;
 
         case 300: g_lagAntiLagMode = boolean; break;
@@ -2713,9 +2644,7 @@ void Changes(JNIEnv*, jclass, jobject, jint featNum, jstring, jint value, jlong,
             g_lagSkipExtraDraw.store(false);
             g_lagThrottleAim.store(false);
             break;
-                // ============================================================
-        // Mode Presets (Main tab buttons)
-        // ============================================================
+
         case 800: {   // Simple Mode
             if (boolean) {
                 // ── Advanced features OFF ──
@@ -2729,7 +2658,6 @@ void Changes(JNIEnv*, jclass, jobject, jint featNum, jstring, jint value, jlong,
                 g_dualWieldAll.store(false);
                 g_unlimitedFlyPower.store(false);
                 g_flyThroughWalls.store(false);
-                g_wpnUnlockAll.store(false);
                 g_wpnDualWieldUnlock.store(false);
                 g_tpPadEnabled.store(false);
 
@@ -2779,7 +2707,6 @@ void Changes(JNIEnv*, jclass, jobject, jint featNum, jstring, jint value, jlong,
                 g_wpnBulletSpeedUp.store(true);
                 g_wpnHighDamage.store(true);
                 g_wpnDualWieldUnlock.store(true);
-                g_wpnUnlockAll.store(false);
             } else {
                 // OFF → advanced features বন্ধ
                 g_silentAim.store(false);
@@ -2817,7 +2744,6 @@ void Changes(JNIEnv*, jclass, jobject, jint featNum, jstring, jint value, jlong,
                 g_dualWieldAll.store(true);
                 g_unlimitedFlyPower.store(true);
                 g_flyThroughWalls.store(true);
-                g_wpnUnlockAll.store(false);
                 g_tpPadEnabled.store(true);
             } else {
                 // ── EVERYTHING OFF ──
@@ -2836,7 +2762,6 @@ void Changes(JNIEnv*, jclass, jobject, jint featNum, jstring, jint value, jlong,
                 g_dualWieldAll.store(false);
                 g_unlimitedFlyPower.store(false);
                 g_flyThroughWalls.store(false);
-                g_wpnUnlockAll.store(false);
                 g_tpPadEnabled.store(false);
             }
             traceLog("MODE: UltraMax=%d", (int)boolean);
@@ -2844,9 +2769,7 @@ void Changes(JNIEnv*, jclass, jobject, jint featNum, jstring, jint value, jlong,
     }
 }
 
-// ==================================================================
-// Entry
-// ==================================================================
+
 ElfScanner g_il2cppELF;
 void* hack_thread(void*) {
     int waitCount = 0;
