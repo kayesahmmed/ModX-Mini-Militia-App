@@ -218,6 +218,16 @@ public static native boolean IsSmoothTeleportActive();
     private final WeakHashMap<TextView, float[]> textBase = new WeakHashMap<TextView, float[]>();
     private final ArrayList<TabHolder> tabHolders = new ArrayList<TabHolder>();
     private final ArrayList<ArrayAdapter<String>> spinnerAdapters = new ArrayList<ArrayAdapter<String>>();
+        // ===== Mode buttons mutual exclusion =====
+    private static class ModeButtonHolder {
+        int featNum;
+        String name;
+        Button button;
+        boolean[] state;
+    }
+    private final java.util.HashMap<Integer, ModeButtonHolder> mModeButtons =
+            new java.util.HashMap<Integer, ModeButtonHolder>();
+    private static final int[] MODE_FEATNUMS = { 800, 801, 802, 803 };
 
     boolean stopChecking, overlayRequired;
     Context getContext;
@@ -1495,8 +1505,9 @@ new Titanic().start(proTitle);
     }
 
     private static class TabIcon extends Drawable {
-        static final int HOME = 0, USER = 1, RUN = 2, BOLT = 3, EYE = 4,
-        GEAR = 5, PULSE = 6, TARGET = 7, GRID = 8, CHEVRON = 9;
+                static final int HOME = 0, USER = 1, RUN = 2, BOLT = 3, EYE = 4,
+        GEAR = 5, PULSE = 6, TARGET = 7, GRID = 8, CHEVRON = 9,
+        LOCATION = 10, CAMERA = 11, ROBOT = 12;
 
         private final int type;
         private final Paint stroke = new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -1611,6 +1622,42 @@ new Titanic().start(proTitle);
                     canvas.drawLine(2f, 12f, 5f, 12f, stroke);
                     canvas.drawLine(19f, 12f, 22f, 12f, stroke);
                     break;
+                    
+                                case LOCATION:
+                    // Map pin — perfect for Teleport
+                    path.moveTo(12f, 21.5f);
+                    path.cubicTo(12f, 21.5f, 4.5f, 13.5f, 4.5f, 9.5f);
+                    path.cubicTo(4.5f, 5.2f, 8.0f, 2.5f, 12f, 2.5f);
+                    path.cubicTo(16.0f, 2.5f, 19.5f, 5.2f, 19.5f, 9.5f);
+                    path.cubicTo(19.5f, 13.5f, 12f, 21.5f, 12f, 21.5f);
+                    path.close();
+                    canvas.drawPath(path, stroke);
+                    canvas.drawCircle(12f, 9.5f, 3f, stroke);
+                    break;
+
+                case CAMERA:
+                    // Camera body + lens
+                    rect.set(3f, 7.5f, 21f, 19f);
+                    canvas.drawRoundRect(rect, 2.5f, 2.5f, stroke);
+                    canvas.drawCircle(12f, 13.2f, 3.6f, stroke);
+                    path.moveTo(8f, 7.5f);
+                    path.lineTo(9.2f, 4.5f);
+                    path.lineTo(14.8f, 4.5f);
+                    path.lineTo(16f, 7.5f);
+                    canvas.drawPath(path, stroke);
+                    break;
+
+                case ROBOT:
+                    // Robot head
+                    rect.set(5f, 8.5f, 19f, 19f);
+                    canvas.drawRoundRect(rect, 2.2f, 2.2f, stroke);
+                    canvas.drawCircle(9f, 13.5f, 1.4f, fill);
+                    canvas.drawCircle(15f, 13.5f, 1.4f, fill);
+                    canvas.drawLine(12f, 8.5f, 12f, 5f, stroke);
+                    canvas.drawCircle(12f, 4f, 1.1f, fill);
+                    canvas.drawLine(3f, 13.5f, 5f, 13.5f, stroke);
+                    canvas.drawLine(19f, 13.5f, 21f, 13.5f, stroke);
+                    break;
 
                 case CHEVRON:
                     path.moveTo(5.5f, 9f); path.lineTo(12f, 15.5f); path.lineTo(18.5f, 9f);
@@ -1632,16 +1679,23 @@ new Titanic().start(proTitle);
         @Override public int getOpacity() { return PixelFormat.TRANSLUCENT; }
     }
 
-    private static int iconTypeFor(String name) {
+        private static int iconTypeFor(String name) {
         String n = name == null ? "" : name.toLowerCase();
-        if (n.contains("setting")) return TabIcon.GEAR;
-        if (n.contains("diag")) return TabIcon.PULSE;
-        if (n.contains("main") || n.contains("home")) return TabIcon.HOME;
-        if (n.contains("esp") || n.contains("visual") || n.contains("wall")) return TabIcon.EYE;
-        if (n.contains("aim") || n.contains("weapon") || n.contains("gun") || n.contains("target") || n.contains("combat")) return TabIcon.TARGET;
-        if (n.contains("move") || n.contains("speed") || n.contains("fly")) return TabIcon.RUN;
-        if (n.contains("power")) return TabIcon.BOLT;
-        if (n.contains("surviv") || n.contains("player") || n.contains("people")) return TabIcon.USER;
+        if (n.contains("setting"))                                    return TabIcon.GEAR;
+        if (n.contains("performance") || n.contains("perf"))          return TabIcon.PULSE;
+        if (n.contains("diag"))                                       return TabIcon.PULSE;
+        if (n.contains("main") || n.contains("home"))                 return TabIcon.HOME;
+        if (n.contains("esp") || n.contains("visual"))                return TabIcon.EYE;
+        if (n.contains("camera") || n.contains("view"))               return TabIcon.CAMERA;
+        if (n.contains("teleport"))                                   return TabIcon.LOCATION;
+        if (n.contains("robot"))                                      return TabIcon.ROBOT;
+        if (n.contains("aim") || n.contains("weapon") || n.contains("gun")
+                || n.contains("target") || n.contains("combat"))      return TabIcon.TARGET;
+        if (n.contains("fly") || n.contains("flight")
+                || n.contains("move") || n.contains("speed"))         return TabIcon.RUN;
+        if (n.contains("power"))                                      return TabIcon.BOLT;
+        if (n.contains("player") || n.contains("surviv")
+                || n.contains("people"))                              return TabIcon.USER;
         return TabIcon.GRID;
     }
 
@@ -1873,6 +1927,7 @@ new Titanic().start(proTitle);
         categoryNames.clear();
         tabHolders.clear();
         spinnerAdapters.clear();
+        mModeButtons.clear();
         sidebarLayout.removeAllViews();
         contentLayout.removeAllViews();
 
@@ -2963,7 +3018,7 @@ private void applyMenuColorButtonStyle(Button button, String label, int color) {
         }
     }
 
-    private void ButtonOnOff(LinearLayout linLayout, final int featNum, String featName, boolean switchedOn) {
+        private void ButtonOnOff(LinearLayout linLayout, final int featNum, String featName, boolean switchedOn) {
         final Button button = new Button(getContext);
         button.setMinHeight(0);
         button.setMinimumHeight(0);
@@ -2978,24 +3033,46 @@ private void applyMenuColorButtonStyle(Button button, String label, int color) {
 
         final String finalfeatName = featName.replace("OnOff_", "");
         final boolean[] state = new boolean[]{
-    Preferences.loadPrefBool(finalfeatName, featNum, switchedOn)
-};
+                Preferences.loadPrefBool(finalfeatName, featNum, switchedOn)
+        };
         applyOnOffStyle(button, finalfeatName, state[0]);
-                // ★ Native-এ initial state
-        
+
+        // ★ Register mode buttons (800/801/802/803) for mutual exclusion
+        final boolean isMode = (featNum == 800 || featNum == 801
+                                || featNum == 802 || featNum == 803);
+        if (isMode) {
+            ModeButtonHolder h = new ModeButtonHolder();
+            h.featNum = featNum;
+            h.name    = finalfeatName;
+            h.button  = button;
+            h.state   = state;
+            mModeButtons.put(featNum, h);
+        }
 
         button.setOnClickListener(new View.OnClickListener() {
-                @Override
-                public void onClick(View v) {
-                    state[0] = !state[0];
-Preferences.changeFeatureBool(finalfeatName, featNum, state[0]);
+            @Override
+            public void onClick(View v) {
+                state[0] = !state[0];
 
-applyOnOffStyle(button, finalfeatName, state[0]);
+                // ★ If a Mode button is being turned ON → turn OFF the other modes
+                if (isMode && state[0]) {
+                    for (int fn : MODE_FEATNUMS) {
+                        if (fn == featNum) continue;
+                        ModeButtonHolder other = mModeButtons.get(fn);
+                        if (other != null && other.state[0]) {
+                            other.state[0] = false;
+                            Preferences.changeFeatureBool(other.name, other.featNum, false);
+                            applyOnOffStyle(other.button, other.name, false);
+                        }
+                    }
                 }
-            });
+
+                Preferences.changeFeatureBool(finalfeatName, featNum, state[0]);
+                applyOnOffStyle(button, finalfeatName, state[0]);
+            }
+        });
         linLayout.addView(button);
     }
-
     private void Spinner(LinearLayout linLayout, final int featNum, final String featName, final String list) {
         final Context ctx = getContext;
         final List<String> lists = new LinkedList<String>(Arrays.asList(list.split(",")));
