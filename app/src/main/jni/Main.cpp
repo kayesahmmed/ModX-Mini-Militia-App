@@ -649,7 +649,6 @@ std::atomic<int>  g_wpnZoomLevel      {5};
 std::atomic<bool> g_charSpeedOn       {false};
 std::atomic<int>  g_charSpeedMul      {2};
 std::atomic<bool> g_wpnUnlockAll      {false};
-std::atomic<bool> g_wpnMaxUpgrade     {false};
 std::atomic<bool> g_wpnDualWieldUnlock{false};
 
 std::atomic<bool> g_dualWieldAll      {false};
@@ -663,7 +662,7 @@ std::atomic<bool>  g_teleportFollowAim{false};
 static std::atomic<float> g_lastSafeX{0.f};
 static std::atomic<float> g_lastSafeY{0.f};
 static std::atomic<bool>  g_lastSafeValid{false};
-std::atomic<bool>  g_tpPadEnabled{false};   // feature toggle
+std::atomic<bool>  g_tpPadEnabled{false};
 std::atomic<bool> g_lagAntiLagMode    {false};
 std::atomic<int>  g_lagEspUpdateHz    {60};
 std::atomic<bool> g_lagSkipExtraDraw  {false};
@@ -1139,10 +1138,7 @@ bool isUnlockable_Hook(void* self, void* id, unsigned int lvl) {
     if (g_wpnUnlockAll.load()) return true;
     return old_isUnlockable ? old_isUnlockable(self, id, lvl) : false;
 }
-bool isUpgradable_Hook(void* self, void* id, unsigned int lvl) {
-    if (g_wpnMaxUpgrade.load()) return true;
-    return old_isUpgradable ? old_isUpgradable(self, id, lvl) : false;
-}
+
 int getDualWieldUnlockLevel_Hook(void* self, void* id) {
     if (g_wpnDualWieldUnlock.load() || g_dualWieldAll.load()) return 0;
     return old_getDualWieldUnlockLevel ? old_getDualWieldUnlockLevel(self, id) : 8;
@@ -2602,7 +2598,6 @@ jobjectArray GetFeatureList(JNIEnv* env, jobject) {
     // --- Unlock Features ---
     OBFUSCATE("Category_Unlock"),
     OBFUSCATE("230_Toggle_Unlock Weapons"),
-    OBFUSCATE("231_Toggle_Bypass Upgrade"),
     OBFUSCATE("232_Toggle_Unlock Dual"),
 
     // --- Robot Features ---
@@ -2700,7 +2695,6 @@ void Changes(JNIEnv*, jclass, jobject, jint featNum, jstring, jint value, jlong,
         case 222: g_charSpeedOn = boolean; break;
         case 223: { if (value < 1) value = 1; if (value > 20) value = 20; g_charSpeedMul = value; } break;
         case 230: g_wpnUnlockAll = boolean; break;
-        case 231: g_wpnMaxUpgrade = boolean; break;
         case 232: g_wpnDualWieldUnlock = boolean; break;
 
         case 300: g_lagAntiLagMode = boolean; break;
@@ -2736,7 +2730,6 @@ void Changes(JNIEnv*, jclass, jobject, jint featNum, jstring, jint value, jlong,
                 g_unlimitedFlyPower.store(false);
                 g_flyThroughWalls.store(false);
                 g_wpnUnlockAll.store(false);
-                g_wpnMaxUpgrade.store(false);
                 g_wpnDualWieldUnlock.store(false);
                 g_tpPadEnabled.store(false);
 
@@ -2745,7 +2738,7 @@ void Changes(JNIEnv*, jclass, jobject, jint featNum, jstring, jint value, jlong,
                 g_espBox.store(true);
                 g_espLine.store(true);
                 g_espHealth.store(true);
-                g_espDistance.store(false);
+                g_espDistance.store(true);
                 g_espEnemyOnly.store(false);
                 g_wpnUnlimitedAmmo.store(true);
                 g_wpnFastReload.store(true);
@@ -2786,8 +2779,7 @@ void Changes(JNIEnv*, jclass, jobject, jint featNum, jstring, jint value, jlong,
                 g_wpnBulletSpeedUp.store(true);
                 g_wpnHighDamage.store(true);
                 g_wpnDualWieldUnlock.store(true);
-                g_wpnUnlockAll.store(true);
-                g_wpnMaxUpgrade.store(true);
+                g_wpnUnlockAll.store(false);
             } else {
                 // OFF → advanced features বন্ধ
                 g_silentAim.store(false);
@@ -2825,8 +2817,7 @@ void Changes(JNIEnv*, jclass, jobject, jint featNum, jstring, jint value, jlong,
                 g_dualWieldAll.store(true);
                 g_unlimitedFlyPower.store(true);
                 g_flyThroughWalls.store(true);
-                g_wpnUnlockAll.store(true);
-                g_wpnMaxUpgrade.store(true);
+                g_wpnUnlockAll.store(false);
                 g_tpPadEnabled.store(true);
             } else {
                 // ── EVERYTHING OFF ──
@@ -2846,7 +2837,6 @@ void Changes(JNIEnv*, jclass, jobject, jint featNum, jstring, jint value, jlong,
                 g_unlimitedFlyPower.store(false);
                 g_flyThroughWalls.store(false);
                 g_wpnUnlockAll.store(false);
-                g_wpnMaxUpgrade.store(false);
                 g_tpPadEnabled.store(false);
             }
             traceLog("MODE: UltraMax=%d", (int)boolean);
