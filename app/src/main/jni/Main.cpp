@@ -439,7 +439,6 @@ typedef int   (*getRespawnTime_t)(void*);
 typedef int   (*isRespawning_t)(void*);
 typedef void  (*addStaticShape_t)(void*, int, int);
 typedef void  (*addStaticPoly_t)(void*, void*);
-typedef bool  (*isBoundryTile_t)(void*, cpVect);
 
 MgrUpdateRemote_t      old_MgrUpdateRemote      = nullptr;
 MgrUpdateStep_t        old_MgrUpdateStep        = nullptr;
@@ -626,8 +625,6 @@ std::atomic<bool> g_espDistance{false};
 std::atomic<bool> g_espEnemyOnly{false};
 std::atomic<int>  g_espBoxWidth{3};
 std::atomic<int>  g_boxSizeMul{115};
-std::atomic<bool> g_espWeaponCount{true};
-
 std::atomic<bool> g_silentAim   {false};
 std::atomic<bool> g_autoFire    {false};
 std::atomic<bool> g_aimMagnet   {false};
@@ -643,7 +640,6 @@ std::atomic<bool> g_wpnFastReload     {false};
 std::atomic<bool> g_wpnMaxRange       {false};
 std::atomic<bool> g_wpnBulletSpeedUp  {false};
 std::atomic<int>  g_wpnBulletSpeedMul {5};
-std::atomic<bool> g_wpnMaxZoom        {false};
 std::atomic<bool> g_wpnHighDamage     {false};
 std::atomic<int>  g_wpnDamageMul      {5};
 std::atomic<bool> g_wpnNoRecoil       {false};
@@ -657,15 +653,7 @@ std::atomic<bool> g_wpnDualWieldUnlock{false};
 
 std::atomic<bool> g_dualWieldAll      {false};
 std::atomic<bool> g_unlimitedFlyPower {false};
-std::atomic<bool> g_anyGunAsBomb      {false};
-std::atomic<bool> g_anyBombAsGas      {false};
-std::atomic<bool> g_anyGunAsGasGun    {false};
-std::atomic<bool> g_anyGunAsRocket    {false};
-std::atomic<bool> g_anyGunAsLaser     {false};
 std::atomic<bool> g_flyThroughWalls   {false};
-std::atomic<bool> g_bulletThroughWalls{false};
-std::atomic<bool> g_respawnTimeMod    {false};
-
 
 std::atomic<bool>  g_teleportActive{false};
 std::atomic<float> g_teleportX{0.f};
@@ -674,8 +662,6 @@ std::atomic<bool>  g_teleportFollowAim{false};
 static std::atomic<float> g_lastSafeX{0.f};
 static std::atomic<float> g_lastSafeY{0.f};
 static std::atomic<bool>  g_lastSafeValid{false};
-
-
 std::atomic<bool>  g_tpPadEnabled{false};   // feature toggle
 std::atomic<bool> g_lagAntiLagMode    {false};
 std::atomic<int>  g_lagEspUpdateHz    {60};
@@ -1003,19 +989,17 @@ static void BuildSnapshots() {
     }
     { std::lock_guard<std::mutex> lock(g_soldierMutex); g_soldierSnapshots.swap(newSnaps); }
 }
-bool isCollisionTile_Hook(void* self, cpVect pos) {
-    if (g_mapManagerInstance.load() == nullptr) g_mapManagerInstance.store(self);
-    if (g_flyThroughWalls.load()) return false;
-    if (g_bulletThroughWalls.load() && tls_bulletRaycast) return false;
-    if (g_tpPadEnabled.load()) return false;   // ★ শুধু Teleport
-    return old_isCollisionTile ? old_isCollisionTile(self, pos) : false;
-}
 bool mapCollision_Hook(void* self, cpVect pos) {
     if (g_mapManagerInstance.load() == nullptr) g_mapManagerInstance.store(self);
     if (g_flyThroughWalls.load()) return false;
-    if (g_bulletThroughWalls.load() && tls_bulletRaycast) return false;
-    if (g_tpPadEnabled.load()) return false;   // ★ শুধু Teleport   // ★ ADD
+    if (g_tpPadEnabled.load()) return false;
     return old_mapCollision ? old_mapCollision(self, pos) : false;
+}
+bool isCollisionTile_Hook(void* self, cpVect pos) {
+    if (g_mapManagerInstance.load() == nullptr) g_mapManagerInstance.store(self);
+    if (g_flyThroughWalls.load()) return false;
+    if (g_tpPadEnabled.load()) return false;
+    return old_isCollisionTile ? old_isCollisionTile(self, pos) : false;
 }
 bool isBoundryTile_Hook(void* self, cpVect pos) {
     if (g_mapManagerInstance.load() == nullptr) g_mapManagerInstance.store(self);
@@ -1039,20 +1023,10 @@ void setThrust_Hook(void* self, bool value) {
     if (old_setThrust) old_setThrust(self, value);
 }
 
-// ==================================================================
-// Effects hooks
-// ==================================================================
+
 void addExplosionAt_Hook(void* self, cpVect pos, float radius, void* str, int teamId, bool flag) {
     if (old_addExplosionAt) old_addExplosionAt(self, pos, radius, str, teamId, flag);
-    if (g_anyBombAsGas.load() && fn_addGasCloudAt && PlausiblePtr(self)) {
-        if (GUARD_ENTER()) { GUARD_SET(); fn_addGasCloudAt(self, pos, radius, str, teamId); GUARD_CLR(); }
-        else GUARD_CLR();
-    }
 }
-
-// ==================================================================
-// Weapon hooks
-// ==================================================================
 int getRoundsPerFire_Hook(void* self) {
     if (g_wpnMultiShot.load()) {
         int n = g_wpnBulletsPerFire.load();
@@ -1143,24 +1117,18 @@ int getDualWieldUnlockLevel_Hook(void* self, void* id) {
     return old_getDualWieldUnlockLevel ? old_getDualWieldUnlockLevel(self, id) : 8;
 }
 
-// ==================================================================
-// Respawn
-// ==================================================================
+
 void MgrRespawnPlayer_Hook(void* self) {
     if (old_MgrRespawnPlayer) old_MgrRespawnPlayer(self);
 }
 int getRespawnTime_Hook(void* self) {
-    if (g_respawnTimeMod.load()) return 0;
     return old_getRespawnTime ? old_getRespawnTime(self) : 5;
 }
 int isRespawning_Hook(void* self) {
-    if (g_respawnTimeMod.load()) return 0;
     return old_isRespawning ? old_isRespawning(self) : 0;
 }
 
-// ==================================================================
-// Local update
-// ==================================================================
+
 void soldierLocalUpdateStep_Hook(void* self, float dt, cpVect a, cpVect b, float c) {
     if (!PlausiblePtr(self)) {
         if (old_soldierLocalUpdateStep) old_soldierLocalUpdateStep(self, dt, a, b, c);
@@ -1574,70 +1542,8 @@ void addBullet_Hook(void* self, cpVect pos, float rot, cpVect vel,
             targetPos.x = (double)tx; targetPos.y = (double)ty;
         }
     }
-    bool isMine = IsLocalPlayerWeapon(weapon) || IsFiredByLocalPlayer(pos);
-    void* local = g_localInstance.load();
-    int teamId = PlausiblePtr(local) ? SafeGetTeamId(local) : 0;
-
-    if (isMine && g_anyGunAsRocket.load() && fn_addRocket) {
-        if (GUARD_ENTER()) { GUARD_SET(); fn_addRocket(self, pos, rot, vel, weapon, false, strPtr); GUARD_CLR(); }
-        else GUARD_CLR();
-        return;
-    }
-    if (isMine && g_anyGunAsBomb.load() && fn_addGrenade) {
-        if (GUARD_ENTER()) { GUARD_SET(); fn_addGrenade(self, pos, rot, vel, false, strPtr, teamId); GUARD_CLR(); }
-        else GUARD_CLR();
-        return;
-    }
-    if (isMine && g_anyGunAsGasGun.load() && fn_addGasCloudAt) {
-        bool setHint = g_bulletThroughWalls.load();
-        if (setHint) tls_bulletRaycast = 1;
-        if (old_addBullet) old_addBullet(self, pos, rot, vel, weapon, ammoType, targetPos, strPtr);
-        if (setHint) tls_bulletRaycast = 0;
-        cpVect gpos = targetPos;
-        if (fabs(gpos.x) < 0.01 && fabs(gpos.y) < 0.01) {
-            gpos.x = pos.x + vel.x * 0.1;
-            gpos.y = pos.y + vel.y * 0.1;
-        }
-        if (GUARD_ENTER()) { GUARD_SET(); fn_addGasCloudAt(self, gpos, 130.0f, strPtr, teamId); GUARD_CLR(); }
-        else GUARD_CLR();
-        return;
-    }
-    if (isMine && g_anyGunAsLaser.load()) {
-        vel.x *= 20.0; vel.y *= 20.0;
-        bool setHint = g_bulletThroughWalls.load();
-        if (setHint) tls_bulletRaycast = 1;
-        if (old_addBullet) old_addBullet(self, pos, rot, vel, weapon, ammoType, targetPos, strPtr);
-        if (setHint) tls_bulletRaycast = 0;
-        return;
-    }
-    bool setHint = g_bulletThroughWalls.load();
-    if (setHint) tls_bulletRaycast = 1;
+    
     if (old_addBullet) old_addBullet(self, pos, rot, vel, weapon, ammoType, targetPos, strPtr);
-    if (setHint) tls_bulletRaycast = 0;
-}
-
-float getRandomFiringAngle_Hook(void* self) {
-    if (g_wpnNoRecoil.load()) return 0.0f;
-    if (g_silentAim.load()) return 0.0f;
-    return old_getRandomFiringAngle ? old_getRandomFiringAngle(self) : 0.0f;
-}
-int getRange_Hook(void* self) {
-    if (g_wpnMaxRange.load()) return 999999;
-    if ((g_silentAim.load() || g_autoFire.load()) && g_rangeBoost.load()) return 999999;
-    return old_getRange ? old_getRange(self) : 5000;
-}
-int getBulletSpeed_Hook(void* self) {
-    int orig = old_getBulletSpeed ? old_getBulletSpeed(self) : 800;
-    if (g_silentAim.load()) return orig;
-    int mul = g_weaponSpeedMul.load();
-    if (g_wpnBulletSpeedUp.load()) { int wmul = g_wpnBulletSpeedMul.load(); if (wmul > mul) mul = wmul; }
-    if (mul < 1) mul = 1; if (mul > 20) mul = 20;
-    if (orig > 50 && orig < 100000) {
-        long long boosted = (long long)orig * (long long)mul;
-        if (boosted > 100000) boosted = 100000;
-        return (int)boosted;
-    }
-    return orig;
 }
 void Joypad_getDirVector_Hook(cpVect* ret, void* self) {
     if (old_Joypad_getDirVector) old_Joypad_getDirVector(ret, self);
@@ -1933,17 +1839,9 @@ void MgrUpdateStep_Hook(void* self, float dt) {
             RefreshSoldierData(local);
         }
     }
-    if (g_respawnTimeMod.load() && g_localDead.load() && old_MgrSpawnPlayer && PlausiblePtr(self)) {
-        uint64_t now = NowMs();
-        uint64_t last = g_lastForceRespawnMs.load();
-        if (now - last > 500) {
-            g_lastForceRespawnMs.store(now);
-            if (GUARD_ENTER()) { GUARD_SET(); old_MgrSpawnPlayer(self); GUARD_CLR(); }
-            else GUARD_CLR();
-        }
-    }
     if (old_MgrUpdateStep) old_MgrUpdateStep(self, dt);
 }
+    
 void MgrSpawnPlayer_Hook(void* self) {
     if (PlausiblePtr(self) && IsModActive() && fn_getLocalController) {
         void* local = nullptr;
@@ -2575,225 +2473,116 @@ if (!std::isfinite(designH) || designH < 10.f) designH = (float)sh;
                 env->DeleteLocalRef(jn);
             }
         }
-        if (g_espWeaponCount.load() && s.weaponCount > 0) {
-            char wbuf[10];
-            snprintf(wbuf, sizeof(wbuf), "x%d", s.weaponCount);
-            jstring jw = env->NewStringUTF(wbuf);
-            if (jw) {
-                const float fontSize = 26.0f;
-                float estW = strlen(wbuf) * fontSize * 0.58f;
-                float wx = boxLeft + boxW * 0.5f - estW * 0.5f;
-                float wy = boxTop - 6.f;
-                int wr, wg, wb;
-                if (s.weaponCount >= 2) { wr = 0;   wg = 255; wb = 100; }
-                else                    { wr = 255; wg = 200; wb = 0;   }
-                env->CallVoidMethod(espView, g_espDrawText, canvas, jw, wx, wy,
-                                    255, wr, wg, wb, fontSize);
-                env->DeleteLocalRef(jw);
-            }
-        }
+        
     }
 }
 
-// ==================================================================
-// Mod Registry
-// ==================================================================
+
 enum {
-    M_WPN_NO_BULLET_SPREAD = 0, M_WPN_HIDE_WEAPONS,
-    M_WPN_HIGH_MELEE_DMG, M_WPN_HIGH_MELEE_LEN,
-    M_SPR_AK47, M_SPR_M16, M_SPR_MINIGUN, M_SPR_EMP, M_SPR_RG6, M_SPR_M14,
-    M_SPR_MAGNUM, M_SPR_MP5, M_SPR_TAVOR, M_SPR_TEC9, M_SPR_AA12,
-    M_SPR_HUNTING, M_SPR_SAWGUN, M_SPR_SMAW, M_SPR_XM8, M_SPR_PHASR, M_SPR_DEAGLE,
+    M_WPN_HIGH_MELEE_DMG = 0, M_WPN_HIGH_MELEE_LEN,
     M_ENM_REMOVE_ROBOT, M_ENM_ROBOTS_CANT_SEE,
-    M_ENM_DIE_GUNS_ONLY1, M_ENM_DIE_GUNS_ONLY2, M_ENM_DIE_GUNS_ONLY3,
-    M_ENM_HIDE_PROXY, M_ENM_ENDLESS_PROXY, M_ENM_ATTACH_PROXY,
-    M_ENM_INFINITE_PROXY_THROW, M_ENM_ENDLESS_SAW, M_ENM_SAW_DAMAGE_REMOVE,
     M_MOD_COUNT
 };
 static void RegisterAllMods() {
     static bool done = false; if (done) return; done = true;
-    RegisterMod(OBFUSCATE("Weapon_NoBulletSpread"),   Off::Weapon_getRandomFiringAngle,    OBFUSCATE("00 00 A0 E3 1E FF 2F E1"));
-    RegisterMod(OBFUSCATE("Weapon_HideWeapons"),      Off::NetworkManager_sendWeaponChange,OBFUSCATE("1E FF 2F E1"));
     RegisterMod(OBFUSCATE("Weapon_HighMeleeDamage"),  Off::Weapon_getMeleeDamage,          OBFUSCATE("E7 03 00 E3 1E FF 2F E1"));
-    RegisterMod(OBFUSCATE("Weapon_HighMeleeLength"),  Off::Weapon_getMeleeLength,          OBFUSCATE("E7 03 00 E3 1E FF 2F E1"));
-    RegisterMod(OBFUSCATE("Spray_AK47"),    Off::AK47_triggerPull,    OBFUSCATE("1E FF 2F E1"));
-    RegisterMod(OBFUSCATE("Spray_M16"),     Off::M16_triggerPull,     OBFUSCATE("1E FF 2F E1"));
-    RegisterMod(OBFUSCATE("Spray_MiniGun"), Off::MINIGUN_triggerPull, OBFUSCATE("1E FF 2F E1"));
-    RegisterMod(OBFUSCATE("Spray_EMP"),     Off::EMP_triggerPull,     OBFUSCATE("1E FF 2F E1"));
-    RegisterMod(OBFUSCATE("Spray_RG6"),     Off::RG6_triggerPull,     OBFUSCATE("1E FF 2F E1"));
-    RegisterMod(OBFUSCATE("Spray_M14"),     Off::M14_triggerPull,     OBFUSCATE("1E FF 2F E1"));
-    RegisterMod(OBFUSCATE("Spray_Magnum"),  Off::MAGNUM_triggerPull,  OBFUSCATE("1E FF 2F E1"));
-    RegisterMod(OBFUSCATE("Spray_MP5"),     Off::MP5_triggerPull,     OBFUSCATE("1E FF 2F E1"));
-    RegisterMod(OBFUSCATE("Spray_TAVOR"),   Off::TAVOR_triggerPull,   OBFUSCATE("1E FF 2F E1"));
-    RegisterMod(OBFUSCATE("Spray_TEC9"),    Off::TEC9_triggerPull,    OBFUSCATE("1E FF 2F E1"));
-    RegisterMod(OBFUSCATE("Spray_AA12"),    Off::AA12_triggerPull,    OBFUSCATE("1E FF 2F E1"));
-    RegisterMod(OBFUSCATE("Spray_Hunting"), Off::HUNTING_triggerPull, OBFUSCATE("1E FF 2F E1"));
-    RegisterMod(OBFUSCATE("Spray_SAWGun"),  Off::SAWGUN_triggerPull,  OBFUSCATE("1E FF 2F E1"));
-    RegisterMod(OBFUSCATE("Spray_SMAW"),    Off::SMAW_triggerPull,    OBFUSCATE("1E FF 2F E1"));
-    RegisterMod(OBFUSCATE("Spray_XM8"),     Off::XM8_triggerPull,     OBFUSCATE("1E FF 2F E1"));
-    RegisterMod(OBFUSCATE("Spray_PHASR"),   Off::PHASR_triggerPull,   OBFUSCATE("1E FF 2F E1"));
-    RegisterMod(OBFUSCATE("Spray_DEAGLE"),  Off::DEAGLE_triggerPull,  OBFUSCATE("1E FF 2F E1"));
+    RegisterMod(OBFUSCATE("Weapon_HighMeleeLength"),  Off::Weapon_getMeleeLength,          OBFUSCATE("E7 03 00 E3 1E FF 2F E1")); 
     RegisterMod(OBFUSCATE("Enemy_RemoveRobot"),       Off::HumanoidDrone_updateStep, OBFUSCATE("1E FF 2F E1"));
     RegisterMod(OBFUSCATE("Enemy_RobotsCantSee"),     Off::Enemy_canSeeTarget,       OBFUSCATE("00 00 A0 E3 1E FF 2F E1"));
-    RegisterMod(OBFUSCATE("Enemy_DieByGunsOnly1"),    Off::Explosion_applyDamage,    OBFUSCATE("1E FF 2F E1"));
-    RegisterMod(OBFUSCATE("Enemy_DieByGunsOnly2"),    Off::GasCloud_applyDamage,     OBFUSCATE("1E FF 2F E1"));
-    RegisterMod(OBFUSCATE("Enemy_DieByGunsOnly3"),    Off::PlasmaBall_applyDamage,   OBFUSCATE("1E FF 2F E1"));
-    RegisterMod(OBFUSCATE("Enemy_HideFromProxy"),     Off::ProxyMine_updateStep,     OBFUSCATE("1E FF 2F E1"));
-    RegisterMod(OBFUSCATE("Enemy_EndlessProxy"),      Off::ProxyMine_reset,          OBFUSCATE("00 00 A0 E1"));
-    RegisterMod(OBFUSCATE("Enemy_AttachProxy"),       Off::ProxyMine_reset,          OBFUSCATE("00 00 A0 E1"));
-    RegisterMod(OBFUSCATE("Enemy_InfiniteProxyThrow"),Off::ProxyMine_reset,          OBFUSCATE("00 00 A0 E1"));
-    RegisterMod(OBFUSCATE("Enemy_EndlessSaw"),        Off::SAW_updateItemStep,       OBFUSCATE("00 00 A0 E1"));
-    RegisterMod(OBFUSCATE("Enemy_SawDamageRemove"),   Off::SAW_checkMapCollision,    OBFUSCATE("00 00 A0 E3 1E FF 2F E1"));
-        RegisterMod(OBFUSCATE("Enemy_SawDamageRemove"),   Off::SAW_checkMapCollision,    OBFUSCATE("00 00 A0 E3 1E FF 2F E1"));
-    
     
 }
 static int ModIdxForFeature(int feat) {
-    if (feat >= 400 && feat <= 436) {
-        static const int map[37] = {
-            M_WPN_NO_BULLET_SPREAD, -1, M_WPN_HIDE_WEAPONS, -1, -1, -1,
-            M_WPN_HIGH_MELEE_DMG, M_WPN_HIGH_MELEE_LEN, -1, -1,
-            -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
-            M_SPR_AK47, M_SPR_M16, M_SPR_MINIGUN, M_SPR_EMP, M_SPR_RG6,
-            M_SPR_M14, M_SPR_MAGNUM, M_SPR_MP5, M_SPR_TAVOR, M_SPR_TEC9,
-            M_SPR_AA12, M_SPR_HUNTING, M_SPR_SAWGUN, M_SPR_SMAW,
-            M_SPR_XM8, M_SPR_PHASR, M_SPR_DEAGLE
-        };
-        return map[feat - 400];
+    switch (feat) {
+        case 406: return M_WPN_HIGH_MELEE_DMG;
+        case 407: return M_WPN_HIGH_MELEE_LEN;
+        case 601: return M_ENM_REMOVE_ROBOT;
+        case 602: return M_ENM_ROBOTS_CANT_SEE;
+        default:  return -1;
     }
-    if (feat >= 600 && feat <= 612) {
-        static const int map[13] = {
-            -1, M_ENM_REMOVE_ROBOT, M_ENM_ROBOTS_CANT_SEE,
-            M_ENM_DIE_GUNS_ONLY1, M_ENM_DIE_GUNS_ONLY2, M_ENM_DIE_GUNS_ONLY3,
-            -1, M_ENM_HIDE_PROXY, M_ENM_ENDLESS_PROXY, M_ENM_ATTACH_PROXY,
-            M_ENM_INFINITE_PROXY_THROW, M_ENM_ENDLESS_SAW, M_ENM_SAW_DAMAGE_REMOVE
-        };
-        return map[feat - 600];
-    }
-    return -1;
 }
-
-// ==================================================================
-// Menu
-// ==================================================================
 jobjectArray GetFeatureList(JNIEnv* env, jobject) {
     RegisterAllMods();
     jobjectArray ret;
     const char* features[] = {
-        OBFUSCATE("Category_Main"),
-        OBFUSCATE("10_ButtonOnOff_Max Level"),
-        OBFUSCATE("20_ButtonOnOff_No Local Damage"),
 
-        OBFUSCATE("Category_ESP"),
-        OBFUSCATE("100_Toggle_ESP Enable"),
-        OBFUSCATE("101_Toggle_ESP Box"),
-        OBFUSCATE("102_Toggle_ESP Line"),
-        OBFUSCATE("103_Toggle_ESP Health Bar"),
-        OBFUSCATE("104_Toggle_ESP Distance"),
-        OBFUSCATE("105_Toggle_ESP Enemy Only"),
-        OBFUSCATE("106_SeekBar_Box & Line Thickness_1_10"),
-        OBFUSCATE("107_SeekBar_Box Size %_85_150"),
-        OBFUSCATE("108_ColorPicker_ESP Color_#00FF88"),
-        OBFUSCATE("130_Toggle_Show Weapon Count (x1/x2)"),
+    // --- Player Features ---
+    OBFUSCATE("Category_Player"),
+    OBFUSCATE("10_ButtonOnOff_Max Level"),
+    OBFUSCATE("20_ButtonOnOff_God Mode"), // Renamed from No Local Damage
+    OBFUSCATE("222_Toggle_Fly Speed Hack"), // Moved from Extras
+    OBFUSCATE("223_SeekBar_Speed Multiplier_1_20"), 
 
-        OBFUSCATE("Category_Aim"),
-        OBFUSCATE("109_Toggle_Silent Aim"),
-        OBFUSCATE("111_Toggle_Auto Fire"),
-        OBFUSCATE("113_Toggle_Extended Range"),
-        OBFUSCATE("115_SeekBar_Weapon Speed (x1-x20)_1_20"),
-        OBFUSCATE("116_Toggle_Aim Magnet"),
-        OBFUSCATE("120_Toggle_Draw FOV Circle"),
-        OBFUSCATE("121_SeekBar_FOV Size (px)_60_350"),
+    // --- Weapon Features ---
+    OBFUSCATE("Category_Weapon"),
+    OBFUSCATE("200_Toggle_Unlimited Ammo"),
+    OBFUSCATE("201_Toggle_Multi Shot"),
+    OBFUSCATE("202_SeekBar_Bullet Per Fire_1_30"),
+    OBFUSCATE("203_Toggle_Fast Reload"),
+    OBFUSCATE("204_Toggle_Max Range"),
+    OBFUSCATE("205_Toggle_Bullet Speed Boost"),
+    OBFUSCATE("206_SeekBar_Bullet Speed Multiplier_1_20"),
+    OBFUSCATE("207_Toggle_Pick Gun Dual"),
+    OBFUSCATE("209_Toggle_High Damage"),
+    OBFUSCATE("210_SeekBar_Damage Multiplier_1_20"),
+    OBFUSCATE("211_Toggle_No Recoil"),
+    OBFUSCATE("406_Toggle_High Damage Melee"),
+    OBFUSCATE("407_Toggle_High Melee Length"),
 
-                OBFUSCATE("Category_Teleport"),
-        OBFUSCATE("710_Toggle_Enable Teleport"),
-        OBFUSCATE("713_TeleportPadWidget_"),
+    // --- Aim Features ---
+    OBFUSCATE("Category_Aim"),
+    OBFUSCATE("109_Toggle_Silent Aim"),
+    OBFUSCATE("111_Toggle_Auto Fire"),
+    OBFUSCATE("116_Toggle_Aim Magnet"),
+    OBFUSCATE("120_Toggle_Show FOV"),
+    OBFUSCATE("121_SeekBar_FOV Size_60_350"),
 
-        OBFUSCATE("Category_Weapon"),
-        OBFUSCATE("200_Toggle_Unlimited Ammo (9999)"),
-        OBFUSCATE("201_Toggle_Multi Shot"),
-        OBFUSCATE("202_SeekBar_Bullets Per Fire_1_30"),
-        OBFUSCATE("203_Toggle_Instant Reload"),
-        OBFUSCATE("204_Toggle_Max Range (Infinite)"),
-        OBFUSCATE("205_Toggle_Bullet Speed Boost"),
-        OBFUSCATE("206_SeekBar_Bullet Speed Multiplier_1_20"),
-        OBFUSCATE("207_Toggle_Any Gun Can Be Picked As Dual"),
-        OBFUSCATE("208_Toggle_Max Zoom (Built-in)"),
-        OBFUSCATE("209_Toggle_High Damage"),
-        OBFUSCATE("210_SeekBar_Damage Multiplier_1_20"),
-        OBFUSCATE("211_Toggle_No Recoil / Zero Spread"),
+    // --- ESP / Visuals ---
+    OBFUSCATE("Category_ESP"),
+    OBFUSCATE("100_Toggle_Enable ESP"),
+    OBFUSCATE("101_Toggle_Draw Box"),
+    OBFUSCATE("102_Toggle_Draw Line"),
+    OBFUSCATE("103_Toggle_Show Health"),
+    OBFUSCATE("104_Toggle_Show Distance"),
+    OBFUSCATE("105_Toggle_Enemy Only"),
+    OBFUSCATE("106_SeekBar_Line Thickness_1_10"),
+    OBFUSCATE("107_SeekBar_Box Size_85_150"),
+    OBFUSCATE("108_ColorPicker_ESP Color_#00FF88"),
 
-        OBFUSCATE("Category_Flight"),
-        OBFUSCATE("500_Toggle_Unlimited Flying Power"),
-        OBFUSCATE("502_Toggle_Fly Through Walls"),
+    // --- Camera & View ---
+    OBFUSCATE("Category_Camera"),
+    OBFUSCATE("221_Toggle_Custom Zoom"),
+    OBFUSCATE("224_SeekBar_Zoom Level_1_11"),
 
-        OBFUSCATE("Category_Gun Modes"),
-        OBFUSCATE("411_Toggle_Any Gun As Bomb (Grenade AoE)"),
-        OBFUSCATE("412_Toggle_Any Gun As Gas (Cloud)"),
-        OBFUSCATE("413_Toggle_Any Gun As Rocket"),
-        OBFUSCATE("414_Toggle_Any Gun As Laser"),
-        OBFUSCATE("606_Toggle_Any Bomb As Gas"),
-        OBFUSCATE("410_Toggle_Bullet Through Walls"),
+    // --- Flight Features ---
+    OBFUSCATE("Category_Flight"),
+    OBFUSCATE("500_Toggle_Unlimited Flying Power"),
+    OBFUSCATE("502_Toggle_Fly Through Walls"),
 
-        OBFUSCATE("Category_Player"),
-        OBFUSCATE("510_Toggle_Respawn Time Mod (Instant)"),
-        
+    // --- Teleport Features ---
+    OBFUSCATE("Category_Teleport"),
+    OBFUSCATE("710_Toggle_Enable Teleport"),
+    OBFUSCATE("713_TeleportPadWidget_"),
 
-        OBFUSCATE("Category_Weapon Extras"),
-        OBFUSCATE("221_Toggle_Enable Custom Zoom"),
-        OBFUSCATE("224_SeekBar_Custom Zoom Level (1x-11x)_1_11"),
-        OBFUSCATE("222_Toggle_Character Speed Boost"),
-        OBFUSCATE("223_SeekBar_Character Speed Multiplier_1_20"),
-        OBFUSCATE("230_Toggle_Unlock All Weapons"),
-        OBFUSCATE("231_Toggle_Max Upgrade Level Bypass"),
-        OBFUSCATE("232_Toggle_Dual Wield Unlock (No Level Req)"),
+    // --- Unlock Features ---
+    OBFUSCATE("Category_Unlock"),
+    OBFUSCATE("230_Toggle_Unlock Weapons"),
+    OBFUSCATE("231_Toggle_Bypass Upgrade"),
+    OBFUSCATE("232_Toggle_Unlock Dual"),
 
-        OBFUSCATE("Category_Weapon Mods"),
-        OBFUSCATE("400_Toggle_No Bullet Spread"),
-        OBFUSCATE("402_Toggle_Hide Your Weapons"),
-        OBFUSCATE("406_Toggle_High Damage Melee"),
-        OBFUSCATE("407_Toggle_High Melee Length"),
+    // --- Robot Features ---
+    OBFUSCATE("Category_Robots"),
+    OBFUSCATE("601_Toggle_Remove Robots"),
+    OBFUSCATE("602_Toggle_Blind Robots"),
 
-        OBFUSCATE("Category_Weapon Sprayers"),
-        OBFUSCATE("420_Toggle_AK47 Sprayer"),
-        OBFUSCATE("421_Toggle_M16 Sprayer"),
-        OBFUSCATE("422_Toggle_MiniGun Sprayer"),
-        OBFUSCATE("423_Toggle_EMP Sprayer"),
-        OBFUSCATE("424_Toggle_RG6 (Mortar) Sprayer"),
-        OBFUSCATE("425_Toggle_M14 Sprayer"),
-        OBFUSCATE("426_Toggle_Magnum Sprayer"),
-        OBFUSCATE("427_Toggle_MP5 Sprayer"),
-        OBFUSCATE("428_Toggle_TAVOR Sprayer"),
-        OBFUSCATE("429_Toggle_TEC9 Sprayer"),
-        OBFUSCATE("430_Toggle_AA12 Sprayer"),
-        OBFUSCATE("431_Toggle_HuntingPistol Sprayer"),
-        OBFUSCATE("432_Toggle_SAWGun Sprayer"),
-        OBFUSCATE("433_Toggle_SMAW Sprayer"),
-        OBFUSCATE("434_Toggle_XM8 Sprayer"),
-        OBFUSCATE("435_Toggle_PHASR Sprayer"),
-        OBFUSCATE("436_Toggle_DEAGLE Sprayer"),
-
-        OBFUSCATE("Category_Enemy / Robot"),
-        OBFUSCATE("601_Toggle_Remove Robot"),
-        OBFUSCATE("602_Toggle_Robots Can't See"),
-        OBFUSCATE("603_Toggle_Die By Guns Only 1"),
-        OBFUSCATE("604_Toggle_Die By Guns Only 2"),
-        OBFUSCATE("605_Toggle_Die By Guns Only 3"),
-        OBFUSCATE("607_Toggle_Hide From Proxy"),
-        OBFUSCATE("608_Toggle_Endless Proxy"),
-        OBFUSCATE("609_Toggle_Attach Proxy"),
-        OBFUSCATE("610_Toggle_Infinite Proxy Throw"),
-        OBFUSCATE("611_Toggle_Endless Saw"),
-        OBFUSCATE("612_Toggle_Saw Damage Remove"),
-
-        OBFUSCATE("Category_Performance"),
-        OBFUSCATE("300_Toggle_Anti-Lag Mode (30Hz ESP)"),
-        OBFUSCATE("301_SeekBar_ESP Update Rate (Hz)_10_60"),
-        OBFUSCATE("302_Toggle_Skip Extra Draw (HP/Distance)"),
-        OBFUSCATE("303_Toggle_Throttle Aim Search"),
-        OBFUSCATE("306_Toggle_Low-End Mode (All Performance)"),
-        OBFUSCATE("307_Button_Reset Performance Defaults")
-    };
+    // --- Performance Optimization ---
+    OBFUSCATE("Category_Performance"),
+    OBFUSCATE("300_Toggle_Anti-Lag Mode (30Hz ESP)"),
+    OBFUSCATE("301_SeekBar_ESP Update Rate (Hz)_10_60"),
+    OBFUSCATE("302_Toggle_Skip Extra Draw (HP/Distance)"),
+    OBFUSCATE("303_Toggle_Throttle Aim Search"),
+    OBFUSCATE("306_Toggle_Low-End Mode (All Performance)"),
+    OBFUSCATE("307_Button_Reset Performance Defaults")
+};
     int n = (int)(sizeof features / sizeof features[0]);
     ret = (jobjectArray) env->NewObjectArray(n,
         env->FindClass(OBFUSCATE("java/lang/String")), env->NewStringUTF(""));
@@ -2830,8 +2619,6 @@ void Changes(JNIEnv*, jclass, jobject, jint featNum, jstring, jint value, jlong,
         case 106: { if (value < 1) value = 1; if (value > 10) value = 10; g_espBoxWidth = value; } break;
         case 107: g_boxSizeMul = value; break;
         case 108: g_espColorArgb.store((unsigned int)value); RecomputeSkyColors(); break;
-        case 130: g_espWeaponCount = boolean; break;
-
         case 109:
             g_silentAim = boolean;
             if (boolean) RefreshDesignSize();
@@ -2866,24 +2653,12 @@ void Changes(JNIEnv*, jclass, jobject, jint featNum, jstring, jint value, jlong,
         case 204: g_wpnMaxRange = boolean; break;
         case 205: g_wpnBulletSpeedUp = boolean; break;
         case 206: { if (value < 1) value = 1; if (value > 20) value = 20; g_wpnBulletSpeedMul = value; } break;
-        case 207: g_dualWieldAll = boolean; traceLog("DUAL prompt toggle = %d", (int)boolean); break;
-        case 208: g_wpnMaxZoom = boolean; break;
+        case 207: g_dualWieldAll = boolean; traceLog("DUAL prompt toggle = %d", (int)boolean); break;     
         case 209: g_wpnHighDamage = boolean; break;
         case 210: { if (value < 1) value = 1; if (value > 20) value = 20; g_wpnDamageMul = value; } break;
         case 211: g_wpnNoRecoil = boolean; break;
-
         case 500: g_unlimitedFlyPower = boolean; break;
-        case 502: g_flyThroughWalls = boolean; traceLog("WALLS toggle = %d", (int)boolean); break;
-
-        case 411: g_anyGunAsBomb = boolean;    traceLog("GUNMODE bomb=%d",    (int)boolean); break;
-        case 412: g_anyGunAsGasGun = boolean;  traceLog("GUNMODE gas=%d",     (int)boolean); break;
-        case 413: g_anyGunAsRocket = boolean;  traceLog("GUNMODE rocket=%d",  (int)boolean); break;
-        case 414: g_anyGunAsLaser = boolean;   traceLog("GUNMODE laser=%d",   (int)boolean); break;
-        case 606: g_anyBombAsGas = boolean; break;
-        case 410: g_bulletThroughWalls = boolean; break;
-
-        case 510: g_respawnTimeMod = boolean; break;
-        
+        case 502: g_flyThroughWalls = boolean; traceLog("WALLS toggle = %d", (int)boolean); break;  
         case 221: g_wpnZoomSelect = boolean; break;
         case 224: { if (value < 1) value = 1; if (value > 11) value = 11; g_wpnZoomLevel = value; } break;
         case 222: g_charSpeedOn = boolean; break;
