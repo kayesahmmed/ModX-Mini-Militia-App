@@ -466,8 +466,6 @@ setZoomLevel_t         old_setZoomLevel         = nullptr;
 applyMaxZoomScale_t    old_applyMaxZoomScale    = nullptr;
 getDamage_w_t          old_getDamage_w          = nullptr;
 getZoomScale_t         old_getZoomScale         = nullptr;
-isUnlockable_t              old_isUnlockable              = nullptr;
-isUpgradable_t              old_isUpgradable              = nullptr;
 getDualWieldUnlockLevel_t   old_getDualWieldUnlockLevel   = nullptr;
 soldierLocalUpdateStep_t    old_soldierLocalUpdateStep    = nullptr;
 getMaxPower_t               old_getMaxPower               = nullptr;
@@ -2469,13 +2467,45 @@ jobjectArray GetFeatureList(JNIEnv* env, jobject) {
     OBFUSCATE("800_ButtonOnOff_Simple Mode"),
     OBFUSCATE("801_ButtonOnOff_Max Mode"),
     OBFUSCATE("802_ButtonOnOff_Ultra Max Mode"),
+    OBFUSCATE("803_ButtonOnOff_None"),
+    OBFUSCATE("RichTextView_<b><font color='#3DDB87'>Simple Mode:</font></b> ESP, Unlimited Ammo, Fast Reload, No Recoil"),
+    OBFUSCATE("RichTextView_<b><font color='#3DDB87'>Max Mode:</font></b> Simple Mode + Silent Aim, Auto Fire, Aim Magnet, Multi Shot, Max Range, Bullet Speed, High Damage, Unlock Dual"),
+    OBFUSCATE("RichTextView_<b><font color='#3DDB87'>Ultra Max Mode:</font></b> Max Mode + Pick Gun Dual, Unlimited Fly Power, Fly Through Walls, Teleport"),
+    OBFUSCATE("RichTextView_<b><font color='#3DDB87'>None:</font></b> Turn OFF all modes and reset every feature to default"),
+    
 
     // --- Player Features ---
     OBFUSCATE("Category_Player"),
     OBFUSCATE("10_ButtonOnOff_Max Level"),
     OBFUSCATE("20_ButtonOnOff_God Mode"), // Renamed from No Local Damage
-    OBFUSCATE("222_Toggle_Fly Speed Hack"), // Moved from Extras
+    OBFUSCATE("222_Toggle_Fly Speed Hack"),
     OBFUSCATE("223_SeekBar_Speed Multiplier_1_20"), 
+    
+    
+        // --- ESP / Visuals ---
+    OBFUSCATE("Category_ESP"),
+    OBFUSCATE("100_Toggle_Enable ESP"),
+    OBFUSCATE("101_Toggle_Draw Box"),
+    OBFUSCATE("102_Toggle_Draw Line"),
+    OBFUSCATE("103_Toggle_Show Health"),
+    OBFUSCATE("104_Toggle_Show Distance"),
+    OBFUSCATE("105_Toggle_Enemy Only"),
+    OBFUSCATE("106_SeekBar_Line Thickness_1_10"),
+    OBFUSCATE("107_SeekBar_Box Size_85_150"),
+    OBFUSCATE("108_ColorPicker_ESP Color_#00FF88"),
+    
+        // --- Aim Features ---
+    OBFUSCATE("Category_Aim"),
+    OBFUSCATE("109_Toggle_Silent Aim"),
+    OBFUSCATE("111_Toggle_Auto Fire"),
+    OBFUSCATE("116_Toggle_Aim Magnet"),
+    OBFUSCATE("120_Toggle_Show FOV"),
+    OBFUSCATE("121_SeekBar_FOV Size_60_350"),
+    
+        // --- Teleport Features ---
+    OBFUSCATE("Category_Teleport"),
+    OBFUSCATE("710_Toggle_Enable Teleport"),
+    OBFUSCATE("713_TeleportPadWidget_"),
 
     // --- Weapon Features ---
     OBFUSCATE("Category_Weapon"),
@@ -2492,45 +2522,21 @@ jobjectArray GetFeatureList(JNIEnv* env, jobject) {
     OBFUSCATE("211_Toggle_No Recoil"),
     OBFUSCATE("406_Toggle_High Damage Melee"),
     OBFUSCATE("407_Toggle_High Melee Length"),
+    OBFUSCATE("232_Toggle_Unlock Dual"),
+    
+    
+        // --- Flight Features ---
+    OBFUSCATE("Category_Flight"),
+    OBFUSCATE("500_Toggle_Unlimited Flying Power"),
+    OBFUSCATE("502_Toggle_Fly Through Walls"),
+    OBFUSCATE("RichTextView_<b><font color='#FFBB33'>Note:</font></b> Turn ON the Fly Through Walls toggle BEFORE entering the game, otherwise it will not work."),
 
-    // --- Aim Features ---
-    OBFUSCATE("Category_Aim"),
-    OBFUSCATE("109_Toggle_Silent Aim"),
-    OBFUSCATE("111_Toggle_Auto Fire"),
-    OBFUSCATE("116_Toggle_Aim Magnet"),
-    OBFUSCATE("120_Toggle_Show FOV"),
-    OBFUSCATE("121_SeekBar_FOV Size_60_350"),
-
-    // --- ESP / Visuals ---
-    OBFUSCATE("Category_ESP"),
-    OBFUSCATE("100_Toggle_Enable ESP"),
-    OBFUSCATE("101_Toggle_Draw Box"),
-    OBFUSCATE("102_Toggle_Draw Line"),
-    OBFUSCATE("103_Toggle_Show Health"),
-    OBFUSCATE("104_Toggle_Show Distance"),
-    OBFUSCATE("105_Toggle_Enemy Only"),
-    OBFUSCATE("106_SeekBar_Line Thickness_1_10"),
-    OBFUSCATE("107_SeekBar_Box Size_85_150"),
-    OBFUSCATE("108_ColorPicker_ESP Color_#00FF88"),
 
     // --- Camera & View ---
     OBFUSCATE("Category_Camera"),
     OBFUSCATE("221_Toggle_Custom Zoom"),
     OBFUSCATE("224_SeekBar_Zoom Level_1_11"),
 
-    // --- Flight Features ---
-    OBFUSCATE("Category_Flight"),
-    OBFUSCATE("500_Toggle_Unlimited Flying Power"),
-    OBFUSCATE("502_Toggle_Fly Through Walls"),
-
-    // --- Teleport Features ---
-    OBFUSCATE("Category_Teleport"),
-    OBFUSCATE("710_Toggle_Enable Teleport"),
-    OBFUSCATE("713_TeleportPadWidget_"),
-
-    // --- Unlock Features ---
-    OBFUSCATE("Category_Unlock"),
-    OBFUSCATE("232_Toggle_Unlock Dual"),
 
     // --- Robot Features ---
     OBFUSCATE("Category_Robots"),
@@ -2765,6 +2771,42 @@ void Changes(JNIEnv*, jclass, jobject, jint featNum, jstring, jint value, jlong,
                 g_tpPadEnabled.store(false);
             }
             traceLog("MODE: UltraMax=%d", (int)boolean);
+        } break;
+        case 803: {   // ★ NEW: None — reset everything to default
+            if (boolean) {
+                // ESP defaults
+                g_espEnabled.store(false);
+                g_espBox.store(true);
+                g_espLine.store(true);
+                g_espHealth.store(true);
+                g_espDistance.store(false);
+                g_espEnemyOnly.store(false);
+                // Weapon defaults
+                g_wpnUnlimitedAmmo.store(false);
+                g_wpnMultiShot.store(false);
+                g_wpnFastReload.store(false);
+                g_wpnMaxRange.store(false);
+                g_wpnBulletSpeedUp.store(false);
+                g_wpnHighDamage.store(false);
+                g_wpnNoRecoil.store(false);
+                g_wpnDualWieldUnlock.store(false);
+                // Aim defaults
+                g_silentAim.store(false);
+                g_autoFire.store(false);
+                g_aimMagnet.store(false);
+                g_drawFovCircle.store(false);
+                // Movement defaults
+                g_dualWieldAll.store(false);
+                g_unlimitedFlyPower.store(false);
+                g_flyThroughWalls.store(false);
+                g_charSpeedOn.store(false);
+                g_wpnZoomSelect.store(false);
+                g_wpnMaxZoom.store(false);
+                // Teleport defaults
+                g_tpPadEnabled.store(false);
+                g_teleportActive.store(false);
+            }
+            traceLog("MODE: None=%d", (int)boolean);
         } break;
     }
 }
