@@ -642,6 +642,7 @@ std::atomic<bool> g_wpnBulletSpeedUp  {false};
 std::atomic<int>  g_wpnBulletSpeedMul {5};
 std::atomic<bool> g_wpnHighDamage     {false};
 std::atomic<int>  g_wpnDamageMul      {5};
+std::atomic<bool> g_wpnMaxZoom        {false};
 std::atomic<bool> g_wpnNoRecoil       {false};
 std::atomic<bool> g_wpnZoomSelect     {false};
 std::atomic<int>  g_wpnZoomLevel      {5};
@@ -1053,6 +1054,36 @@ int getClipCapacity_Hook(void* self) { if (g_wpnUnlimitedAmmo.load()) return 999
 int getAmmoCapacity_Hook(void* self) { if (g_wpnUnlimitedAmmo.load()) return 9999; return old_getAmmoCapacity ? old_getAmmoCapacity(self) : 0; }
 int getReloadTime_Hook(void* self) { if (g_wpnFastReload.load()) return 0; return old_getReloadTime ? old_getReloadTime(self) : 1000; }
 
+float getRandomFiringAngle_Hook(void* self) {
+    // No Recoil (211) বা Silent Aim active হলে recoil zero
+    if (g_wpnNoRecoil.load()) return 0.0f;
+    if (g_silentAim.load())    return 0.0f;
+    return old_getRandomFiringAngle ? old_getRandomFiringAngle(self) : 0.0f;
+}
+
+int getRange_Hook(void* self) {
+    // Max Range (204) অথবা Silent/AutoFire হলে infinite
+    if (g_wpnMaxRange.load()) return 999999;
+    if ((g_silentAim.load() || g_autoFire.load()) && g_rangeBoost.load()) return 999999;
+    return old_getRange ? old_getRange(self) : 5000;
+}
+
+int getBulletSpeed_Hook(void* self) {
+    int orig = old_getBulletSpeed ? old_getBulletSpeed(self) : 800;
+    if (g_silentAim.load()) return orig;      // Silent Aim নিজে speed handle করে
+    int mul = g_weaponSpeedMul.load();
+    if (g_wpnBulletSpeedUp.load()) {          // Feature 205
+        int wmul = g_wpnBulletSpeedMul.load();
+        if (wmul > mul) mul = wmul;
+    }
+    if (mul < 1) mul = 1; if (mul > 20) mul = 20;
+    if (orig > 50 && orig < 100000) {
+        long long boosted = (long long)orig * (long long)mul;
+        if (boosted > 100000) boosted = 100000;
+        return (int)boosted;
+    }
+    return orig;
+}
 bool isDualWield_Hook(void* self) {
     if (g_dualWieldAll.load()) {
         void* local = g_localInstance.load();
