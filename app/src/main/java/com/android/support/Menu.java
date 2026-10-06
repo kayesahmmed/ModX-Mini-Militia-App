@@ -225,6 +225,7 @@ public static native boolean IsSmoothTeleportActive();
     private int savedWindowFlags = 0;
 private boolean windowIsFocusable = false;
 private boolean isLoggedIn = false;
+private boolean sessionLoadPref = false;
 private View sidebarDivider = null;
 private int effectivePosY = POS_Y;
     ESPView espview;
@@ -249,6 +250,7 @@ public static native boolean GetTeleportEnabled();
         Preferences.context = context;
         // ★ SavePref state disk থেকে read করে static-এ রাখি — feature build-এর আগেই
 Preferences.init(context);
+sessionLoadPref = Preferences.loadPref;
         
         // ==== Load saved theme color ====
 try {
@@ -1497,7 +1499,7 @@ private void saveFeatureBool(String name, int num, boolean v) {
         .edit().putBoolean("b_" + num + "_" + name, v).apply();
 }
 private boolean loadFeatureBool(String name, int num, boolean def) {
-    if (!Preferences.loadPref) return def;   // ★ pref OFF হলে default ফেরত
+    if (!sessionLoadPref) return def;      // ★ পরিবর্তিত
     return getContext.getSharedPreferences(FEAT_PREFS, Context.MODE_PRIVATE)
         .getBoolean("b_" + num + "_" + name, def);
 }
@@ -1507,7 +1509,7 @@ private void saveFeatureInt(String name, int num, int v) {
         .edit().putInt("i_" + num + "_" + name, v).apply();
 }
 private int loadFeatureInt(String name, int num, int def) {
-    if (!Preferences.loadPref) return def;
+    if (!sessionLoadPref) return def;      // ★ পরিবর্তিত
     return getContext.getSharedPreferences(FEAT_PREFS, Context.MODE_PRIVATE)
         .getInt("i_" + num + "_" + name, def);
 }
@@ -1517,13 +1519,10 @@ private void saveFeatureLong(String name, int num, long v) {
         .edit().putLong("l_" + num + "_" + name, v).apply();
 }
 private long loadFeatureLong(String name, int num, long def) {
-    if (!Preferences.loadPref) return def;
+    if (!sessionLoadPref) return def;      // ★ পরিবর্তিত
     return getContext.getSharedPreferences(FEAT_PREFS, Context.MODE_PRIVATE)
         .getLong("l_" + num + "_" + name, def);
 }
-    // ================================================================
-    // Tab icons (drawn in code, no drawable resources needed)
-    // ================================================================
     private static class TabIcon extends Drawable {
         static final int HOME = 0, USER = 1, RUN = 2, BOLT = 3, EYE = 4,
         GEAR = 5, PULSE = 6, TARGET = 7, GRID = 8, CHEVRON = 9;
