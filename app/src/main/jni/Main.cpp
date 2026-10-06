@@ -491,6 +491,7 @@ getWeapon_t            fn_getSecondaryWeapon = nullptr;
 getWeapon_t            fn_getDualWeapon      = nullptr;
 getWeapon_t            fn_getSideWeapon      = nullptr;
 soldierFire_t          fn_soldierFire        = nullptr;
+getRespawnTime_t            old_getRespawnTime            = nullptr;
 getBulletSpeed_t       fn_getBulletSpeed     = nullptr;
 getRange_t             fn_getRange           = nullptr;
 setFireAngle_wpn_t     fn_setFireAngleWpn    = nullptr;
