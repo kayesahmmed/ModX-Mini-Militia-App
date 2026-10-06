@@ -469,7 +469,6 @@ isCollisionTile_t           old_isCollisionTile           = nullptr;
 mapCollision_t              old_mapCollision              = nullptr;
 isBoundryTile_t             old_isBoundryTile             = nullptr;
 setThrust_t                 old_setThrust                 = nullptr;
-getRespawnTime_t            old_getRespawnTime            = nullptr;
 isRespawning_t              old_isRespawning              = nullptr;
 getBodyPosition_t           old_getBodyPosition_hook      = nullptr;
 getBodyPosition_t           old_collGetBody               = nullptr;
