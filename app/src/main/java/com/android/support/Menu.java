@@ -225,7 +225,7 @@ public static native boolean IsSmoothTeleportActive();
     private int savedWindowFlags = 0;
 private boolean windowIsFocusable = false;
 private boolean isLoggedIn = false;
-private boolean sessionLoadPref = false;
+
 private View sidebarDivider = null;
 private int effectivePosY = POS_Y;
     ESPView espview;
@@ -250,7 +250,7 @@ public static native boolean GetTeleportEnabled();
         Preferences.context = context;
         // ★ SavePref state disk থেকে read করে static-এ রাখি — feature build-এর আগেই
 Preferences.init(context);
-sessionLoadPref = Preferences.loadPref;
+
         
         // ==== Load saved theme color ====
 try {
@@ -1488,41 +1488,7 @@ new Titanic().start(proTitle);
             canvas.drawRoundRect(rect, r, r, thumbPaint);
         }
     }
-private static final String FEAT_PREFS = "modx_features";
 
-// ================================================================
-// Feature persistence — ONLY active when "Save features preference" is ON
-// ================================================================
-private void saveFeatureBool(String name, int num, boolean v) {
-    if (!Preferences.loadPref) return;   // ★ pref OFF হলে save করি না
-    getContext.getSharedPreferences(FEAT_PREFS, Context.MODE_PRIVATE)
-        .edit().putBoolean("b_" + num + "_" + name, v).apply();
-}
-private boolean loadFeatureBool(String name, int num, boolean def) {
-    if (!sessionLoadPref) return def;      // ★ পরিবর্তিত
-    return getContext.getSharedPreferences(FEAT_PREFS, Context.MODE_PRIVATE)
-        .getBoolean("b_" + num + "_" + name, def);
-}
-private void saveFeatureInt(String name, int num, int v) {
-    if (!Preferences.loadPref) return;
-    getContext.getSharedPreferences(FEAT_PREFS, Context.MODE_PRIVATE)
-        .edit().putInt("i_" + num + "_" + name, v).apply();
-}
-private int loadFeatureInt(String name, int num, int def) {
-    if (!sessionLoadPref) return def;      // ★ পরিবর্তিত
-    return getContext.getSharedPreferences(FEAT_PREFS, Context.MODE_PRIVATE)
-        .getInt("i_" + num + "_" + name, def);
-}
-private void saveFeatureLong(String name, int num, long v) {
-    if (!Preferences.loadPref) return;
-    getContext.getSharedPreferences(FEAT_PREFS, Context.MODE_PRIVATE)
-        .edit().putLong("l_" + num + "_" + name, v).apply();
-}
-private long loadFeatureLong(String name, int num, long def) {
-    if (!sessionLoadPref) return def;      // ★ পরিবর্তিত
-    return getContext.getSharedPreferences(FEAT_PREFS, Context.MODE_PRIVATE)
-        .getLong("l_" + num + "_" + name, def);
-}
     private static class TabIcon extends Drawable {
         static final int HOME = 0, USER = 1, RUN = 2, BOLT = 3, EYE = 4,
         GEAR = 5, PULSE = 6, TARGET = 7, GRID = 8, CHEVRON = 9;
@@ -2591,17 +2557,14 @@ public void setTeleportPadVisible(boolean visible) {
         flatten(button);
         addPressAnim(button);
 
-        int savedColor = loadFeatureInt(featName, featNum,
-        Preferences.loadPrefInt(featName, featNum));
+        int savedColor = Preferences.loadPrefInt(featName, featNum);
         if (savedColor == 0) {
             try { savedColor = Color.parseColor(defaultHex); }
             catch (Exception e) { savedColor = 0xFF00FF88; }
         }
 
         applyColorButton(button, featName, savedColor);
-        if (Preferences.loadPref) {
-            Preferences.changeFeatureInt(featName, featNum, savedColor);
-        }
+
 
         button.setOnClickListener(new View.OnClickListener() {
                 @Override
@@ -2660,7 +2623,7 @@ public void setTeleportPadVisible(boolean visible) {
                                     public void onClick(View v2) {
                                         applyColorButton(button, featName, color);
 Preferences.changeFeatureInt(featName, featNum, color);
-saveFeatureInt(featName, featNum, color);
+
 Toast.makeText(getContext, "Color: " + cname, Toast.LENGTH_SHORT).show();
                                         if (dialogRef[0] != null) dialogRef[0].dismiss();
                                     }
@@ -2749,8 +2712,7 @@ Toast.makeText(getContext, "Color: " + cname, Toast.LENGTH_SHORT).show();
         label.setPadding(dp(12), dp(10), dp(6), dp(10));
 
         final ToggleView toggle = new ToggleView(getContext, COLOR_ACCENT, COLOR_ACCENT_3, COLOR_TRACK);
-boolean initial = loadFeatureBool(featName, featNum,
-        Preferences.loadPrefBool(featName, featNum, swiOn));
+boolean initial = Preferences.loadPrefBool(featName, featNum, swiOn);
 toggle.setChecked(initial, false);
         rowBg.setStroke(dp(1), initial ? withAlpha(ToggleON, 0x99) : COLOR_CARD_BORDER);
         if (featNum == 710) {
@@ -2763,20 +2725,14 @@ toggle.setChecked(initial, false);
             animateStroke(rowBg,
                           bool ? COLOR_CARD_BORDER : withAlpha(ToggleON, 0x99),
                           bool ? withAlpha(ToggleON, 0x99) : COLOR_CARD_BORDER);
+
+            // ★ একটাই call — ভেতরেই -1/-3 special-case handle হয়
             Preferences.changeFeatureBool(featName, featNum, bool);
-            saveFeatureBool(featName, featNum, bool);   // ← explicit save
-            switch (featNum) {
-    case -1:
-        Preferences.loadPref = bool;   // ★ STATIC VAR IMMEDIATELY UPDATE
-        Preferences.with(row.getContext()).writeBoolean(-1, bool);
-        break;
-    case -3:
-        Preferences.isExpanded = bool;
-        break;
-    case 710:                                  // ★ NEW
-        setTeleportPadVisible(bool);
-        break;
-}
+
+            // ★ শুধু UI-specific side effect এখানে রাখুন
+            if (featNum == 710) {
+                setTeleportPadVisible(bool);
+            }
         }
     });
 
@@ -2788,9 +2744,7 @@ toggle.setChecked(initial, false);
             });
         addPressAnim(row);
                 // ★ Native-এ initial state পাঠাই যাতে app restart-এ hooks apply হয়
-        if (Preferences.loadPref) {
-            Preferences.changeFeatureBool(featName, featNum, initial);
-        }
+        
 
         row.addView(label);
         row.addView(toggle);
@@ -2798,9 +2752,8 @@ toggle.setChecked(initial, false);
     }
 
     private void SeekBar(LinearLayout linLayout, final int featNum, final String featName, final int min, int max) {
-        int loadedProg = loadFeatureInt(featName, featNum,
-        Preferences.loadPrefInt(featName, featNum));
-int startVal = (loadedProg == 0) ? min : loadedProg;
+        int startVal = Preferences.loadPrefInt(featName, featNum);
+    if (startVal == 0) startVal = min;
 
         LinearLayout card = new LinearLayout(getContext);
         card.setOrientation(LinearLayout.VERTICAL);
@@ -2843,10 +2796,7 @@ int startVal = (loadedProg == 0) ? min : loadedProg;
         seekBar.setThumb(makeSeekThumb());
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) seekBar.setSplitTrack(false);
         seekBar.setProgress(startVal);
-                // ★ Native-এ initial value
-        if (Preferences.loadPref) {
-            Preferences.changeFeatureInt(featName, featNum, startVal);
-        }
+
         seekBar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
                 @Override public void onStartTrackingTouch(SeekBar s) { }
                 @Override public void onStopTrackingTouch(SeekBar s)  { }
@@ -2855,7 +2805,7 @@ int startVal = (loadedProg == 0) ? min : loadedProg;
                     int val = i < min ? min : i;
                     if (val != i) seekBar.setProgress(val);
                     Preferences.changeFeatureInt(featName, featNum, val);
-saveFeatureInt(featName, featNum, val);
+
 chip.setText(String.valueOf(val));
                 }
             });
@@ -3016,20 +2966,18 @@ private void applyMenuColorButtonStyle(Button button, String label, int color) {
 
         final String finalfeatName = featName.replace("OnOff_", "");
         final boolean[] state = new boolean[]{
-loadFeatureBool(finalfeatName, featNum,
-        Preferences.loadPrefBool(finalfeatName, featNum, switchedOn)) };
+    Preferences.loadPrefBool(finalfeatName, featNum, switchedOn)
+};
         applyOnOffStyle(button, finalfeatName, state[0]);
                 // ★ Native-এ initial state
-        if (Preferences.loadPref) {
-            Preferences.changeFeatureBool(finalfeatName, featNum, state[0]);
-        }
+        
 
         button.setOnClickListener(new View.OnClickListener() {
                 @Override
                 public void onClick(View v) {
                     state[0] = !state[0];
 Preferences.changeFeatureBool(finalfeatName, featNum, state[0]);
-saveFeatureBool(finalfeatName, featNum, state[0]);
+
 applyOnOffStyle(button, finalfeatName, state[0]);
                 }
             });
@@ -3233,13 +3181,10 @@ applyOnOffStyle(button, finalfeatName, state[0]);
         checkBox.setTextSize(12f);
         checkBox.setPadding(dp(10), dp(9), dp(10), dp(9));
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) checkBox.setButtonTintList(ColorStateList.valueOf(CheckBoxColor));
-        boolean initial = loadFeatureBool(featName, featNum,
-        Preferences.loadPrefBool(featName, featNum, switchedOn));
+        boolean initial = Preferences.loadPrefBool(featName, featNum, switchedOn);
         checkBox.setChecked(initial);
                 // ★ Native-এ initial state
-        if (Preferences.loadPref) {
-            Preferences.changeFeatureBool(featName, featNum, initial);
-        }
+        
         if (initial) cbBg.setStroke(dp(1), withAlpha(CheckBoxColor, 0x99));
         checkBox.setOnCheckedChangeListener(new CompoundButton.OnCheckedChangeListener() {
                 @Override
@@ -3248,7 +3193,7 @@ applyOnOffStyle(button, finalfeatName, state[0]);
                                   isChecked ? COLOR_CARD_BORDER : withAlpha(CheckBoxColor, 0x99),
                                   isChecked ? withAlpha(CheckBoxColor, 0x99) : COLOR_CARD_BORDER);
                     Preferences.changeFeatureBool(featName, featNum, isChecked);
-                    saveFeatureBool(featName, featNum, isChecked);
+                    
                 }
             });
         linLayout.addView(checkBox);

@@ -9,27 +9,43 @@ import java.util.LinkedHashSet;
 import java.util.Set;
 
 public class Preferences {
+
+    // ================================================================
+    // Static state
+    // ================================================================
     private static SharedPreferences sharedPreferences;
     private static Preferences prefsInstance;
-    public static Context context;
-    public static boolean loadPref, isExpanded;
+    public  static Context context;
 
-    private static final String LENGTH = "_length";
-    private static final String DEFAULT_STRING_VALUE = "";
-    private static final int DEFAULT_INT_VALUE = 0;
-    private static final double DEFAULT_DOUBLE_VALUE = 0d;
-    private static final float DEFAULT_FLOAT_VALUE = 0f;
-    private static final long DEFAULT_LONG_VALUE = 0L;
+    /** Current SavePref setting — write gate. Toggle করলে সাথে সাথে update হয়। */
+    public static boolean loadPref     = false;
+    /** Expand toggle state */
+    public static boolean isExpanded   = false;
+
+    /**
+     * ★ NEW: app start-এ একবার capture করা SavePref value — read gate.
+     *
+     * কেন দরকার?
+     *  - mid-session এ user SavePref OFF করলে: loadPref=false হবে, কিন্তু
+     *    sessionLoadPref আগের true থেকে যাবে → বর্তমান session-এ UI state
+     *    অক্ষত থাকবে (menu rebuild হলেও)।
+     *  - পরের বার app খুললে: sessionLoadPref = false হবে → সব default।
+     */
+    public static boolean sessionLoadPref = false;
+
+    private static final String LENGTH              = "_length";
+    private static final String DEFAULT_STRING_VALUE  = "";
+    private static final int    DEFAULT_INT_VALUE     = 0;
+    private static final double DEFAULT_DOUBLE_VALUE  = 0d;
+    private static final float  DEFAULT_FLOAT_VALUE   = 0f;
+    private static final long   DEFAULT_LONG_VALUE    = 0L;
     private static final boolean DEFAULT_BOOLEAN_VALUE = false;
 
     public static native void Changes(Context context, int featNum, String featName,
                                       int value, long Lvalue, boolean isOn, String inputText);
 
     // ================================================================
-    // ★ NEW: App start-এ একবার call হবে — সব feature build হওয়ার আগে।
-    //   এটা নিশ্চিত করে loadPref static field disk-এর actual value থেকে
-    //   set হয়, যাতে Menu constructor-এর feature widget গুলো সঠিকভাবে
-    //   load/save করতে পারে।
+    // init() — Menu constructor-এর সবচেয়ে আগে একবার call হবে
     // ================================================================
     public static void init(Context ctx) {
         context = ctx;
@@ -38,103 +54,152 @@ public class Preferences {
                     ctx.getPackageName() + "_preferences",
                     Context.MODE_PRIVATE
             );
-            // ★ SavePref state disk থেকে সাথে সাথে read করে static-এ রাখি
-            loadPref = sharedPreferences.getBoolean("-1", false);
-            isExpanded = sharedPreferences.getBoolean("-3", false);
-        } catch (Exception ignored) {
-            loadPref = false;
-            isExpanded = false;
+
+            boolean savedLoadPref = sharedPreferences.getBoolean("-1", false);
+            loadPref        = savedLoadPref;   // current write gate
+            sessionLoadPref = savedLoadPref;   // ★ read gate — app lifecycle জুড়ে fixed
+            isExpanded      = sharedPreferences.getBoolean("-3", false);
+        } catch (Exception e) {
+            loadPref        = false;
+            sessionLoadPref = false;
+            isExpanded      = false;
         }
     }
 
     // ================================================================
-    // Feature write helpers
-    // ★ SavePref OFF থাকলে disk-এ write করি না।
-    //   তবে native `Changes()` সবসময় call করি, যাতে runtime-এ hook apply হয়।
+    // SAVE  (changeFeature*)
+    // ─ loadPref ON  → disk-এ write + native Changes()
+    // ─ loadPref OFF → শুধু native Changes(), disk-এ write নেই
+    // ─ Except: -1 (SavePref), -3 (Expand) সবসময় disk-এ write হয়
     // ================================================================
+
     public static void changeFeatureInt(String featureName, int featureNum, int value) {
-        if (loadPref) {
-            Preferences.with(context).writeInt(featureNum, value);
-        }
+        try {
+            if (loadPref) {
+                Preferences.with(context).writeInt(featureNum, value);
+            }
+        } catch (Exception ignored) { }
         Changes(context, featureNum, featureName, value, 0, false, null);
     }
 
     public static void changeFeatureLong(String featureName, int featureNum, long Lvalue) {
-        if (loadPref) {
-            Preferences.with(context).writeLong(String.valueOf(featureNum), Lvalue);
-        }
+        try {
+            if (loadPref) {
+                Preferences.with(context).writeLong(String.valueOf(featureNum), Lvalue);
+            }
+        } catch (Exception ignored) { }
         Changes(context, featureNum, featureName, 0, Lvalue, false, null);
     }
 
     public static void changeFeatureString(String featureName, int featureNum, String inputString) {
-        if (loadPref) {
-            Preferences.with(context).writeString(featureNum, inputString);
-        }
+        try {
+            if (loadPref) {
+                Preferences.with(context).writeString(featureNum, inputString);
+            }
+        } catch (Exception ignored) { }
         Changes(context, featureNum, featureName, 0, 0, false, inputString);
     }
 
     public static void changeFeatureBool(String featureName, int featureNum, boolean bool) {
-        if (loadPref) {
-            Preferences.with(context).writeBoolean(featureNum, bool);
+        // ── Special: SavePref toggle নিজে সবসময় persist করে ──
+        if (featureNum == -1) {
+            try {
+                Preferences.with(context).writeBoolean(-1, bool);
+            } catch (Exception ignored) { }
+            loadPref = bool;                     // current write gate update
+            // sessionLoadPref ইচ্ছাকৃতভাবে change করি না → mid-session rebuild-safe
+            Changes(context, featureNum, featureName, 0, 0, bool, null);
+            return;
         }
+        // ── Special: Expand toggle ──
+        if (featureNum == -3) {
+            try {
+                Preferences.with(context).writeBoolean(-3, bool);
+            } catch (Exception ignored) { }
+            isExpanded = bool;
+            Changes(context, featureNum, featureName, 0, 0, bool, null);
+            return;
+        }
+        // ── Normal feature ──
+        try {
+            if (loadPref) {
+                Preferences.with(context).writeBoolean(featureNum, bool);
+            }
+        } catch (Exception ignored) { }
         Changes(context, featureNum, featureName, 0, 0, bool, null);
     }
 
     // ================================================================
-    // Feature load helpers
-    // ★ SavePref OFF থাকলে all-time 0 / default return করি,
-    //   নাহলে disk-এ save করা value read করি।
+    // LOAD  (loadPref*)
+    // ─ sessionLoadPref ON  → disk থেকে read করে return
+    // ─ sessionLoadPref OFF → default return
+    // ─ Except: -1, -3 সবসময় disk থেকে read হয়
     // ================================================================
+
     public static int loadPrefInt(String featureName, int featureNum) {
-        if (!loadPref && featureNum >= 0) return 0;
-        int value = Preferences.with(context).readInt(featureNum);
-        if (loadPref || featureNum < 0) {
-            Changes(context, featureNum, featureName, value, 0, false, null);
-            return value;
-        }
-        return 0;
+        int value = 0;
+        try {
+            if (sessionLoadPref && featureNum >= 0) {
+                value = Preferences.with(context).readInt(featureNum);
+            }
+        } catch (Exception ignored) { }
+        Changes(context, featureNum, featureName, value, 0, false, null);
+        return value;
     }
 
     public static long loadPrefLong(String featureName, int featureNum) {
-        if (!loadPref && featureNum >= 0) return 0L;
-        long Lvalue = Preferences.with(context).readLong(String.valueOf(featureNum));
-        if (loadPref || featureNum < 0) {
-            Changes(context, featureNum, featureName, 0, Lvalue, false, null);
-            return Lvalue;
-        }
-        return 0L;
+        long value = 0L;
+        try {
+            if (sessionLoadPref && featureNum >= 0) {
+                value = Preferences.with(context).readLong(String.valueOf(featureNum));
+            }
+        } catch (Exception ignored) { }
+        Changes(context, featureNum, featureName, 0, value, false, null);
+        return value;
     }
 
     public static boolean loadPrefBool(String featureName, int featureNum, boolean bDef) {
-        boolean bool = Preferences.with(context).readBoolean(featureNum, bDef);
-
-        // Special features (SavePref toggle and expand toggle)
+        // ── SavePref toggle নিজে সবসময় disk থেকে read ──
         if (featureNum == -1) {
-            loadPref = bool;
-            return bool;
+            boolean saved = false;
+            try {
+                saved = Preferences.with(context).readBoolean(-1, false);
+            } catch (Exception ignored) { }
+            loadPref = saved;                    // current write gate sync
+            // ★ sessionLoadPref এখানে update করি না — এটা app lifecycle-এর জন্য fixed
+            Changes(context, featureNum, featureName, 0, 0, saved, null);
+            return saved;
         }
+        // ── Expand toggle ──
         if (featureNum == -3) {
-            isExpanded = bool;
-            return bool;
+            boolean saved = false;
+            try {
+                saved = Preferences.with(context).readBoolean(-3, false);
+            } catch (Exception ignored) { }
+            isExpanded = saved;
+            Changes(context, featureNum, featureName, 0, 0, saved, null);
+            return saved;
         }
-
-        // ★ loadPref ON থাকলে disk-এ save করা value, নাহলে default
-        if (loadPref) {
-            bDef = bool;
-        }
-
-        Changes(context, featureNum, featureName, 0, 0, bDef, null);
-        return bDef;
+        // ── Normal feature ──
+        boolean result = bDef;
+        try {
+            if (sessionLoadPref) {
+                result = Preferences.with(context).readBoolean(featureNum, bDef);
+            }
+        } catch (Exception ignored) { }
+        Changes(context, featureNum, featureName, 0, 0, result, null);
+        return result;
     }
 
     public static String loadPrefString(String featureName, int featureNum) {
-        if (!loadPref && featureNum > 0) return "";
-        String text = Preferences.with(context).readString(featureNum);
-        if (loadPref || featureNum <= 0) {
-            Changes(context, featureNum, featureName, 0, 0, false, text);
-            return text;
-        }
-        return "";
+        String result = "";
+        try {
+            if (sessionLoadPref && featureNum > 0) {
+                result = Preferences.with(context).readString(featureNum);
+            }
+        } catch (Exception ignored) { }
+        Changes(context, featureNum, featureName, 0, 0, false, result);
+        return result;
     }
 
     // ================================================================
