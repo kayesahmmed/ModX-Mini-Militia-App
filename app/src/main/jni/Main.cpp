@@ -379,6 +379,7 @@ typedef void  (*setClip_t)(void*, int);
 typedef int   (*getClipCap_t)(void*);
 typedef int   (*getAmmoCap_t)(void*);
 typedef int   (*getReloadTime_t)(void*);
+typedef int   (*getRespawnTime_t)(void*);
 typedef bool  (*isDualWield_t)(void*);
 typedef bool  (*isDualWieldOnly_t)(void*);
 typedef bool  (*isDualWieldPrimaryOnly_t)(void*);
