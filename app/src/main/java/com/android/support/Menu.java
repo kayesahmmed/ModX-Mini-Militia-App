@@ -228,6 +228,11 @@ private boolean isLoggedIn = false;
 
 private View sidebarDivider = null;
 private int effectivePosY = POS_Y;
+private static final HashMap<Integer, Integer> SEEK_DEFAULTS = new HashMap<Integer, Integer>();
+    static {
+        SEEK_DEFAULTS.put(106, 3);     // Line Thickness default 3
+        SEEK_DEFAULTS.put(107, 115);   // Box Size default 115
+    }
     ESPView espview;
     WindowManager espWindowManager;
     WindowManager.LayoutParams espParams;
@@ -2752,8 +2757,15 @@ toggle.setChecked(initial, false);
     }
 
     private void SeekBar(LinearLayout linLayout, final int featNum, final String featName, final int min, int max) {
-        int startVal = Preferences.loadPrefInt(featName, featNum);
-    if (startVal == 0) startVal = min;
+    int startVal = Preferences.loadPrefInt(featName, featNum);
+    if (startVal == 0) {
+        Integer def = SEEK_DEFAULTS.get(featNum);
+        startVal = (def != null) ? def.intValue() : min;
+        if (startVal < min) startVal = min;
+        if (startVal > max) startVal = max;
+        // Native-এ corrected default পাঠাই (SavePref OFF হলে persist হবে না)
+        Preferences.changeFeatureInt(featName, featNum, startVal);
+    }
 
         LinearLayout card = new LinearLayout(getContext);
         card.setOrientation(LinearLayout.VERTICAL);

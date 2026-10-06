@@ -101,40 +101,40 @@ public class Preferences {
     }
 
     public static void changeFeatureBool(String featureName, int featureNum, boolean bool) {
-        // ── Special: SavePref toggle নিজে সবসময় persist করে ──
-        if (featureNum == -1) {
-            try {
-                Preferences.with(context).writeBoolean(-1, bool);
-            } catch (Exception ignored) { }
-            loadPref = bool;                     // current write gate update
-            // sessionLoadPref ইচ্ছাকৃতভাবে change করি না → mid-session rebuild-safe
-            Changes(context, featureNum, featureName, 0, 0, bool, null);
-            return;
-        }
-        // ── Special: Expand toggle ──
-        if (featureNum == -3) {
-            try {
-                Preferences.with(context).writeBoolean(-3, bool);
-            } catch (Exception ignored) { }
-            isExpanded = bool;
-            Changes(context, featureNum, featureName, 0, 0, bool, null);
-            return;
-        }
-        // ── Normal feature ──
+    // ── Special: SavePref toggle নিজে সবসময় persist করে ──
+    if (featureNum == -1) {
         try {
-            if (loadPref) {
-                Preferences.with(context).writeBoolean(featureNum, bool);
-            }
+            Preferences.with(context).writeBoolean(-1, bool);
         } catch (Exception ignored) { }
+        loadPref = bool;                     // current write gate update
+
+
+        if (bool) {
+            sessionLoadPref = true;
+        }
+
         Changes(context, featureNum, featureName, 0, 0, bool, null);
+        return;
     }
 
-    // ================================================================
-    // LOAD  (loadPref*)
-    // ─ sessionLoadPref ON  → disk থেকে read করে return
-    // ─ sessionLoadPref OFF → default return
-    // ─ Except: -1, -3 সবসময় disk থেকে read হয়
-    // ================================================================
+    // ── Special: Expand toggle ──
+    if (featureNum == -3) {
+        try {
+            Preferences.with(context).writeBoolean(-3, bool);
+        } catch (Exception ignored) { }
+        isExpanded = bool;
+        Changes(context, featureNum, featureName, 0, 0, bool, null);
+        return;
+    }
+
+    // ── Normal feature ──
+    try {
+        if (loadPref) {
+            Preferences.with(context).writeBoolean(featureNum, bool);
+        }
+    } catch (Exception ignored) { }
+    Changes(context, featureNum, featureName, 0, 0, bool, null);
+}
 
     public static int loadPrefInt(String featureName, int featureNum) {
         int value = 0;
