@@ -67,39 +67,17 @@ namespace SecOff {
 #define DEC_OFF(v) SecOff::dec(v)
 
 
-static int g_logFd = -1;
 static std::atomic<int> g_crashCount{0};
 static constexpr int MAX_CRASHES_PER_SESSION = 200;
 
-static void ensureLogFd() {
-    if (g_logFd >= 0) return;
-    const char* paths[] = {
-        "/storage/emulated/0/Android/data/com.appsomniacs.da2/files/MM_Mod.log",
-        "/sdcard/Android/data/com.appsomniacs.da2/files/MM_Mod.log",
-        "/storage/emulated/0/MM_Mod.log",
-        "/sdcard/MM_Mod.log",
-        "/data/local/tmp/MM_Mod.log"
-    };
-    for (auto p : paths) {
-        int fd = open(p, O_WRONLY | O_CREAT | O_APPEND, 0666);
-        if (fd >= 0) { g_logFd = fd; return; }
-    }
-}
-static void crashLogRaw(const char* msg, int len) {
-    ensureLogFd(); if (g_logFd < 0) return;
-    write(g_logFd, msg, len);
-}
+static void crashLogRaw(const char*, int) {}
+
 static void crashLog(const char* tag, const char* fmt, ...) {
-    ensureLogFd();
     char msg[480];
     va_list args; va_start(args, fmt);
     vsnprintf(msg, sizeof(msg), fmt, args);
     va_end(args);
     __android_log_print(ANDROID_LOG_INFO, LOG_TAG, "[%s] %s", tag, msg);
-    if (g_logFd < 0) return;
-    char buf[520];
-    int n = snprintf(buf, sizeof(buf), "[%s] %s\n", tag, msg);
-    if (n > 0) write(g_logFd, buf, n);
 }
 static void traceLog(const char* fmt, ...) {
     char msg[400];
@@ -107,19 +85,12 @@ static void traceLog(const char* fmt, ...) {
     vsnprintf(msg, sizeof(msg), fmt, args);
     va_end(args);
     __android_log_print(ANDROID_LOG_DEBUG, LOG_TAG, "%s", msg);
-    if (g_logFd < 0) ensureLogFd();
-    if (g_logFd >= 0) {
-        char b[440];
-        int n = snprintf(b, sizeof(b), "[TRACE] %s\n", msg);
-        if (n > 0) write(g_logFd, b, n);
-    }
 }
 
 static __thread sigjmp_buf tls_guard;
 static __thread volatile sig_atomic_t tls_guardActive = 0;
 static void native_crash_handler(int sig, siginfo_t* info, void*) {
     if (tls_guardActive) { tls_guardActive = 0; siglongjmp(tls_guard, 1); }
-    ensureLogFd();
     if (g_crashCount.fetch_add(1) < MAX_CRASHES_PER_SESSION) {
         char buf[256];
         int n = snprintf(buf, sizeof(buf), "\n!!! SIG %d fault=%p\n",
@@ -130,7 +101,6 @@ static void native_crash_handler(int sig, siginfo_t* info, void*) {
     sa.sa_handler = SIG_DFL; sigaction(sig, &sa, nullptr); raise(sig);
 }
 static void install_crash_handler() {
-    ensureLogFd();
     __android_log_print(ANDROID_LOG_INFO, LOG_TAG, "=== MMMod v116.0 boot ===");
     crashLog("BOOT", "Crash handler installed");
     struct sigaction sa; memset(&sa, 0, sizeof(sa));
@@ -2462,10 +2432,10 @@ jobjectArray GetFeatureList(JNIEnv* env, jobject) {
     OBFUSCATE("801_ButtonOnOff_Max Mode"),
     OBFUSCATE("802_ButtonOnOff_Ultra Max Mode"),
     OBFUSCATE("803_ButtonOnOff_None"),
-    OBFUSCATE("RichTextView_<b><font color='#3DDB87'>Simple Mode:</font></b> ESP, Unlimited Ammo, Fast Reload, No Recoil"),
-    OBFUSCATE("RichTextView_<b><font color='#3DDB87'>Max Mode:</font></b> Simple Mode + Silent Aim, Auto Fire, Aim Magnet, Multi Shot, Max Range, Bullet Speed, High Damage, Unlock Dual"),
-    OBFUSCATE("RichTextView_<b><font color='#3DDB87'>Ultra Max Mode:</font></b> Max Mode + Pick Gun Dual, Unlimited Fly Power, Fly Through Walls, Teleport"),
-    OBFUSCATE("RichTextView_<b><font color='#3DDB87'>None:</font></b> Turn OFF all modes and reset every feature to default"),
+        OBFUSCATE("SmallTextView_<b><font color='#3DDB87'>Simple Mode:</font></b> ESP, Unlimited Ammo, Fast Reload, No Recoil"),
+    OBFUSCATE("SmallTextView_<b><font color='#3DDB87'>Max Mode:</font></b> Simple Mode + Silent Aim, Auto Fire, Aim Magnet, Multi Shot, Max Range, Bullet Speed, High Damage, Unlock Dual"),
+    OBFUSCATE("SmallTextView_<b><font color='#3DDB87'>Ultra Max Mode:</font></b> Max Mode + Pick Gun Dual, Unlimited Fly Power, Fly Through Walls, Teleport"),
+    OBFUSCATE("SmallTextView_<b><font color='#3DDB87'>None:</font></b> Turn OFF all modes and reset every feature to default"),
     
 
     // --- Player Features ---
