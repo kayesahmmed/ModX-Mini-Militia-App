@@ -228,6 +228,17 @@ public static native boolean IsSmoothTeleportActive();
     private final java.util.HashMap<Integer, ModeButtonHolder> mModeButtons =
             new java.util.HashMap<Integer, ModeButtonHolder>();
     private static final int[] MODE_FEATNUMS = { 800, 801, 802, 803 };
+    
+    // ===== Toggle tracking (for Mode sync) =====
+private static class ToggleHolder {
+    int featNum;
+    String featName;
+    ToggleView toggle;
+    GradientDrawable rowBg;
+    boolean[] state;
+}
+private final HashMap<Integer, ToggleHolder> mToggles =
+        new HashMap<Integer, ToggleHolder>();
 
     boolean stopChecking, overlayRequired;
     Context getContext;
@@ -1928,6 +1939,7 @@ new Titanic().start(proTitle);
         tabHolders.clear();
         spinnerAdapters.clear();
         mModeButtons.clear();
+        mToggles.clear();
         sidebarLayout.removeAllViews();
         contentLayout.removeAllViews();
 
@@ -1983,6 +1995,7 @@ new Titanic().start(proTitle);
                     case "Collapse": Collapse(targetLayout, featName, switchedOn); break;
                     case "ButtonLink": ButtonLink(targetLayout, featName, strSplit[2]); break;
                     case "RichTextView": TextView(targetLayout, featName); break;
+                    case "SmallTextView": TextView(targetLayout, featName, true); break;
                     case "RichWebView": WebTextView(targetLayout, featName); break;
                     case "ColorPicker": ColorPicker(targetLayout, featNum, featName, strSplit.length > 2 ? strSplit[2] : "#00FF88"); break;
                     case "TeleportPadWidget": TeleportPad(targetLayout); break;
@@ -2746,70 +2759,75 @@ Toast.makeText(getContext, "Color: " + cname, Toast.LENGTH_SHORT).show();
                 case "ButtonLink": subFeat++; ButtonLink(linearLayout, strSplit[1], strSplit[2]); break;
                 case "Category": subFeat++; Category(linearLayout, strSplit[1]);  break;
                 case "RichTextView": subFeat++; TextView(linearLayout, strSplit[1]);  break;
+                case "SmallTextView": subFeat++; TextView(linearLayout, strSplit[1], true); break;
                 case "RichWebView": subFeat++; WebTextView(linearLayout, strSplit[1]); break;
                 case "ColorPicker": subFeat++; ColorPicker(linearLayout, featNum, strSplit[1], strSplit.length > 2 ? strSplit[2] : "#00FF88"); break;
             }
         }
     }
 
-    // ================================================================
-    // Feature widgets
-    // ================================================================
+
     private void Switch(LinearLayout linLayout, final int featNum, final String featName, boolean swiOn) {
-        final LinearLayout row = new LinearLayout(getContext);
-        row.setOrientation(LinearLayout.HORIZONTAL);
-        row.setGravity(Gravity.CENTER_VERTICAL);
-        row.setLayoutParams(rowLp(6, 3, 6, 3));
-        final GradientDrawable rowBg = cardBg(COLOR_CARD, COLOR_CARD_BORDER, 12);
-        row.setBackground(rowBg);
+    final LinearLayout row = new LinearLayout(getContext);
+    row.setOrientation(LinearLayout.HORIZONTAL);
+    row.setGravity(Gravity.CENTER_VERTICAL);
+    row.setLayoutParams(rowLp(6, 3, 6, 3));
+    final GradientDrawable rowBg = cardBg(COLOR_CARD, COLOR_CARD_BORDER, 12);
+    row.setBackground(rowBg);
 
-        TextView label = new TextView(getContext);
-        label.setLayoutParams(new LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f));
-        label.setText(featName);
-        label.setTextColor(TEXT_COLOR_2);
-        label.setTypeface(fontMedium);
-        label.setTextSize(12f);
-        label.setPadding(dp(12), dp(10), dp(6), dp(10));
+    TextView label = new TextView(getContext);
+    label.setLayoutParams(new LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f));
+    label.setText(featName);
+    label.setTextColor(TEXT_COLOR_2);
+    label.setTypeface(fontMedium);
+    label.setTextSize(12f);
+    label.setPadding(dp(12), dp(10), dp(6), dp(10));
 
-        final ToggleView toggle = new ToggleView(getContext, COLOR_ACCENT, COLOR_ACCENT_3, COLOR_TRACK);
-boolean initial = Preferences.loadPrefBool(featName, featNum, swiOn);
-toggle.setChecked(initial, false);
-        rowBg.setStroke(dp(1), initial ? withAlpha(ToggleON, 0x99) : COLOR_CARD_BORDER);
-        if (featNum == 710) {
-    setTeleportPadVisible(initial);
-}
+    final ToggleView toggle = new ToggleView(getContext, COLOR_ACCENT, COLOR_ACCENT_3, COLOR_TRACK);
+    boolean initial = Preferences.loadPrefBool(featName, featNum, swiOn);
+    toggle.setChecked(initial, false);
+    rowBg.setStroke(dp(1), initial ? withAlpha(ToggleON, 0x99) : COLOR_CARD_BORDER);
+    if (featNum == 710) {
+        setTeleportPadVisible(initial);
+    }
 
-        toggle.setListener(new ToggleView.Listener() {
+    // ★ Toggle state tracking
+    final ToggleHolder holder = new ToggleHolder();
+    holder.featNum  = featNum;
+    holder.featName = featName;
+    holder.toggle   = toggle;
+    holder.rowBg    = rowBg;
+    holder.state    = new boolean[]{ initial };
+    mToggles.put(featNum, holder);
+
+    toggle.setListener(new ToggleView.Listener() {
         @Override
         public void onChanged(boolean bool) {
+            holder.state[0] = bool;
             animateStroke(rowBg,
                           bool ? COLOR_CARD_BORDER : withAlpha(ToggleON, 0x99),
                           bool ? withAlpha(ToggleON, 0x99) : COLOR_CARD_BORDER);
 
-            // ★ একটাই call — ভেতরেই -1/-3 special-case handle হয়
             Preferences.changeFeatureBool(featName, featNum, bool);
 
-            // ★ শুধু UI-specific side effect এখানে রাখুন
             if (featNum == 710) {
                 setTeleportPadVisible(bool);
             }
         }
     });
 
-        row.setOnClickListener(new View.OnClickListener() {
-                @Override
-                public void onClick(View v) {
-                    toggle.toggle();
-                }
-            });
-        addPressAnim(row);
-                // ★ Native-এ initial state পাঠাই যাতে app restart-এ hooks apply হয়
-        
+    row.setOnClickListener(new View.OnClickListener() {
+        @Override
+        public void onClick(View v) {
+            toggle.toggle();
+        }
+    });
+    addPressAnim(row);
 
-        row.addView(label);
-        row.addView(toggle);
-        linLayout.addView(row);
-    }
+    row.addView(label);
+    row.addView(toggle);
+    linLayout.addView(row);
+}
 
     private void SeekBar(LinearLayout linLayout, final int featNum, final String featName, final int min, int max) {
     int startVal = Preferences.loadPrefInt(featName, featNum);
@@ -3050,29 +3068,108 @@ private void applyMenuColorButtonStyle(Button button, String label, int color) {
         }
 
         button.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                state[0] = !state[0];
+    @Override
+    public void onClick(View v) {
+        state[0] = !state[0];
 
-                // ★ If a Mode button is being turned ON → turn OFF the other modes
-                if (isMode && state[0]) {
-                    for (int fn : MODE_FEATNUMS) {
-                        if (fn == featNum) continue;
-                        ModeButtonHolder other = mModeButtons.get(fn);
-                        if (other != null && other.state[0]) {
-                            other.state[0] = false;
-                            Preferences.changeFeatureBool(other.name, other.featNum, false);
-                            applyOnOffStyle(other.button, other.name, false);
-                        }
-                    }
+        // If a Mode button is being turned ON → turn OFF the other modes
+        if (isMode && state[0]) {
+            for (int fn : MODE_FEATNUMS) {
+                if (fn == featNum) continue;
+                ModeButtonHolder other = mModeButtons.get(fn);
+                if (other != null && other.state[0]) {
+                    other.state[0] = false;
+                    Preferences.changeFeatureBool(other.name, other.featNum, false);
+                    applyOnOffStyle(other.button, other.name, false);
+                    applyModeToMenu(fn, false);        // ← নতুন
                 }
-
-                Preferences.changeFeatureBool(finalfeatName, featNum, state[0]);
-                applyOnOffStyle(button, finalfeatName, state[0]);
             }
-        });
+        }
+
+        Preferences.changeFeatureBool(finalfeatName, featNum, state[0]);
+        applyOnOffStyle(button, finalfeatName, state[0]);
+
+        // ★ Mode ON/OFF → menu এর Toggle গুলো auto sync
+        if (isMode) {
+            applyModeToMenu(featNum, state[0]);
+        }
+    }
+});
         linLayout.addView(button);
     }
+    
+    // ================================================================
+// Programmatic toggle state update (used by Mode buttons)
+// ================================================================
+private void setToggleState(int featNum, boolean newState) {
+    ToggleHolder h = mToggles.get(featNum);
+    if (h == null) return;
+    if (h.state[0] == newState) return;
+
+    h.state[0] = newState;
+    h.toggle.setChecked(newState, true);
+    animateStroke(h.rowBg,
+                  newState ? COLOR_CARD_BORDER : withAlpha(ToggleON, 0x99),
+                  newState ? withAlpha(ToggleON, 0x99) : COLOR_CARD_BORDER);
+    Preferences.changeFeatureBool(h.featName, featNum, newState);
+    if (featNum == 710) setTeleportPadVisible(newState);
+}
+
+private void syncToggles(int[] featNums, boolean on) {
+    for (int fn : featNums) setToggleState(fn, on);
+}
+
+// Feature numbers:
+// 100 ESP, 101 Box, 102 Line, 103 Health, 104 Distance, 105 EnemyOnly,
+// 109 SilentAim, 111 AutoFire, 116 AimMagnet, 120 FOV,
+// 200 UnlimAmmo, 201 MultiShot, 203 FastReload, 204 MaxRange,
+// 205 BulletSpeed, 207 DualWield, 209 HighDamage, 211 NoRecoil, 232 UnlockDual,
+// 500 FlyPower, 502 FlyWalls, 710 Teleport
+private void applyModeToMenu(int modeFeatNum, boolean enabled) {
+    switch (modeFeatNum) {
+        case 800: // Simple Mode
+            if (enabled) {
+                syncToggles(new int[]{100,101,102,103,104,200,203,211}, true);
+                syncToggles(new int[]{105,109,111,116,120,201,204,205,207,209,232,500,502,710}, false);
+            } else {
+                syncToggles(new int[]{100,200,203,211}, false);
+            }
+            break;
+
+        case 801: // Max Mode
+            if (enabled) {
+                syncToggles(new int[]{100,101,102,103,104,200,203,211,
+                                      109,111,116,201,204,205,209,232}, true);
+                syncToggles(new int[]{105,207,500,502,710}, false);
+            } else {
+                syncToggles(new int[]{109,111,116,201,204,205,209,232}, false);
+            }
+            break;
+
+        case 802: // Ultra Max Mode
+            if (enabled) {
+                syncToggles(new int[]{100,101,102,103,104,200,203,211,
+                                      109,111,116,201,204,205,209,232,
+                                      207,500,502,710}, true);
+                syncToggles(new int[]{105}, false);
+            } else {
+                syncToggles(new int[]{100,200,203,211,
+                                      109,111,116,201,204,205,209,232,
+                                      207,500,502,710}, false);
+            }
+            break;
+
+        case 803: // None — সব OFF
+            if (enabled) {
+                syncToggles(new int[]{100,101,102,103,104,105,
+                                      109,111,116,120,
+                                      200,201,203,204,205,207,209,211,232,
+                                      500,502,710}, false);
+            }
+            break;
+    }
+}
+
     private void Spinner(LinearLayout linLayout, final int featNum, final String featName, final String list) {
         final Context ctx = getContext;
         final List<String> lists = new LinkedList<String>(Arrays.asList(list.split(",")));
@@ -3454,15 +3551,21 @@ private void applyMenuColorButtonStyle(Button button, String label, int color) {
         linLayout.addView(textView);
     }
 
+    
+    
     private void TextView(LinearLayout linLayout, String text) {
-        TextView textView = new TextView(getContext);
-        textView.setText(Html.fromHtml(text));
-        textView.setTextColor(Color.parseColor("#C6C8D0"));
-        textView.setTypeface(fontRegular);
-        textView.setTextSize(12f);
-        textView.setPadding(dp(12), dp(5), dp(12), dp(5));
-        linLayout.addView(textView);
-    }
+    TextView(linLayout, text, false);
+}
+
+private void TextView(LinearLayout linLayout, String text, boolean small) {
+    TextView textView = new TextView(getContext);
+    textView.setText(Html.fromHtml(text));
+    textView.setTextColor(Color.parseColor("#C6C8D0"));
+    textView.setTypeface(fontRegular);
+    textView.setTextSize(small ? 10f : 12f);   // ← SmallTextView হলে ছোট
+    textView.setPadding(dp(12), dp(5), dp(12), dp(5));
+    linLayout.addView(textView);
+}
 
     private void WebTextView(LinearLayout linLayout, String text) {
         WebView wView = new WebView(getContext);
