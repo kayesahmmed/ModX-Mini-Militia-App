@@ -239,6 +239,28 @@ private static class ToggleHolder {
 }
 private final HashMap<Integer, ToggleHolder> mToggles =
         new HashMap<Integer, ToggleHolder>();
+        
+        // ===== SeekBar tracking (for Mode sync) =====
+private static class SeekBarHolder {
+    int featNum;
+    String featName;
+    SeekBar seekBar;
+    TextView chip;
+}
+private final HashMap<Integer, SeekBarHolder> mSeekBars =
+        new HashMap<Integer, SeekBarHolder>();
+
+// ===== Spinner tracking (for Mode sync) =====
+private static class SpinnerHolder {
+    int featNum;
+    String featName;
+    TextView nameView;
+    LinearLayout dropdownList;
+    ImageView arrowIv;
+    String[] items;
+}
+private final HashMap<Integer, SpinnerHolder> mSpinners =
+        new HashMap<Integer, SpinnerHolder>();
 
     boolean stopChecking, overlayRequired;
     Context getContext;
@@ -250,10 +272,17 @@ private boolean isLoggedIn = false;
 private View sidebarDivider = null;
 private int effectivePosY = POS_Y;
 private static final HashMap<Integer, Integer> SEEK_DEFAULTS = new HashMap<Integer, Integer>();
-    static {
-        SEEK_DEFAULTS.put(106, 3);     // Line Thickness default 3
-        SEEK_DEFAULTS.put(107, 115);   // Box Size default 115
-    }
+static {
+    SEEK_DEFAULTS.put(106, 3);     // Line Thickness
+    SEEK_DEFAULTS.put(107, 115);   // Box Size
+    SEEK_DEFAULTS.put(121, 300);   // FOV Size
+    SEEK_DEFAULTS.put(202, 10);    // Bullets Per Fire
+    SEEK_DEFAULTS.put(206, 5);     // Bullet Speed Multiplier
+    SEEK_DEFAULTS.put(210, 5);     // Damage Multiplier
+    SEEK_DEFAULTS.put(223, 2);     // Speed Multiplier
+    SEEK_DEFAULTS.put(224, 5);     // Zoom Level
+    SEEK_DEFAULTS.put(301, 60);    // ESP Update Rate
+}
     ESPView espview;
     WindowManager espWindowManager;
     WindowManager.LayoutParams espParams;
@@ -1940,6 +1969,8 @@ new Titanic().start(proTitle);
         spinnerAdapters.clear();
         mModeButtons.clear();
         mToggles.clear();
+        mSeekBars.clear();     // ← নতুন
+mSpinners.clear();     // ← নতুন
         sidebarLayout.removeAllViews();
         contentLayout.removeAllViews();
 
@@ -1994,8 +2025,8 @@ new Titanic().start(proTitle);
                     case "RadioButton": RadioButton(targetLayout, featNum, featName, strSplit[2]); break;
                     case "Collapse": Collapse(targetLayout, featName, switchedOn); break;
                     case "ButtonLink": ButtonLink(targetLayout, featName, strSplit[2]); break;
-                    case "RichTextView": TextView(targetLayout, featName); break;
-                    case "SmallTextView": TextView(targetLayout, featName, true); break;
+                    case "RichTextView":  TextView(targetLayout, featName);              break;
+case "SmallTextView": TextView(targetLayout, featNum, featName, true); break;
                     case "RichWebView": WebTextView(targetLayout, featName); break;
                     case "ColorPicker": ColorPicker(targetLayout, featNum, featName, strSplit.length > 2 ? strSplit[2] : "#00FF88"); break;
                     case "TeleportPadWidget": TeleportPad(targetLayout); break;
@@ -2759,7 +2790,7 @@ Toast.makeText(getContext, "Color: " + cname, Toast.LENGTH_SHORT).show();
                 case "ButtonLink": subFeat++; ButtonLink(linearLayout, strSplit[1], strSplit[2]); break;
                 case "Category": subFeat++; Category(linearLayout, strSplit[1]);  break;
                 case "RichTextView": subFeat++; TextView(linearLayout, strSplit[1]);  break;
-                case "SmallTextView": subFeat++; TextView(linearLayout, strSplit[1], true); break;
+                case "SmallTextView": subFeat++; TextView(linearLayout, featNum, strSplit[1], true); break;
                 case "RichWebView": subFeat++; WebTextView(linearLayout, strSplit[1]); break;
                 case "ColorPicker": subFeat++; ColorPicker(linearLayout, featNum, strSplit[1], strSplit.length > 2 ? strSplit[2] : "#00FF88"); break;
             }
@@ -2829,76 +2860,84 @@ Toast.makeText(getContext, "Color: " + cname, Toast.LENGTH_SHORT).show();
     linLayout.addView(row);
 }
 
-    private void SeekBar(LinearLayout linLayout, final int featNum, final String featName, final int min, int max) {
+    private void SeekBar(LinearLayout linLayout, final int featNum, final String featName,
+                     final int min, int max) {
     int startVal = Preferences.loadPrefInt(featName, featNum);
     if (startVal == 0) {
         Integer def = SEEK_DEFAULTS.get(featNum);
         startVal = (def != null) ? def.intValue() : min;
         if (startVal < min) startVal = min;
         if (startVal > max) startVal = max;
-        // Native-এ corrected default পাঠাই (SavePref OFF হলে persist হবে না)
         Preferences.changeFeatureInt(featName, featNum, startVal);
     }
 
-        LinearLayout card = new LinearLayout(getContext);
-        card.setOrientation(LinearLayout.VERTICAL);
-        card.setLayoutParams(rowLp(6, 3, 6, 3));
-        card.setBackground(cardBg(COLOR_CARD, COLOR_CARD_BORDER, 12));
+    LinearLayout card = new LinearLayout(getContext);
+    card.setOrientation(LinearLayout.VERTICAL);
+    card.setLayoutParams(rowLp(6, 3, 6, 3));
+    card.setBackground(cardBg(COLOR_CARD, COLOR_CARD_BORDER, 12));
 
-        LinearLayout head = new LinearLayout(getContext);
-        head.setOrientation(LinearLayout.HORIZONTAL);
-        head.setGravity(Gravity.CENTER_VERTICAL);
+    LinearLayout head = new LinearLayout(getContext());
+    head.setOrientation(LinearLayout.HORIZONTAL);
+    head.setGravity(Gravity.CENTER_VERTICAL);
 
-        TextView label = new TextView(getContext);
-        label.setLayoutParams(new LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f));
-        label.setText(featName);
-        label.setTextColor(TEXT_COLOR_2);
-        label.setTypeface(fontMedium);
-        label.setTextSize(12f);
-        label.setPadding(dp(12), dp(10), dp(6), dp(2));
+    TextView label = new TextView(getContext);
+    label.setLayoutParams(new LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f));
+    label.setText(featName);
+    label.setTextColor(TEXT_COLOR_2);
+    label.setTypeface(fontMedium);
+    label.setTextSize(12f);
+    label.setPadding(dp(12), dp(10), dp(6), dp(2));
 
-        final TextView chip = new TextView(getContext);
-        LinearLayout.LayoutParams chipLp = new LinearLayout.LayoutParams(WRAP_CONTENT, WRAP_CONTENT);
-        chipLp.setMargins(0, dp(8), dp(10), 0);
-        chip.setLayoutParams(chipLp);
-        chip.setText(String.valueOf(startVal));
-        chip.setTextColor(Color.parseColor(NumberTxtColor));
-        chip.setTypeface(fontBold);
-        chip.setTextSize(11f);
-        chip.setGravity(Gravity.CENTER);
-        chip.setPadding(dp(8), dp(2), dp(8), dp(2));
-        chip.setBackground(cardBg(withAlpha(Color.parseColor(NumberTxtColor), 0x18), withAlpha(Color.parseColor(NumberTxtColor), 0x66), 8));
+    final TextView chip = new TextView(getContext);
+    LinearLayout.LayoutParams chipLp = new LinearLayout.LayoutParams(WRAP_CONTENT, WRAP_CONTENT);
+    chipLp.setMargins(0, dp(8), dp(10), 0);
+    chip.setLayoutParams(chipLp);
+    chip.setText(String.valueOf(startVal));
+    chip.setTextColor(Color.parseColor(NumberTxtColor));
+    chip.setTypeface(fontBold);
+    chip.setTextSize(11f);
+    chip.setGravity(Gravity.CENTER);
+    chip.setPadding(dp(8), dp(2), dp(8), dp(2));
+    chip.setBackground(cardBg(withAlpha(Color.parseColor(NumberTxtColor), 0x18),
+                              withAlpha(Color.parseColor(NumberTxtColor), 0x66), 8));
 
-        head.addView(label);
-        head.addView(chip);
+    head.addView(label);
+    head.addView(chip);
 
-        final SeekBar seekBar = new SeekBar(getContext);
-        seekBar.setLayoutParams(new LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT));
-        seekBar.setPadding(dp(16), dp(8), dp(16), dp(10));
-        seekBar.setMax(max);
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) seekBar.setMin(min);
-        seekBar.setProgressDrawable(new SeekTrackDrawable(dpf(6f), COLOR_TRACK, COLOR_ACCENT, COLOR_SUCCESS));
-        seekBar.setThumb(makeSeekThumb());
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) seekBar.setSplitTrack(false);
-        seekBar.setProgress(startVal);
+    final SeekBar seekBar = new SeekBar(getContext());
+    seekBar.setLayoutParams(new LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT));
+    seekBar.setPadding(dp(16), dp(8), dp(16), dp(10));
+    seekBar.setMax(max);
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) seekBar.setMin(min);
+    seekBar.setProgressDrawable(new SeekTrackDrawable(dpf(6f), COLOR_TRACK, COLOR_ACCENT, COLOR_SUCCESS));
+    seekBar.setThumb(makeSeekThumb());
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) seekBar.setSplitTrack(false);
+    seekBar.setProgress(startVal);
 
-        seekBar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
-                @Override public void onStartTrackingTouch(SeekBar s) { }
-                @Override public void onStopTrackingTouch(SeekBar s)  { }
-                @Override
-                public void onProgressChanged(SeekBar s, int i, boolean z) {
-                    int val = i < min ? min : i;
-                    if (val != i) seekBar.setProgress(val);
-                    Preferences.changeFeatureInt(featName, featNum, val);
+    seekBar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+        @Override public void onStartTrackingTouch(SeekBar s) { }
+        @Override public void onStopTrackingTouch(SeekBar s)  { }
+        @Override
+        public void onProgressChanged(SeekBar s, int i, boolean z) {
+            int val = i < min ? min : i;
+            if (val != i) seekBar.setProgress(val);
+            Preferences.changeFeatureInt(featName, featNum, val);
+            chip.setText(String.valueOf(val));
+        }
+    });
 
-chip.setText(String.valueOf(val));
-                }
-            });
+    // ★ Holder রেজিস্টার
+    SeekBarHolder sbHolder = new SeekBarHolder();
+    sbHolder.featNum  = featNum;
+    sbHolder.featName = featName;
+    sbHolder.seekBar  = seekBar;
+    sbHolder.chip     = chip;
+    mSeekBars.put(featNum, sbHolder);
 
-        card.addView(head);
-        card.addView(seekBar);
-        linLayout.addView(card);
-    }
+    card.addView(head);
+    card.addView(seekBar);
+    linLayout.addView(card);
+}
 
     private Drawable makeSeekThumb() {
         GradientDrawable glow = new GradientDrawable();
@@ -3119,128 +3158,193 @@ private void syncToggles(int[] featNums, boolean on) {
     for (int fn : featNums) setToggleState(fn, on);
 }
 
-// Feature numbers:
-// 100 ESP, 101 Box, 102 Line, 103 Health, 104 Distance, 105 EnemyOnly,
-// 109 SilentAim, 111 AutoFire, 116 AimMagnet, 120 FOV,
-// 200 UnlimAmmo, 201 MultiShot, 203 FastReload, 204 MaxRange,
-// 205 BulletSpeed, 207 DualWield, 209 HighDamage, 211 NoRecoil, 232 UnlockDual,
-// 500 FlyPower, 502 FlyWalls, 710 Teleport
 private void applyModeToMenu(int modeFeatNum, boolean enabled) {
     switch (modeFeatNum) {
-        case 800: // Simple Mode
+
+        case 800: // Simple Mode  (Native: ESP, Box, Line, Health, Distance, UnlimAmmo, FastReload, NoRecoil)
             if (enabled) {
-                syncToggles(new int[]{100,101,102,103,104,200,203,211}, true);
-                syncToggles(new int[]{105,109,111,116,120,201,204,205,207,209,232,500,502,710}, false);
+                syncToggles(new int[]{100, 101, 102, 103, 104, 200, 203, 211}, true);
+                syncToggles(new int[]{105, 109, 111, 116, 120, 201, 204, 205,
+                                      207, 209, 232, 500, 502, 710, 221,
+                                      300, 302, 303, 306}, false);
             } else {
-                syncToggles(new int[]{100,200,203,211}, false);
+                syncToggles(new int[]{100, 200, 203, 211}, false);
             }
             break;
 
         case 801: // Max Mode
             if (enabled) {
-                syncToggles(new int[]{100,101,102,103,104,200,203,211,
-                                      109,111,116,201,204,205,209,232}, true);
-                syncToggles(new int[]{105,207,500,502,710}, false);
+                syncToggles(new int[]{100, 101, 102, 103, 104, 200, 203, 211,
+                                      109, 111, 116, 201, 204, 205, 209, 232}, true);
+                syncToggles(new int[]{105, 207, 500, 502, 710, 221}, false);
             } else {
-                syncToggles(new int[]{109,111,116,201,204,205,209,232}, false);
+                syncToggles(new int[]{109, 111, 116, 201, 204, 205, 209, 232}, false);
             }
             break;
 
         case 802: // Ultra Max Mode
             if (enabled) {
-                syncToggles(new int[]{100,101,102,103,104,200,203,211,
-                                      109,111,116,201,204,205,209,232,
-                                      207,500,502,710}, true);
-                syncToggles(new int[]{105}, false);
+                syncToggles(new int[]{100, 101, 102, 103, 104, 200, 203, 211,
+                                      109, 111, 116, 201, 204, 205, 209, 232,
+                                      207, 500, 502, 710, 221}, true);
+                syncToggles(new int[]{105, 300, 302, 303, 306}, false);
             } else {
-                syncToggles(new int[]{100,200,203,211,
-                                      109,111,116,201,204,205,209,232,
-                                      207,500,502,710}, false);
+                syncToggles(new int[]{100, 200, 203, 211,
+                                      109, 111, 116, 201, 204, 205, 209, 232,
+                                      207, 500, 502, 710, 221}, false);
             }
             break;
 
-        case 803: // None — সব OFF
+        case 803: // None — Native reset defaults (সব toggle + সব slider + spinner)
             if (enabled) {
-                syncToggles(new int[]{100,101,102,103,104,105,
-                                      109,111,116,120,
-                                      200,201,203,204,205,207,209,211,232,
-                                      500,502,710}, false);
+                // Toggles OFF
+                syncToggles(new int[]{
+                    100, 104, 105, 109, 111, 116, 120,
+                    200, 201, 203, 204, 205, 207, 209, 211, 232,
+                    221, 222, 500, 502, 710,
+                    300, 302, 303, 306
+                }, false);
+                // Toggles ON (Native defaults)
+                syncToggles(new int[]{101, 102, 103}, true);
+                // SeekBars → Native hardcoded defaults
+                setSeekBarValue(106, 3);    // Line Thickness
+                setSeekBarValue(107, 115);  // Box Size
+                setSeekBarValue(121, 300);  // FOV Size
+                setSeekBarValue(202, 10);   // Bullets Per Fire
+                setSeekBarValue(206, 5);    // Bullet Speed Multi
+                setSeekBarValue(210, 5);    // Damage Multi
+                setSeekBarValue(223, 2);    // Speed Multiplier
+                setSeekBarValue(224, 5);    // Zoom Level
+                setSeekBarValue(301, 60);   // ESP Update Rate
             }
             break;
     }
 }
 
-    private void Spinner(LinearLayout linLayout, final int featNum, final String featName, final String list) {
-        final Context ctx = getContext;
-        final List<String> lists = new LinkedList<String>(Arrays.asList(list.split(",")));
 
-        FrameLayout holder = new FrameLayout(ctx);
-        holder.setLayoutParams(rowLp(6, 3, 6, 3));
-        holder.setBackground(cardBg(COLOR_CARD, COLOR_CARD_BORDER, 12));
+private void setSeekBarValue(int featNum, int value) {
+    SeekBarHolder h = mSeekBars.get(featNum);
+    if (h == null) return;
+    if (h.seekBar.getProgress() == value) return;
+    // setProgress() নিজেই onProgressChanged trigger করবে →
+    // chip + Preferences.changeFeatureInt + Native update সব হবে
+    h.seekBar.setProgress(value);
+}
 
-        final Spinner spinner = new Spinner(ctx, Spinner.MODE_DROPDOWN);
-        spinner.setLayoutParams(new FrameLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT));
-        spinner.setBackground(null);
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN) {
-            spinner.setPopupBackgroundDrawable(cardBg(COLOR_CARD_HI, withAlpha(COLOR_ACCENT, 0x88), 10));
+private void setSpinnerValue(int featNum, int index) {
+    SpinnerHolder h = mSpinners.get(featNum);
+    if (h == null) return;
+    if (index < 0 || index >= h.items.length) return;
+
+    h.nameView.setText(h.featName + ": " + h.items[index]);
+
+    for (int j = 0; j < h.dropdownList.getChildCount(); j++) {
+        View child = h.dropdownList.getChildAt(j);
+        if (child instanceof TextView) {
+            TextView t = (TextView) child;
+            if (j == index) {
+                t.setTextColor(COLOR_ACCENT);
+                t.setBackground(cardBg(withAlpha(COLOR_ACCENT, 0x1A), 0, 4));
+            } else {
+                t.setTextColor(TEXT_COLOR_2);
+                t.setBackground(null);
+            }
         }
-
-        ArrayAdapter<String> aa = new ArrayAdapter<String>(ctx, android.R.layout.simple_spinner_dropdown_item, lists) {
-            @Override
-            public View getView(int position, View convertView, ViewGroup parent) {
-                View v = super.getView(position, convertView, parent);
-                if (v instanceof TextView) {
-                    TextView tv = (TextView) v;
-                    tv.setTextColor(TEXT_COLOR_2);
-                    tv.setTypeface(fontMedium);
-                    tv.setTextSize(12f * currentScale);
-                    tv.setMinHeight(0);
-                    tv.setMinimumHeight(0);
-                    tv.setPadding(dp(12), dp(10), dp(30), dp(10));
-                }
-                return v;
-            }
-
-            @Override
-            public View getDropDownView(int position, View convertView, ViewGroup parent) {
-                View v = super.getDropDownView(position, convertView, parent);
-                if (v instanceof TextView) {
-                    TextView tv = (TextView) v;
-                    tv.setTextColor(TEXT_COLOR_2);
-                    tv.setTypeface(fontMedium);
-                    tv.setTextSize(12f * currentScale);
-                    tv.setMinHeight(0);
-                    tv.setMinimumHeight(0);
-                    tv.setBackgroundColor(COLOR_CARD_HI);
-                    tv.setPadding(dp(14), dp(11), dp(14), dp(11));
-                }
-                return v;
-            }
-        };
-        spinnerAdapters.add(aa);
-        spinner.setAdapter(aa);
-        spinner.setSelection(Preferences.loadPrefInt(featName, featNum));
-        spinner.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
-                @Override
-                public void onItemSelected(AdapterView<?> p, View sv, int pos, long id) {
-                    Preferences.changeFeatureInt(spinner.getSelectedItem().toString(), featNum, pos);
-                }
-                @Override public void onNothingSelected(AdapterView<?> p) { }
-            });
-
-        // chevron sits above the spinner but lets touches fall through
-        ImageView chevron = new ImageView(ctx);
-        TabIcon chevIcon = new TabIcon(TabIcon.CHEVRON);
-        chevIcon.setColor(COLOR_ACCENT);
-        chevron.setImageDrawable(chevIcon);
-        FrameLayout.LayoutParams chLp = new FrameLayout.LayoutParams(dp(18), dp(18), Gravity.RIGHT | Gravity.CENTER_VERTICAL);
-        chLp.setMargins(0, 0, dp(10), 0);
-        chevron.setLayoutParams(chLp);
-
-        holder.addView(spinner);
-        holder.addView(chevron);
-        linLayout.addView(holder);
     }
+    Preferences.changeFeatureInt(h.featName, featNum, index);
+}
+
+    private void Spinner(LinearLayout linLayout, final int featNum,
+                     final String featName, final String list) {
+    final Context ctx = getContext;
+    final List<String> lists = new LinkedList<String>(Arrays.asList(list.split(",")));
+
+    final LinearLayout container = new LinearLayout(ctx);
+    container.setOrientation(LinearLayout.VERTICAL);
+    container.setLayoutParams(rowLp(6, 3, 6, 3));
+
+    final LinearLayout spinnerRow = new LinearLayout(ctx);
+    spinnerRow.setBackground(cardBg(COLOR_CARD, COLOR_CARD_BORDER, 12));
+    spinnerRow.setGravity(Gravity.CENTER_VERTICAL);
+    spinnerRow.setPadding(dp(12), dp(11), dp(12), dp(11));
+    spinnerRow.setOrientation(LinearLayout.HORIZONTAL);
+
+    final TextView tvName = new TextView(ctx);
+    tvName.setTextColor(TEXT_COLOR_2);
+    tvName.setTypeface(fontMedium);
+    tvName.setTextSize(12f * currentScale);
+    tvName.setLayoutParams(new LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f));
+
+    final ImageView arrowIv = new ImageView(ctx);
+    TabIcon chevIcon = new TabIcon(TabIcon.CHEVRON);
+    chevIcon.setColor(COLOR_ACCENT);
+    arrowIv.setImageDrawable(chevIcon);
+    arrowIv.setLayoutParams(new LinearLayout.LayoutParams(dp(18), dp(18)));
+
+    spinnerRow.addView(tvName);
+    spinnerRow.addView(arrowIv);
+
+    final int savedIdx = Preferences.loadPrefInt(featName, featNum);
+    final int initIdx = (savedIdx >= 0 && savedIdx < lists.size()) ? savedIdx : 0;
+    tvName.setText(featName + ": " + lists.get(initIdx));
+
+    final LinearLayout dropdownList = new LinearLayout(ctx);
+    dropdownList.setOrientation(LinearLayout.VERTICAL);
+    dropdownList.setVisibility(View.GONE);
+    dropdownList.setBackground(cardBg(COLOR_BG_TOP, withAlpha(COLOR_ACCENT, 0xAA), 8));
+    dropdownList.setPadding(dp(4), dp(4), dp(4), dp(4));
+
+    LinearLayout.LayoutParams listLp = new LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT);
+    listLp.setMargins(0, dp(4), 0, 0);
+    dropdownList.setLayoutParams(listLp);
+
+    for (int i = 0; i < lists.size(); i++) {
+        final int index = i;
+        TextView tv = new TextView(ctx);
+        tv.setText(lists.get(i));
+        tv.setTextColor(TEXT_COLOR_2);
+        tv.setTypeface(fontMedium);
+        tv.setTextSize(12f * currentScale);
+        tv.setPadding(dp(12), dp(12), dp(12), dp(12));
+        if (index == initIdx) {
+            tv.setTextColor(COLOR_ACCENT);
+            tv.setBackground(cardBg(withAlpha(COLOR_ACCENT, 0x1A), 0, 4));
+        }
+        tv.setOnClickListener(new View.OnClickListener() {
+            @Override public void onClick(View v) {
+                setSpinnerValue(featNum, index);
+                dropdownList.setVisibility(View.GONE);
+                arrowIv.animate().rotation(0f).setDuration(200).start();
+            }
+        });
+        dropdownList.addView(tv);
+    }
+
+    spinnerRow.setOnClickListener(new View.OnClickListener() {
+        @Override public void onClick(View v) {
+            if (dropdownList.getVisibility() == View.VISIBLE) {
+                dropdownList.setVisibility(View.GONE);
+                arrowIv.animate().rotation(0f).setDuration(200).start();
+            } else {
+                dropdownList.setVisibility(View.VISIBLE);
+                arrowIv.animate().rotation(180f).setDuration(200).start();
+            }
+        }
+    });
+
+    SpinnerHolder spHolder = new SpinnerHolder();
+    spHolder.featNum      = featNum;
+    spHolder.featName     = featName;
+    spHolder.nameView     = tvName;
+    spHolder.dropdownList = dropdownList;
+    spHolder.arrowIv      = arrowIv;
+    spHolder.items        = lists.toArray(new String[0]);
+    mSpinners.put(featNum, spHolder);
+
+    container.addView(spinnerRow);
+    container.addView(dropdownList);
+    linLayout.addView(container);
+}
 
     private void InputNum(LinearLayout linLayout, final int featNum, final String featName, final int maxValue) {
         final Button button = new Button(getContext);
@@ -3554,16 +3658,54 @@ private void applyModeToMenu(int modeFeatNum, boolean enabled) {
     
     
     private void TextView(LinearLayout linLayout, String text) {
-    TextView(linLayout, text, false);
+    TextView(linLayout, -1, text, false);
 }
 
-private void TextView(LinearLayout linLayout, String text, boolean small) {
+private void TextView(LinearLayout linLayout, int featNum, String text, boolean small) {
     TextView textView = new TextView(getContext);
     textView.setText(Html.fromHtml(text));
     textView.setTextColor(Color.parseColor("#C6C8D0"));
     textView.setTypeface(fontRegular);
-    textView.setTextSize(small ? 10f : 12f);   // ← SmallTextView হলে ছোট
+    textView.setTextSize(small ? 10f : 12f);
     textView.setPadding(dp(12), dp(5), dp(12), dp(5));
+
+    // ★ Tab Link detection
+    //   ১) featNum দিয়ে explicit mapping (Main.cpp-এ "993_SmallTextView_.." দিলে)
+    //   ২) fallback: text keyword দিয়ে auto-detect
+    String targetTab = null;
+    switch (featNum) {
+        case 993: targetTab = "Camera";   break;
+        case 994: targetTab = "Aim";      break;
+        case 995: targetTab = "Flight";   break;
+        case 996: targetTab = "Teleport"; break;
+        case 997: targetTab = "ESP";      break;
+        case 998: targetTab = "Weapon";   break;
+        default:  break;
+    }
+
+    if (targetTab == null) {
+        String plain = textView.getText().toString().toLowerCase();
+        if      (plain.contains("fly through walls")) targetTab = "Flight";
+        else if (plain.contains("teleport"))           targetTab = "Teleport";
+        else if (plain.contains("aim magnet")
+              || plain.contains("silent aim"))         targetTab = "Aim";
+        else if (plain.contains("unlimited ammo")
+              || plain.contains("fast reload"))        targetTab = "Weapon";
+    }
+
+    if (targetTab != null) {
+        final String ft = targetTab;
+        textView.setClickable(true);
+        textView.setOnClickListener(new View.OnClickListener() {
+            @Override public void onClick(View v) {
+                if (!selectTabByName(ft)) {
+                    Toast.makeText(getContext(),
+                        "Tab not found: " + ft, Toast.LENGTH_SHORT).show();
+                }
+            }
+        });
+    }
+
     linLayout.addView(textView);
 }
 
