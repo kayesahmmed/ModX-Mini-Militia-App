@@ -2876,7 +2876,7 @@ Toast.makeText(getContext, "Color: " + cname, Toast.LENGTH_SHORT).show();
     card.setLayoutParams(rowLp(6, 3, 6, 3));
     card.setBackground(cardBg(COLOR_CARD, COLOR_CARD_BORDER, 12));
 
-    LinearLayout head = new LinearLayout(getContext());
+    LinearLayout head = new LinearLayout(getContext);
     head.setOrientation(LinearLayout.HORIZONTAL);
     head.setGravity(Gravity.CENTER_VERTICAL);
 
@@ -2904,7 +2904,7 @@ Toast.makeText(getContext, "Color: " + cname, Toast.LENGTH_SHORT).show();
     head.addView(label);
     head.addView(chip);
 
-    final SeekBar seekBar = new SeekBar(getContext());
+    final SeekBar seekBar = new SeekBar(getContext);
     seekBar.setLayoutParams(new LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT));
     seekBar.setPadding(dp(16), dp(8), dp(16), dp(10));
     seekBar.setMax(max);
@@ -3699,7 +3699,7 @@ private void TextView(LinearLayout linLayout, int featNum, String text, boolean 
         textView.setOnClickListener(new View.OnClickListener() {
             @Override public void onClick(View v) {
                 if (!selectTabByName(ft)) {
-                    Toast.makeText(getContext(),
+                    Toast.makeText(getContext,
                         "Tab not found: " + ft, Toast.LENGTH_SHORT).show();
                 }
             }
