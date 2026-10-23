@@ -1,5 +1,12 @@
 //Please don't replace listeners with lambda!
 
+//Mini Militia Game
+//bg.setCornerRadius(dp
+//boxBg.setCornerRadius(dp
+//b.setBackground(gradBg(BTN_GRAD_1, BTN_GRAD_2
+
+
+
 package com.android.support;
 
 import android.animation.Animator;
@@ -100,7 +107,7 @@ int COLOR_ACCENT      = Color.parseColor("#3DDB87");
 int COLOR_ACCENT_2    = Color.parseColor("#2BB673");
 int COLOR_ACCENT_3    = Color.parseColor("#6EE7A9");
 int COLOR_SUCCESS     = Color.parseColor("#4FBA82");
-int COLOR_DANGER      = Color.parseColor("#C25C56");
+int COLOR_DANGER      = Color.parseColor("#FF3B30");
 
 // ==== FIXED GREEN GLOW (both menus) ====
 final int GLOW_COLOR_1 = Color.parseColor("#3DDB87");
@@ -142,8 +149,8 @@ String NumberTxtColor = "#3DDB87";
     private static final int   POS_Y       = 100;
     private static final int   MENU_WIDTH  = 272;
     private static final int   MENU_HEIGHT = 352;
-    private static final float MENU_CORNER = 20f;
-    private static final float ICON_SIZE   = 50f;
+    private static final float MENU_CORNER = 10f;
+    private static final float ICON_SIZE   = 80f;
     private static final float ICON_ALPHA  = 1f;
 
     // ---- Glow / frame ----
@@ -564,7 +571,7 @@ mShimmerViewRef = shimmer;
         hideBtn.setBackground(cardBg(
         withAlpha(COLOR_DANGER, 0x1A),     // ← same alpha as MINIMIZE (0x1A)
         withAlpha(COLOR_DANGER, 0x77),     // ← same stroke alpha
-        10));
+        6));
 hideBtn.setText("HIDE/KILL (Hold)");
 hideBtn.setAllCaps(false);
 hideBtn.setTextColor(lighten(COLOR_DANGER, 0.45f));   // ← softer red text
@@ -598,7 +605,7 @@ hideBtn.setTextColor(lighten(COLOR_DANGER, 0.45f));   // ← softer red text
 
         Button closeBtn = new Button(context);
         closeBtn.setLayoutParams(new LinearLayout.LayoutParams(WRAP_CONTENT, WRAP_CONTENT));
-        closeBtn.setBackground(cardBg(withAlpha(COLOR_ACCENT, 0x1A), withAlpha(COLOR_ACCENT, 0x77), 10));
+        closeBtn.setBackground(cardBg(withAlpha(COLOR_ACCENT, 0x1A), withAlpha(COLOR_ACCENT, 0x77), 6));
         closeBtn.setText("MINIMIZE");
         closeBtn.setAllCaps(false);
         closeBtn.setTextColor(COLOR_ACCENT);
@@ -727,7 +734,7 @@ mExpanded.addView(shimmer);
 
 // ★ Native Init "Waiting for game lib..." সেট করতে পারে → সাথে সাথে override
 title.setText("ModX Lab");
-subTitle.setText("Created by ModX Lab");
+subTitle.setText("Mini Militia V5.6.0");
 
 // ★ Periodically re-check — Init async হলে তখনও override হবে
 final TextView fSub = subTitle;
@@ -739,7 +746,7 @@ subGuard.postDelayed(new Runnable() {
         try {
             CharSequence s = fSub.getText();
             if (s != null && s.toString().contains("Waiting")) {
-                fSub.setText("Created by ModX Lab");
+                fSub.setText("Mini Militia V5.6.0");
             }
         } catch (Exception ignored) { }
         subGuard.postDelayed(this, 1000);
@@ -1803,6 +1810,52 @@ new Titanic().start(proTitle);
             return false;
         }
     };
+    
+    
+    
+    
+    private static class TelegramIcon extends Drawable {
+    private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Path path = new Path();
+    private final int sizePx;
+
+    TelegramIcon(int color, float density) {
+        paint.setColor(color);
+        paint.setStyle(Paint.Style.FILL);
+        this.sizePx = (int) (18 * density);
+    }
+
+    @Override public int getIntrinsicWidth()  { return sizePx; }
+    @Override public int getIntrinsicHeight() { return sizePx; }
+
+    @Override
+    public void draw(Canvas canvas) {
+        Rect b = getBounds();
+        if (b.width() <= 0 || b.height() <= 0) return;
+        float size = Math.min(b.width(), b.height());
+        float s = size / 24f;
+        canvas.save();
+        canvas.translate(b.left + (b.width() - size) / 2f, b.top + (b.height() - size) / 2f);
+        canvas.scale(s, s);
+        path.reset();
+        path.moveTo(22.0f, 3.0f); path.lineTo(2.0f, 11.5f); path.lineTo(9.5f, 14.0f);
+        path.lineTo(11.5f, 20.0f); path.lineTo(14.5f, 15.0f); path.lineTo(21.0f, 19.5f);
+        path.close();
+        canvas.drawPath(path, paint);
+        Paint strokeP = new Paint(Paint.ANTI_ALIAS_FLAG);
+        strokeP.setStyle(Paint.Style.STROKE);
+        strokeP.setStrokeWidth(1.2f);
+        strokeP.setColor(0x33000000);
+        path.reset();
+        path.moveTo(9.5f, 14.0f); path.lineTo(21.0f, 6.5f);
+        canvas.drawPath(path, strokeP);
+        canvas.restore();
+    }
+
+    @Override public void setAlpha(int alpha) { paint.setAlpha(alpha); }
+    @Override public void setColorFilter(ColorFilter cf) { paint.setColorFilter(cf); }
+    @Override public int getOpacity() { return PixelFormat.TRANSLUCENT; }
+}
 
     // ================================================================
     // Responsive layout: text / padding scale + sidebar width + compact tabs
@@ -2050,18 +2103,17 @@ if (settingsLay != null) {
     settingsLay.removeAllViews();
 
     Switch(settingsLay, -1, "Save features preference", Preferences.loadPref);
-    
 
-                Category(settingsLay, "Menu Color Theme");
+    Category(settingsLay, "Menu Color Theme");
+    settingsLay.addView(makeMenuColorButton(COLOR_ACCENT, "Menu Color", -29));
+    settingsLay.addView(makeMenuColorButton(Color.parseColor("#3DDB87"), "Reset to Default", -28));
 
-    // ===== Pick Menu Color (shows current color + hex) =====
-    settingsLay.addView(makeMenuColorButton(
-            COLOR_ACCENT, "Menu Color", -29));
-    settingsLay.addView(makeMenuColorButton(
-            Color.parseColor("#3DDB87"), "Reset to Default", -28));
+    // ★ NEW
+    Category(settingsLay, "Community");
+    ButtonTelegram(settingsLay, "Join our Telegram", "https://t.me/kayesahmmedpro");
 
-    Button(settingsLay, -6, "Close Menu");
-    }
+    Button(settingsLay, -6, "Close Settings");
+}
         setupSidebarTabs();
         rescaleAll();
         applyTabMetrics();
@@ -2506,10 +2558,10 @@ public void setTeleportPadVisible(boolean visible) {
         b.setPadding(dp(16), dp(8), dp(16), dp(8));
         if (primary) {
             b.setTextColor(Color.WHITE);
-            b.setBackground(gradBg(BTN_GRAD_1, BTN_GRAD_2, 10));
+            b.setBackground(gradBg(BTN_GRAD_1, BTN_GRAD_2, 8));
         } else {
             b.setTextColor(COLOR_TEXT_MUTED);
-            b.setBackground(cardBg(0x0FFFFFFF, COLOR_CARD_BORDER, 10));
+            b.setBackground(cardBg(0x0FFFFFFF, COLOR_CARD_BORDER, 6));
         }
         flatten(b);
         addPressAnim(b);
@@ -2525,7 +2577,7 @@ public void setTeleportPadVisible(boolean visible) {
         box.setPadding(dp(18), dp(16), dp(18), dp(14));
         GradientDrawable boxBg = new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,
                                                       new int[]{COLOR_BG_TOP, COLOR_BG_BOTTOM});
-        boxBg.setCornerRadius(dp(18));
+        boxBg.setCornerRadius(dp(10));
         boxBg.setStroke(dp(1), withAlpha(COLOR_ACCENT, 0xAA));
         box.setBackground(boxBg);
 
@@ -2754,7 +2806,7 @@ Toast.makeText(getContext, "Color: " + cname, Toast.LENGTH_SHORT).show();
 
     private void applyColorButton(Button button, String featName, int color) {
         GradientDrawable bg = new GradientDrawable();
-        bg.setCornerRadius(dp(12));
+        bg.setCornerRadius(dp(10));
         bg.setColor(color);
         bg.setStroke(dp(2), withAlpha(0xFFFFFF, 0xB0));
         button.setBackground(bg);
@@ -2968,7 +3020,7 @@ Toast.makeText(getContext, "Color: " + cname, Toast.LENGTH_SHORT).show();
         button.setTextSize(12f);
         button.setPadding(dp(10), dp(11), dp(10), dp(11));
 
-        GradientDrawable btnBg = gradBg(BTN_GRAD_1, BTN_GRAD_2, 12);
+        GradientDrawable btnBg = gradBg(BTN_GRAD_1, BTN_GRAD_2, 8);
         btnBg.setStroke(dp(1), 0x55FFFFFF);
         button.setBackground(btnBg);
         flatten(button);
@@ -3029,7 +3081,7 @@ private Button makeMenuColorButton(final int color, final String label,
 
 private void applyMenuColorButtonStyle(Button button, String label, int color) {
     GradientDrawable bg = new GradientDrawable();
-    bg.setCornerRadius(dp(12));
+    bg.setCornerRadius(dp(10));
     bg.setColor(color);
     bg.setStroke(dp(2), withAlpha(0xFFFFFF, 0xB0));
     button.setBackground(bg);
@@ -3137,6 +3189,50 @@ private void applyMenuColorButtonStyle(Button button, String label, int color) {
         linLayout.addView(button);
     }
     
+    
+    
+    private void ButtonTelegram(LinearLayout linLayout, final String label, final String url) {
+    final Button button = new Button(getContext);
+    button.setMinHeight(0);  button.setMinimumHeight(0);
+    button.setLayoutParams(rowLp(6, 4, 6, 4));
+    button.setAllCaps(false);
+    button.setTextColor(Color.WHITE);
+    button.setTypeface(fontBold);
+    button.setTextSize(12f);
+    button.setPadding(dp(12), dp(11), dp(12), dp(11));
+    button.setText(label);
+    button.setGravity(Gravity.CENTER);
+
+    int TG_BLUE = Color.parseColor("#229ED9");
+    int TG_BLUE_DEEP = Color.parseColor("#1A7EB0");
+    GradientDrawable bg = new GradientDrawable(
+            GradientDrawable.Orientation.LEFT_RIGHT, new int[]{TG_BLUE, TG_BLUE_DEEP});
+    bg.setCornerRadius(dp(10));
+    bg.setStroke(dp(1), 0x55FFFFFF);
+    button.setBackground(bg);
+
+    float density = getContext.getResources().getDisplayMetrics().density;
+    TelegramIcon icon = new TelegramIcon(Color.WHITE, density);
+    button.setCompoundDrawablesWithIntrinsicBounds(icon, null, null, null);
+    button.setCompoundDrawablePadding(dp(8));
+
+    flatten(button);
+    addPressAnim(button);
+
+    button.setOnClickListener(new View.OnClickListener() {
+        @Override public void onClick(View v) {
+            try {
+                Intent intent = new Intent(Intent.ACTION_VIEW);
+                intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                intent.setData(Uri.parse(url));
+                getContext.startActivity(intent);
+            } catch (Exception ignored) { }
+        }
+    });
+    linLayout.addView(button);
+}
+
+
     // ================================================================
 // Programmatic toggle state update (used by Mode buttons)
 // ================================================================
@@ -3161,61 +3257,67 @@ private void syncToggles(int[] featNums, boolean on) {
 private void applyModeToMenu(int modeFeatNum, boolean enabled) {
     switch (modeFeatNum) {
 
-        case 800: // Simple Mode  (Native: ESP, Box, Line, Health, Distance, UnlimAmmo, FastReload, NoRecoil)
+        case 800: // Simple Mode: ESP, Box, Line, Health, Distance, UnlimAmmo, FastReload, NoRecoil
             if (enabled) {
+                // Turn OFF EVERYTHING except mode's features
+                syncToggles(new int[]{
+                    105, 109, 111, 116, 120, 201, 204, 205, 207, 209,
+                    221, 222, 232, 300, 302, 303, 306, 406, 407,
+                    500, 502, 601, 602, 710
+                }, false);
+                // Turn ON mode's features
                 syncToggles(new int[]{100, 101, 102, 103, 104, 200, 203, 211}, true);
-                syncToggles(new int[]{105, 109, 111, 116, 120, 201, 204, 205,
-                                      207, 209, 232, 500, 502, 710, 221,
-                                      300, 302, 303, 306}, false);
             } else {
                 syncToggles(new int[]{100, 200, 203, 211}, false);
             }
             break;
 
-        case 801: // Max Mode
+        case 801: // Max Mode: Simple + SilentAim, AutoFire, AimMagnet, MultiShot, MaxRange, BulletSpeed, HighDmg, UnlockDual
             if (enabled) {
-                syncToggles(new int[]{100, 101, 102, 103, 104, 200, 203, 211,
-                                      109, 111, 116, 201, 204, 205, 209, 232}, true);
-                syncToggles(new int[]{105, 207, 500, 502, 710, 221}, false);
+                syncToggles(new int[]{
+                    105, 120, 207, 221, 222, 300, 302, 303, 306,
+                    406, 407, 500, 502, 601, 602, 710
+                }, false);
+                syncToggles(new int[]{
+                    100, 101, 102, 103, 104,
+                    109, 111, 116,
+                    200, 201, 203, 204, 205, 209, 211, 232
+                }, true);
             } else {
                 syncToggles(new int[]{109, 111, 116, 201, 204, 205, 209, 232}, false);
             }
             break;
 
-        case 802: // Ultra Max Mode
+        case 802: // Ultra Max Mode: Max + PickGunDual, UnlimFlyPower, FlyThroughWalls, Teleport
             if (enabled) {
-                syncToggles(new int[]{100, 101, 102, 103, 104, 200, 203, 211,
-                                      109, 111, 116, 201, 204, 205, 209, 232,
-                                      207, 500, 502, 710, 221}, true);
-                syncToggles(new int[]{105, 300, 302, 303, 306}, false);
+                syncToggles(new int[]{
+                    105, 120, 221, 222, 300, 302, 303, 306, 406, 407, 601, 602
+                }, false);
+                syncToggles(new int[]{
+                    100, 101, 102, 103, 104,
+                    109, 111, 116,
+                    200, 201, 203, 204, 205, 207, 209, 211, 232,
+                    500, 502, 710
+                }, true);
             } else {
-                syncToggles(new int[]{100, 200, 203, 211,
-                                      109, 111, 116, 201, 204, 205, 209, 232,
-                                      207, 500, 502, 710, 221}, false);
+                syncToggles(new int[]{
+                    100, 200, 203, 211,
+                    109, 111, 116, 201, 204, 205, 209, 232,
+                    207, 500, 502, 710
+                }, false);
             }
             break;
 
-        case 803: // None — Native reset defaults (সব toggle + সব slider + spinner)
+        case 803: // None — reset ALL to default
             if (enabled) {
-                // Toggles OFF
                 syncToggles(new int[]{
                     100, 104, 105, 109, 111, 116, 120,
                     200, 201, 203, 204, 205, 207, 209, 211, 232,
-                    221, 222, 500, 502, 710,
-                    300, 302, 303, 306
+                    221, 222, 300, 302, 303, 306, 406, 407,
+                    500, 502, 601, 602, 710
                 }, false);
-                // Toggles ON (Native defaults)
+                // Defaults ON (matching Native)
                 syncToggles(new int[]{101, 102, 103}, true);
-                // SeekBars → Native hardcoded defaults
-                setSeekBarValue(106, 3);    // Line Thickness
-                setSeekBarValue(107, 115);  // Box Size
-                setSeekBarValue(121, 300);  // FOV Size
-                setSeekBarValue(202, 10);   // Bullets Per Fire
-                setSeekBarValue(206, 5);    // Bullet Speed Multi
-                setSeekBarValue(210, 5);    // Damage Multi
-                setSeekBarValue(223, 2);    // Speed Multiplier
-                setSeekBarValue(224, 5);    // Zoom Level
-                setSeekBarValue(301, 60);   // ESP Update Rate
             }
             break;
     }
@@ -3597,7 +3699,7 @@ private void setSpinnerValue(int featNum, int index) {
         headRow.setGravity(Gravity.CENTER_VERTICAL);
         GradientDrawable colBg = new GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT,
                                                       new int[]{CollapseColor, withAlpha(COLOR_ACCENT_2, 0x30)});
-        colBg.setCornerRadius(dp(12));
+        colBg.setCornerRadius(dp(10));
         colBg.setStroke(dp(1), withAlpha(COLOR_ACCENT, 0x77));
         headRow.setBackground(colBg);
 
@@ -3853,7 +3955,7 @@ private void updateHeaderColors() {
     if (mMinimizeBtn != null) {
         mMinimizeBtn.setBackground(cardBg(
             withAlpha(COLOR_ACCENT, 0x1A),
-            withAlpha(COLOR_ACCENT, 0x77), 10));
+            withAlpha(COLOR_ACCENT, 0x77), 6));
         mMinimizeBtn.setTextColor(COLOR_ACCENT);
     }
 
@@ -3861,7 +3963,7 @@ private void updateHeaderColors() {
     if (mHideBtn != null) {
         mHideBtn.setBackground(cardBg(
                 withAlpha(COLOR_DANGER, 0x1A),
-                withAlpha(COLOR_DANGER, 0x77), 10));
+                withAlpha(COLOR_DANGER, 0x77), 6));
         mHideBtn.setTextColor(lighten(COLOR_DANGER, 0.45f));
     }
 
@@ -4062,7 +4164,7 @@ private void showMenuColorPickerDialog() {
     GradientDrawable boxBg = new GradientDrawable(
             GradientDrawable.Orientation.TOP_BOTTOM,
             new int[]{COLOR_BG_TOP, COLOR_BG_BOTTOM});
-    boxBg.setCornerRadius(dp(20));
+    boxBg.setCornerRadius(dp(10));
     boxBg.setStroke(dp(1), withAlpha(COLOR_ACCENT, 0xAA));
     box.setBackground(boxBg);
 
