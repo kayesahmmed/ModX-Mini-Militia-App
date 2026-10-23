@@ -1,9 +1,21 @@
 //Please don't replace listeners with lambda!
 
 //Mini Militia Game
+//withAlpha(COLOR_ACCENT, 0x88),
 //bg.setCornerRadius(dp
 //boxBg.setCornerRadius(dp
 //b.setBackground(gradBg(BTN_GRAD_1, BTN_GRAD_2
+//final GradientDrawable rowBg = cardBg(COLOR_CARD, COLOR_CARD_BORDER
+//card.setBackground(cardBg(COLOR_CARD, COLOR_CARD_BORDER
+//button.setBackground(cardBg(withAlpha(COLOR_ACCENT, 0x14), withAlpha(COLOR_ACCENT, 0x88),
+//button.setBackground(cardBg(withAlpha(ToggleON, 0x1F), withAlpha(ToggleON, 0xCC)
+//button.setBackground(cardBg(withAlpha(ToggleOFF, 0x14), withAlpha(ToggleOFF, 0x88),
+//button.setBackground(cardBg(COLOR_CARD, withAlpha(COLOR_ACCENT, 0x66),
+//final GradientDrawable cbBg = cardBg(COLOR_CARD, COLOR_CARD_BORDER,
+//radioGroup.setBackground(cardBg(COLOR_CARD, COLOR_CARD_BORDER
+//spinnerRow.setBackground(cardBg(COLOR_CARD, COLOR_CARD_BORDER, 12));
+//colBg.setCornerRadius(dp(
+//bg.setCornerRadius(dp(
 
 
 
@@ -149,8 +161,8 @@ String NumberTxtColor = "#3DDB87";
     private static final int   POS_Y       = 100;
     private static final int   MENU_WIDTH  = 272;
     private static final int   MENU_HEIGHT = 352;
-    private static final float MENU_CORNER = 10f;
-    private static final float ICON_SIZE   = 80f;
+    private static final float MENU_CORNER = 8f;
+    private static final float ICON_SIZE   = 100f;
     private static final float ICON_ALPHA  = 1f;
 
     // ---- Glow / frame ----
@@ -2196,7 +2208,7 @@ if (settingsLay != null) {
             bg = new GradientDrawable();
             bg.setColor(0x0DFFFFFF);
         }
-        bg.setCornerRadius(dp(10));
+        bg.setCornerRadius(dp(6));
         h.root.setBackground(bg);
         h.label.setTextColor(selected ? Color.WHITE : COLOR_TEXT_MUTED);
         h.label.setTypeface(selected ? fontBold : fontMedium);
@@ -2577,7 +2589,7 @@ public void setTeleportPadVisible(boolean visible) {
         box.setPadding(dp(18), dp(16), dp(18), dp(14));
         GradientDrawable boxBg = new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,
                                                       new int[]{COLOR_BG_TOP, COLOR_BG_BOTTOM});
-        boxBg.setCornerRadius(dp(10));
+        boxBg.setCornerRadius(dp(6));
         boxBg.setStroke(dp(1), withAlpha(COLOR_ACCENT, 0xAA));
         box.setBackground(boxBg);
 
@@ -2648,7 +2660,7 @@ public void setTeleportPadVisible(boolean visible) {
         e.setTypeface(fontMedium);
         e.setTextSize(14f);
         e.setSingleLine(true);
-        e.setBackground(cardBg(COLOR_CARD, withAlpha(COLOR_ACCENT, 0x88), 10));
+        e.setBackground(cardBg(COLOR_CARD, withAlpha(COLOR_ACCENT, 0x88), 6));
         e.setPadding(dp(12), dp(10), dp(12), dp(10));
         return e;
     }
@@ -2806,7 +2818,7 @@ Toast.makeText(getContext, "Color: " + cname, Toast.LENGTH_SHORT).show();
 
     private void applyColorButton(Button button, String featName, int color) {
         GradientDrawable bg = new GradientDrawable();
-        bg.setCornerRadius(dp(10));
+        bg.setCornerRadius(dp(6));
         bg.setColor(color);
         bg.setStroke(dp(2), withAlpha(0xFFFFFF, 0xB0));
         button.setBackground(bg);
@@ -2855,7 +2867,7 @@ Toast.makeText(getContext, "Color: " + cname, Toast.LENGTH_SHORT).show();
     row.setOrientation(LinearLayout.HORIZONTAL);
     row.setGravity(Gravity.CENTER_VERTICAL);
     row.setLayoutParams(rowLp(6, 3, 6, 3));
-    final GradientDrawable rowBg = cardBg(COLOR_CARD, COLOR_CARD_BORDER, 12);
+    final GradientDrawable rowBg = cardBg(COLOR_CARD, COLOR_CARD_BORDER, 6);
     row.setBackground(rowBg);
 
     TextView label = new TextView(getContext);
@@ -2926,7 +2938,7 @@ Toast.makeText(getContext, "Color: " + cname, Toast.LENGTH_SHORT).show();
     LinearLayout card = new LinearLayout(getContext);
     card.setOrientation(LinearLayout.VERTICAL);
     card.setLayoutParams(rowLp(6, 3, 6, 3));
-    card.setBackground(cardBg(COLOR_CARD, COLOR_CARD_BORDER, 12));
+    card.setBackground(cardBg(COLOR_CARD, COLOR_CARD_BORDER, 6));
 
     LinearLayout head = new LinearLayout(getContext);
     head.setOrientation(LinearLayout.HORIZONTAL);
@@ -3008,21 +3020,30 @@ Toast.makeText(getContext, "Color: " + cname, Toast.LENGTH_SHORT).show();
         return ld;
     }
 
-    private void Button(LinearLayout linLayout, final int featNum, final String featName) {
+        private void Button(LinearLayout linLayout, final int featNum, final String featName) {
         final Button button = new Button(getContext);
         button.setMinHeight(0);
         button.setMinimumHeight(0);
         button.setLayoutParams(rowLp(6, 4, 6, 4));
-        button.setTextColor(Color.WHITE);
         button.setAllCaps(false);
         button.setText(Html.fromHtml(featName));
         button.setTypeface(fontBold);
         button.setTextSize(12f);
         button.setPadding(dp(10), dp(11), dp(10), dp(11));
 
-        GradientDrawable btnBg = gradBg(BTN_GRAD_1, BTN_GRAD_2, 8);
-        btnBg.setStroke(dp(1), 0x55FFFFFF);
-        button.setBackground(btnBg);
+        // ★ NEW: Close Settings (-6) → danger red styling (Subway Surfers-এর মতো)
+        if (featNum == -6) {
+            button.setTextColor(lighten(COLOR_DANGER, 0.45f));
+            button.setBackground(cardBg(
+                    withAlpha(COLOR_DANGER, 0x1F),
+                    withAlpha(COLOR_DANGER, 0xCC), 8));
+        } else {
+            button.setTextColor(Color.WHITE);
+            GradientDrawable btnBg = gradBg(BTN_GRAD_1, BTN_GRAD_2, 8);
+            btnBg.setStroke(dp(1), 0x55FFFFFF);
+            button.setBackground(btnBg);
+        }
+
         flatten(button);
         addPressAnim(button);
 
@@ -3081,7 +3102,7 @@ private Button makeMenuColorButton(final int color, final String label,
 
 private void applyMenuColorButtonStyle(Button button, String label, int color) {
     GradientDrawable bg = new GradientDrawable();
-    bg.setCornerRadius(dp(10));
+    bg.setCornerRadius(dp(6));
     bg.setColor(color);
     bg.setStroke(dp(2), withAlpha(0xFFFFFF, 0xB0));
     button.setBackground(bg);
@@ -3102,7 +3123,7 @@ private void applyMenuColorButtonStyle(Button button, String label, int color) {
         button.setTypeface(fontBold);
         button.setTextSize(12f);
         button.setPadding(dp(10), dp(11), dp(10), dp(11));
-        button.setBackground(cardBg(withAlpha(COLOR_ACCENT, 0x14), withAlpha(COLOR_ACCENT, 0x88), 12));
+        button.setBackground(cardBg(withAlpha(COLOR_ACCENT, 0x14), withAlpha(COLOR_ACCENT, 0x88), 6));
         flatten(button);
         addPressAnim(button);
         button.setOnClickListener(new View.OnClickListener() {
@@ -3119,10 +3140,10 @@ private void applyMenuColorButtonStyle(Button button, String label, int color) {
 
     private void applyOnOffStyle(Button button, String name, boolean on) {
         if (on) {
-            button.setBackground(cardBg(withAlpha(ToggleON, 0x1F), withAlpha(ToggleON, 0xCC), 12));
+            button.setBackground(cardBg(withAlpha(ToggleON, 0x1F), withAlpha(ToggleON, 0xCC), 6));
             button.setText(Html.fromHtml(name + "  <font color='" + hex(ToggleON) + "'><b>ON</b></font>"));
         } else {
-            button.setBackground(cardBg(withAlpha(ToggleOFF, 0x14), withAlpha(ToggleOFF, 0x88), 12));
+            button.setBackground(cardBg(withAlpha(ToggleOFF, 0x14), withAlpha(ToggleOFF, 0x88), 6));
             button.setText(Html.fromHtml(name + "  <font color='" + hex(ToggleOFF) + "'><b>OFF</b></font>"));
         }
     }
@@ -3207,7 +3228,7 @@ private void applyMenuColorButtonStyle(Button button, String label, int color) {
     int TG_BLUE_DEEP = Color.parseColor("#1A7EB0");
     GradientDrawable bg = new GradientDrawable(
             GradientDrawable.Orientation.LEFT_RIGHT, new int[]{TG_BLUE, TG_BLUE_DEEP});
-    bg.setCornerRadius(dp(10));
+    bg.setCornerRadius(dp(6));
     bg.setStroke(dp(1), 0x55FFFFFF);
     button.setBackground(bg);
 
@@ -3366,7 +3387,7 @@ private void setSpinnerValue(int featNum, int index) {
     container.setLayoutParams(rowLp(6, 3, 6, 3));
 
     final LinearLayout spinnerRow = new LinearLayout(ctx);
-    spinnerRow.setBackground(cardBg(COLOR_CARD, COLOR_CARD_BORDER, 12));
+    spinnerRow.setBackground(cardBg(COLOR_CARD, COLOR_CARD_BORDER, 6));
     spinnerRow.setGravity(Gravity.CENTER_VERTICAL);
     spinnerRow.setPadding(dp(12), dp(11), dp(12), dp(11));
     spinnerRow.setOrientation(LinearLayout.HORIZONTAL);
@@ -3459,7 +3480,7 @@ private void setSpinnerValue(int featNum, int index) {
         button.setTypeface(fontMedium);
         button.setTextSize(12f);
         button.setPadding(dp(10), dp(11), dp(10), dp(11));
-        button.setBackground(cardBg(COLOR_CARD, withAlpha(COLOR_ACCENT, 0x66), 12));
+        button.setBackground(cardBg(COLOR_CARD, withAlpha(COLOR_ACCENT, 0x66), 6));
         button.setTextColor(TEXT_COLOR_2);
         flatten(button);
         addPressAnim(button);
@@ -3500,7 +3521,7 @@ private void setSpinnerValue(int featNum, int index) {
         button.setTypeface(fontMedium);
         button.setTextSize(12f);
         button.setPadding(dp(10), dp(11), dp(10), dp(11));
-        button.setBackground(cardBg(COLOR_CARD, withAlpha(COLOR_ACCENT, 0x66), 12));
+        button.setBackground(cardBg(COLOR_CARD, withAlpha(COLOR_ACCENT, 0x66), 6));
         button.setTextColor(TEXT_COLOR_2);
         flatten(button);
         addPressAnim(button);
@@ -3541,7 +3562,7 @@ private void setSpinnerValue(int featNum, int index) {
         button.setTypeface(fontMedium);
         button.setTextSize(12f);
         button.setPadding(dp(10), dp(11), dp(10), dp(11));
-        button.setBackground(cardBg(COLOR_CARD, withAlpha(COLOR_ACCENT, 0x66), 12));
+        button.setBackground(cardBg(COLOR_CARD, withAlpha(COLOR_ACCENT, 0x66), 6));
         button.setTextColor(TEXT_COLOR_2);
         flatten(button);
         addPressAnim(button);
@@ -3564,7 +3585,7 @@ private void setSpinnerValue(int featNum, int index) {
 
     private void CheckBox(LinearLayout linLayout, final int featNum, final String featName, boolean switchedOn) {
         final CheckBox checkBox = new CheckBox(getContext);
-        final GradientDrawable cbBg = cardBg(COLOR_CARD, COLOR_CARD_BORDER, 12);
+        final GradientDrawable cbBg = cardBg(COLOR_CARD, COLOR_CARD_BORDER, 6);
         checkBox.setLayoutParams(rowLp(6, 3, 6, 3));
         checkBox.setBackground(cbBg);
         checkBox.setText(featName);
@@ -3601,7 +3622,7 @@ private void setSpinnerValue(int featNum, int index) {
         textView.setPadding(0, dp(2), 0, dp(4));
         final RadioGroup radioGroup = new RadioGroup(getContext);
         radioGroup.setLayoutParams(rowLp(6, 3, 6, 3));
-        radioGroup.setBackground(cardBg(COLOR_CARD, COLOR_CARD_BORDER, 12));
+        radioGroup.setBackground(cardBg(COLOR_CARD, COLOR_CARD_BORDER, 6));
         radioGroup.setPadding(dp(12), dp(8), dp(12), dp(8));
         radioGroup.setOrientation(LinearLayout.VERTICAL);
         radioGroup.addView(textView);
@@ -3699,7 +3720,7 @@ private void setSpinnerValue(int featNum, int index) {
         headRow.setGravity(Gravity.CENTER_VERTICAL);
         GradientDrawable colBg = new GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT,
                                                       new int[]{CollapseColor, withAlpha(COLOR_ACCENT_2, 0x30)});
-        colBg.setCornerRadius(dp(10));
+        colBg.setCornerRadius(dp(6));
         colBg.setStroke(dp(1), withAlpha(COLOR_ACCENT, 0x77));
         headRow.setBackground(colBg);
 
@@ -4164,7 +4185,7 @@ private void showMenuColorPickerDialog() {
     GradientDrawable boxBg = new GradientDrawable(
             GradientDrawable.Orientation.TOP_BOTTOM,
             new int[]{COLOR_BG_TOP, COLOR_BG_BOTTOM});
-    boxBg.setCornerRadius(dp(10));
+    boxBg.setCornerRadius(dp(6));
     boxBg.setStroke(dp(1), withAlpha(COLOR_ACCENT, 0xAA));
     box.setBackground(boxBg);
 
